@@ -1,0 +1,22 @@
+## Interface: 16001
+## Title: Alchemy GPS
+## Notes: Minimap module, built by porting Carbonite's real undocked-map code. See the build plan.
+## Author: Digital Alchemyst
+## Version: 0.1.0-dev
+## SavedVariables: AlchemyGPSDB
+## DefaultState: Enabled
+
+# Phase 3: window chrome. Locales/Util must load before UI (Window.lua
+# reads locale strings and Util helpers at file scope); UI before Map/
+# Settings so MinimapWindow:Open() and the Settings window have the
+# ported Nx.Window / AlchemyGPS.UI.Window chrome to build on.
+
+Libs\libs.xml
+
+Core\Core.xml
+Compat\Compat.xml
+Locales\Locales.xml
+Util\Util.xml
+UI\UI.xml
+Map\Map.xml
+Settings\Settings.xml

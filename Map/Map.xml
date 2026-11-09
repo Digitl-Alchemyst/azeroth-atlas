@@ -1,0 +1,9 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+    <!-- MinimapWindow.lua first: defines the Module:New("MinimapWindow", ...)
+         instance NativeMinimapHide.lua's caller (OnEnable) reads DB from.
+         Later build-order phases append ZoomController/ScrollScale/
+         MiniMap/Coords/FrameToWorld here as they're ported. -->
+    <Script file="MinimapWindow.lua" />
+    <Script file="NativeMinimapHide.lua" />
+    <Script file="MinimapEngine.lua" />
+</Ui>

@@ -1,0 +1,6 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+    <!-- Small ported Carbonite utilities UI/Skin.lua, UI/Button.lua
+         and UI/Window.lua depend on. Must load before UI.xml. -->
+    <Script file="ColorParse.lua" />
+    <Script file="UiHelpers.lua" />
+</Ui>
