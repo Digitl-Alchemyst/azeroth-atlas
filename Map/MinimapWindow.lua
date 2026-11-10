@@ -307,13 +307,20 @@ function MinimapWindow:Open()
     zoomOut:SetText("-")
     zoomOut:SetScript("OnClick", function() ZoomController:ScrollSteps(-2) end)
 
-    -- Stand-in for the real world-art canvas (build-order step 8) -
-    -- just a plain dark backdrop so the clip area against which the
-    -- live minimap patch is positioned has a visible boundary.
+    -- content is the clip area the live minimap patch and the world-
+    -- art tile frames (both parented to it - MinimapEngine:TakeOwnership/
+    -- InitTileFrames) are positioned against. Used to carry its own
+    -- plain dark texture here as a stand-in for the real world-art
+    -- canvas, back when build-order step 8 hadn't landed yet. That
+    -- texture was never removed once real tiles existed - confirmed
+    -- live, 2026-11-10: at 0.9 alpha, directly on this same frame the
+    -- tile frames are parented to, it was painting over the real tile
+    -- art every tick regardless of the tiles' own brightness (Tile Map
+    -- Brightness maxed at 250% and still solid black). No replacement
+    -- background needed here - win.Frm already has its own backdrop
+    -- (UI/Window.lua's CreateBorders) showing through wherever tiles
+    -- don't cover (no known zone, or past the zone's own art edge).
     local content = CreateFrame("Frame", nil, win.Frm)
-    local tex = content:CreateTexture(nil, "ARTWORK")
-    tex:SetColorTexture(0.08, 0.08, 0.10, 0.9)
-    tex:SetAllPoints(content)
     win:Attach(content)
     self.Content = content
 

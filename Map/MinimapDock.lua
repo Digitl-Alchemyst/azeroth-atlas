@@ -107,10 +107,18 @@ local KNOWN_NAMES = {
 -- stops the Dock from ever claiming them in the first place; the rest
 -- of Carbonite's own recognize-list names are included pre-emptively
 -- for the same reason, even though only GatherMate2 was confirmed.
+-- MinimapZoomIn/MinimapZoomOut: confirmed live, 2026-11-10 - Blizzard's
+-- own native minimap zoom buttons on this client/server flavor are
+-- real Button-type widgets anchored directly to Minimap via SetPoint,
+-- structurally indistinguishable from a genuine 3rd-party addon
+-- launcher (the exact pattern Scan()'s generic sweep is built to
+-- catch). Not an addon icon - excluded explicitly, same as the
+-- GatherMate2 pins below.
 local EXCLUDE_NAME_PATTERNS = {
     "HandyNotesPin", "QuestieFrame", "GatherNote", "GatherMatePin",
     "MobMapMinimapDot_", "CartographerNotesPOI", "RecipeRadarMinimapIcon",
     "NauticusMiniIcon", "ZGVMarkerMini",
+    "MinimapZoomIn", "MinimapZoomOut",
 }
 
 local ICON_SPACING = 30
@@ -190,6 +198,7 @@ function MinimapDock:Create()
     self.OwnedFrms = {}
     self.Frms = {}
 
+    self:CreateMailIcon()
     self:Scan()
 
     -- Real source's own 3-second delay before the one-time full sweep
@@ -201,9 +210,114 @@ function MinimapDock:Create()
     -- two separate throttled passes (MapEngine.lua:3803-3907 vs.
     -- :16090-16238); one repeating timer covers both here.
     self.UpdateTicker = AlchemyGPS:ScheduleRepeatingTimer(function()
+        self:CreateMailIcon()
         self:ScanChildren()
         self:Layout()
     end, 1)
+end
+
+-- Not a port of anything in Nx.Map.Dock - built 2026-11-10, after
+-- confirming _G.MiniMapMailFrame is nil on this server (a live /run
+-- check returned nothing). That's the OLD flat-global minimap button
+-- convention (what KNOWN_NAMES/real Carbonite both assume) - this
+-- server's client has the modern, post-Shadowlands structure instead,
+-- where the real mail button lives nested at
+-- MinimapCluster.IndicatorFrame.MailFrame, not as its own global
+-- (confirmed real via a second already-installed addon on this same
+-- client, R:\addons\BasicMinimap\BasicMinimap.lua:788).
+--
+-- Forwards that real native button rather than building a standalone
+-- one - deliberately backed off from a from-scratch HasNewMail()-
+-- polled icon tried earlier the same day, which dropped the hover/
+-- tooltip that came for free with the native button and, worse,
+-- stayed invisible for reasons never fully pinned down. The native
+-- button's own hover/tooltip and show/hide-on-mail state were
+-- confirmed working live every step of this investigation - only its
+-- OWN texture ever had a problem, so that's the only piece replaced.
+-- Live-diagnosed: its one texture region is set to a numeric file ID
+-- (8026708) that renders as nothing on this server - a numeric
+-- FileDataID is tied to a specific retail CASC content database a
+-- modified server build may not fully match, unlike a plain string
+-- path resolved through the client's own listfile lookup. Overwriting
+-- just that region's texture with our own known string path
+-- (Blizzard's long-standing mail icon art, same one real Carbonite's
+-- own Guide data references elsewhere) keeps everything else about
+-- the real button - only its own texture and its own visibility
+-- decision are replaced, both for the same reason: neither proved
+-- trustworthy live on this server. Real Carbonite doesn't trust
+-- Blizzard's native show/hide for this either (Carbonite/Modules/
+-- MailboxNotice/MailboxNotice.lua drives its own glow pulse purely
+-- off HasNewMail()/UPDATE_PENDING_MAIL, never off MiniMapMailFrame's
+-- own IsShown()) - same technique applied here, to this button's
+-- Show()/Hide() instead of a separate glow, polled every tick rather
+-- than trusted to a single event the same way ScanKnownNames/
+-- RefreshMailIcon already are elsewhere in this file for this exact
+-- server's lazy/unreliable native update timing.
+--
+-- Safe to call every tick, not just once from Create(): confirmed
+-- live, 2026-11-10, that MinimapCluster.IndicatorFrame.MailFrame can
+-- itself be one of this server's lazily-created elements - if it
+-- doesn't exist yet at the one synchronous moment Create() used to
+-- call this, nothing ever retried and the icon was gone for the rest
+-- of the session regardless of anything else being correct. Mirrors
+-- ScanKnownNames' own "retry every tick until it resolves" fix for
+-- the exact same kind of gap with GameTimeFrame/TimeManagerClockButton.
+-- BUG FIX 2026-11-10: querying/replacing native's OWN texture region
+-- (native:GetRegions(), SetTexture on it) left it throwing silently
+-- on later inspection - self.MailIcon confirmed set (so the function
+-- itself completed, table.insert included), yet a plain loop over
+-- self.Frms calling f:IsShown() on every entry stopped dead right at
+-- this one with no error text, only visible at all because a saved
+-- macro happened to have /console scriptErrors 0 in it, muting the
+-- popup that would otherwise have shown what broke. Rather than dig
+-- further into why touching this specific frame's internals is
+-- fragile, side-stepped it entirely: native itself is left completely
+-- alone now (no GetRegions, no SetTexture on anything of its own) -
+-- all Layout() already does with it (SetParent/SetPoint/SetScale) is
+-- the same treatment GameTimeFrame/TimeManagerClockButton get and was
+-- never in question; only a brand new texture, our own and never
+-- touched again after creation, is laid on top via SetAllPoints so it
+-- tracks wherever Layout() moves the real button, without
+-- EnableMouse(true) so it can never intercept the hover/tooltip that
+-- already works on the real frame beneath it.
+function MinimapDock:CreateMailIcon()
+    if self.MailIcon then
+        self:RefreshMailIcon()
+        return
+    end
+
+    local cluster = _G.MinimapCluster
+    local native = cluster and cluster.IndicatorFrame and cluster.IndicatorFrame.MailFrame
+    if not native then return end
+
+    -- Interface\Minimap\MiniMap-MailIcon (Blizzard's usual mail art)
+    -- confirmed live, 2026-11-10, via an isolated on-screen test with
+    -- nothing else involved: doesn't exist on this client build at
+    -- all - renders nothing no matter how it's attached, which is why
+    -- every earlier attempt using it (native's own region, our own
+    -- from-scratch icon) was invisible regardless of the HasNewMail/
+    -- reparenting work around it. Interface\Icons\INV_Letter_15 (a
+    -- plain inventory-icon-style path - real Carbonite's own guide
+    -- data uses this exact one for mailbox markers,
+    -- Data\Shared\NxMapGuide.lua:1863) confirmed visible in the same
+    -- test and is used here instead.
+    local overlay = native:CreateTexture(nil, "OVERLAY")
+    overlay:SetAllPoints(native)
+    overlay:SetTexture("Interface\\Icons\\INV_Letter_15")
+
+    self.MailIcon = native
+    table.insert(self.Frms, native)
+    self:RefreshMailIcon()
+end
+
+function MinimapDock:RefreshMailIcon()
+    local f = self.MailIcon
+    if not f then return end
+    if _G.HasNewMail and _G.HasNewMail() then
+        f:Show()
+    else
+        f:Hide()
+    end
 end
 
 -- Split out of Scan() so ScanChildren()'s own continuous 1-second
@@ -234,6 +348,23 @@ end
 -- every live frame anchored to Minimap via SetPoint but parented
 -- elsewhere), minus the CT_Core-specific texture match (see file
 -- header).
+--
+-- BUG FIX 2026-11-10: real Carbonite's own equivalent sweep only
+-- excludes "Model" object types (MapEngine.lua:16015,
+-- `if not f:IsObjectType("Model")`), which this matched verbatim -
+-- too permissive on this server/client flavor specifically. Confirmed
+-- live: `MinimapBackdrop`, Blizzard's own decorative frame behind the
+-- minimap (not an addon button - carries the minimap's coordinate
+-- text on this flavor), is anchored to Minimap via SetPoint the exact
+-- same way a real addon launcher button is, so it was being swept up,
+-- reparented, and rendered in the bar as a stray sliver of tiny text -
+-- mistaken live for a broken mail icon placeholder. Requiring
+-- IsObjectType("Button") instead is still fully general (every known
+-- minimap launcher convention - LibDBIcon, Blizzard's own
+-- GameTimeFrame/TimeManagerClockButton/QueueStatusButton - creates its
+-- icon as a real Button specifically so it's clickable) while
+-- excluding non-interactive furniture like this one by construction,
+-- without needing to name every such frame in EXCLUDE_NAME_PATTERNS.
 function MinimapDock:Scan()
     local mm = _G["Minimap"]
     if not mm then return end
@@ -246,7 +377,7 @@ function MinimapDock:Scan()
 
     local f = EnumerateFrames()
     while f do
-        if f ~= mm and not owned[f] and not f:IsObjectType("Model") then
+        if f ~= mm and not owned[f] and f:IsObjectType("Button") then
             local ok, pt, relTo = pcall(f.GetPoint, f)
             if ok and relTo == mm then
                 local parent = f:GetParent()
@@ -283,8 +414,12 @@ function MinimapDock:ScanChildren()
 
     local owned = self.OwnedFrms
 
+    -- Same Button-only narrowing as Scan(), and for the same reason
+    -- (MinimapBackdrop et al) - this half used the even broader
+    -- IsObjectType("Frame") (matches almost anything), so it's the
+    -- more likely of the two to have actually been grabbing it.
     for _, child in ipairs({ mm:GetChildren() }) do
-        if child:IsShown() and not owned[child] and child:IsObjectType("Frame") and not isExcluded(child) then
+        if child:IsShown() and not owned[child] and child:IsObjectType("Button") and not isExcluded(child) then
             owned[child] = true
             table.insert(self.Frms, child)
         end
@@ -347,29 +482,35 @@ function MinimapDock:Layout()
     -- for a Layout() tick to catch it.
     for _, f in ipairs(self.Frms) do
         if f:IsShown() then
+            -- Real source's own fix for a specific addon (Outfitter)
+            -- whose minimap button goes invisible without a Show()
+            -- nudge while its width is still unresolved
+            -- (MapEngine.lua:16206-16209) retried every tick forever
+            -- and never actually docked the button in the meantime.
+            -- Confirmed live, 2026-11-10: real addon icons just never
+            -- appeared at all - stuck in this retry branch with no
+            -- fallback. 32 is Blizzard's own documented minimap-button
+            -- convention (same default this file already assumes via
+            -- ICON_SPACING/the 32/max(w,32) normalize below) - falling
+            -- back to it when GetWidth() isn't ready yet means a
+            -- button still gets docked at a sane size on sight instead
+            -- of waiting on a resolution that may never come.
             local w = f:GetWidth()
-            if w and w > 0 then
-                local sc = 32 / math.max(w, 32)
-                local x = vertical and BASE_X or (BASE_X + n * ICON_SPACING)
-                local y = vertical and (BASE_Y + n * ICON_SPACING) or BASE_Y
+            if not w or w <= 0 then w = 32 end
 
-                f:SetParent(win)
-                f:ClearAllPoints()
-                f:SetPoint("CENTER", win, "TOPLEFT", x / sc, -y / sc)
-                f:SetScale(sc)
-                f:SetFrameStrata(strata)
-                f:SetFrameLevel(butLvl)
-                setChildLevels(f, butLvl + 1)
+            local sc = 32 / math.max(w, 32)
+            local x = vertical and BASE_X or (BASE_X + n * ICON_SPACING)
+            local y = vertical and (BASE_Y + n * ICON_SPACING) or BASE_Y
 
-                n = n + 1
-            else
-                -- Real source's own fix for a specific addon
-                -- (Outfitter) whose minimap button goes invisible
-                -- without this nudge (MapEngine.lua:16206-16209) -
-                -- width not resolved yet; Layout()'s next tick
-                -- retries once it is.
-                f:Show()
-            end
+            f:SetParent(win)
+            f:ClearAllPoints()
+            f:SetPoint("CENTER", win, "TOPLEFT", x / sc, -y / sc)
+            f:SetScale(sc)
+            f:SetFrameStrata(strata)
+            f:SetFrameLevel(butLvl)
+            setChildLevels(f, butLvl + 1)
+
+            n = n + 1
         end
     end
 end

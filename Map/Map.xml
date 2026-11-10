@@ -13,4 +13,5 @@
     <Script file="ZoomController.lua" />
     <Script file="MinimapEngine.lua" />
     <Script file="MinimapDock.lua" />
+    <Script file="MapContextMenu.lua" />
 </Ui>

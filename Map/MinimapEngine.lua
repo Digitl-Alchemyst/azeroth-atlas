@@ -110,15 +110,20 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     -- bar. Zero here avoids double-subtracting it in ClipMMW.
     self.TitleH = 0
 
+    -- Carbonite's own tile-rendering (MoveZoneTiles) writes this same
+    -- field through self.BackgndAlpha but never actually applies it
+    -- (see this file's MoveZoneTiles for the real source's own
+    -- disabled line) - seeded from the saved profile value here so a
+    -- brightness chosen via the map's right-click menu
+    -- (MapContextMenu.lua) survives /reload without needing the menu
+    -- reopened first.
+    self.BackgndAlpha = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.BackgndBrightness) or 1
+
     self.MMOwn = true
     local mm = _G["Minimap"]
     assert(mm, "Minimap widget not found")
     self.MMFrm = mm
-
-    self.MMScales = {}
-    for n = 1, 6 do
-        self.MMScales[n] = (8 - n) * 66.6666666666666 / 5.0
-    end
 
     -- Build-order step 8: the zone-art tile frame pool. Created once
     -- (persists across close/reopen, same as the pan/zoom state below -
@@ -439,18 +444,27 @@ function MinimapEngine:MinimapSetScale(scale, iconScale)
     mm:SetScale(iconScale)
 end
 
--- Trimmed from Nx.Map:MinimapUpdateMask (MapEngine.lua:3746): no
--- per-zone Square/round options table - always the retail round mask
--- (see ApplyTakeOwnership's comment for why) - and no
--- Nx.NXMiniMapBut:Move() call (the button-dock launcher icon isn't
--- ported - non-goal).
+-- Trimmed from Nx.Map:MinimapUpdateMask (MapEngine.lua:3746-3759): the
+-- real source swaps between the round mask and a fully-opaque square
+-- one (Interface\Buttons\White8x8 - opaque everywhere, so as a MASK
+-- texture it clips nothing) based on a per-user Square/round setting
+-- (Nx.db.profile.MiniMap[optName]) this addon doesn't expose - always
+-- square instead, unconditionally. Confirmed live, 2026-11-10: the
+-- live-rendered accent patch was only filling the inscribed circle,
+-- while the static world-art background behind it (UpdateWorldArt)
+-- already correctly filled the whole square content area - the round
+-- mask was the only thing cropping the live patch down from the same
+-- square footprint ClipMMW already sizes/positions it as (see that
+-- function's own header: "w and h are not scaled" square math, no
+-- circular clipping in it at all). No Nx.NXMiniMapBut:Move() call
+-- either (the button-dock launcher icon isn't ported - non-goal).
 function MinimapEngine:MinimapUpdateMask()
 
-    local roundMask = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+    local squareMask = "Interface\\Buttons\\White8x8"
 
-    if self.MMMaskName ~= roundMask then
-        self.MMMaskName = roundMask
-        self.MMFrm:SetMaskTexture(roundMask)
+    if self.MMMaskName ~= squareMask then
+        self.MMMaskName = squareMask
+        self.MMFrm:SetMaskTexture(squareMask)
     end
 
     local useBlizzardPlayerArrow = self:MinimapShouldUseBlizzardPlayerArrow()
@@ -837,6 +851,18 @@ function MinimapEngine:MoveZoneTiles(cont, zone, frms, alpha, level)
 
                 frm.texture:SetTexCoord(texX1, texX2, texY1, texY2)
 
+                -- Real Carbonite writes this same call out but leaves
+                -- it commented (MapEngine.lua:9670,
+                -- `--frm.texture:SetVertexColor(1,1,1,self.BackgndAlpha)`)
+                -- - alpha is accepted as a parameter here and nowhere
+                -- ever applied to the tile, in both the real source
+                -- and (until now) this port. Applied as a brightness
+                -- multiplier across all 3 color channels rather than
+                -- the alpha channel (MapContextMenu.lua's own slider -
+                -- 0-100% only, confirmed working range per explicit
+                -- instruction, 2026-11-10).
+                frm.texture:SetVertexColor(alpha, alpha, alpha, 1)
+
                 frm:Show()
             end
         end
@@ -1133,6 +1159,16 @@ end
 
 function MinimapEngine:OnMouseDown(button)
     if button ~= "LeftButton" then return end
+
+    -- Deterministic close on top of MapContextMenu's own outside-
+    -- click poll: a left-click on the map window itself starts a pan-
+    -- drag below, which should always dismiss the menu first rather
+    -- than drag underneath it.
+    local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+    if MapContextMenu and MapContextMenu:IsShown() then
+        MapContextMenu:Close()
+    end
+
     local frm = self.Frm
     if not frm then return end
 
@@ -1147,8 +1183,27 @@ function MinimapEngine:OnMouseDown(button)
 end
 
 function MinimapEngine:OnMouseUp(button)
-    if button ~= "LeftButton" then return end
-    self.Scrolling = false
+    if button == "LeftButton" then
+        self.Scrolling = false
+    elseif button == "RightButton" then
+        -- New, not a port - Carbonite's own right-click menu
+        -- (Nx.Menu, Modules/UI/UIEngine.lua) is thousands of lines
+        -- tied to its full options schema; see MapContextMenu.lua's
+        -- header for why this addon builds its own small popup
+        -- instead of porting that. Toggle, not unconditional open -
+        -- right-clicking the map again to dismiss (the same action
+        -- that opened it) is the natural way to close it, same as
+        -- the left-click/outside-click close MapContextMenu's own
+        -- OnUpdate handles.
+        local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+        if MapContextMenu then
+            if MapContextMenu:IsShown() then
+                MapContextMenu:Close()
+            else
+                MapContextMenu:Open()
+            end
+        end
+    end
 end
 
 ---------------------------------------------------------------------------------------
@@ -1528,13 +1583,60 @@ function MinimapEngine:Update(elapsed)
     local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
     local tilesOnly = MinimapWindow and MinimapWindow.Mode == "Tiles"
 
+    -- Real Carbonite tries its 6 fixed MMScales presets here (largest
+    -- real-world coverage first) and keeps whichever first fits the
+    -- window (MapEngine.lua:3384-3391) - sensible for Carbonite's own
+    -- map, which isn't freely drag-resized the way this window is.
+    -- Confirmed live, 2026-11-10, two ways: (1) zooming in with the
+    -- window's own +/- buttons eventually puts every preset's pixel
+    -- footprint over the window bounds at once, so ClipMMW fails
+    -- every tick and the widget show/resize/hides in a visible
+    -- bounce; (2) dragging the window bigger jumps the live patch
+    -- between presets in steps - "zooms in or gets bigger every
+    -- time" - while the background world-art (MoveCurZoneTiles, a
+    -- few lines up) scales continuously against the exact same
+    -- self.MapW/MapH/ScaleDraw and never has this problem, because it
+    -- was never built around a fixed preset list in the first place.
+    -- Deliberate divergence: solve directly for the one square size
+    -- that fills the window's shorter side at the current scale (same
+    -- self.MapW/self.MapH/self.ScaleDraw the background already
+    -- uses), instead of searching presets, so growing the window
+    -- grows the patch smoothly in lockstep with the background
+    -- instead of snapping between 6 steps. The widget stays square on
+    -- purpose even on a non-square window (AlchemyNavigation/Modules/
+    -- Map/Minimap.lua:304-309's own finding: a non-square resize left
+    -- Blizzard's rendered content a fixed size, repositioned instead
+    -- of filling the new bounds) - letterboxed on the longer side
+    -- rather than stretched.
+    --
+    -- FIT_MARGIN: sized to exactly fill only passes ClipMMW's own fit
+    -- check (vx1<0/vx2>clipW, MinimapEngine.lua:338-391) when the
+    -- player is EXACTLY window-centered - true most of the time
+    -- (ZoomController:Move's continuous auto-follow, a few lines up),
+    -- but confirmed live, 2026-11-10: the live patch disappeared
+    -- entirely while inside Orgrimmar and came back on leaving the
+    -- city. Real Carbonite uses an entirely different, much smaller
+    -- preset scale set for cities (MMScalesC, MapEngine.lua:3356-3358,
+    -- `if info.City ... then scales = self.MMScalesC end`) - a sign
+    -- city sub-zone coordinates don't track the same world-unit
+    -- convention this engine's PlyrX/PlyrY assumes for open zones,
+    -- which plausibly left the player a little off-center relative to
+    -- MapPosXDraw/Y there. An exact-fill target has zero slack for
+    -- that: any drift at all pushes the one candidate size past the
+    -- window edge and ClipMMW fails outright, hiding the widget
+    -- rather than just looking slightly off-center. Porting
+    -- Carbonite's real city-coordinate handling is its own project;
+    -- this margin is the cheap, general fix - a few percent of give
+    -- so small drift (city or otherwise) still fits instead of
+    -- failing all-or-nothing.
+    local FIT_MARGIN = 0.9
+
     if not tilesOnly and not InCombatLockdown() then
-        for n = 1, 6 do
-            local sz = self.MMScales[n]
-            if self:ClipMMW(mm, self.PlyrX, self.PlyrY, sz, sz) then
-                zoomType = n
-                break
-            end
+        local scale = self.ScaleDraw
+        local fit = scale and scale > 0
+            and FIT_MARGIN * min(self.MapW or 0, self.MapH or 0) / scale
+        if fit and fit > 0 and self:ClipMMW(mm, self.PlyrX, self.PlyrY, fit, fit) then
+            zoomType = 1
         end
     end
 
@@ -1558,19 +1660,23 @@ function MinimapEngine:Update(elapsed)
         -- this was added.
         --
         -- Build-order step 5 bug fix: this used to re-kick only when
-        -- zoomType (which of the 6 discrete MMScales candidates)
-        -- changed. Real Carbonite's own trigger (MapEngine.lua:3480)
-        -- is "zoomType changed OR (zoomType > 0 AND self.MMScale ~=
-        -- self.ScaleDraw)" - it ALSO re-kicks on every continuous
-        -- scale change within the same candidate, via a second field
-        -- (self.MMScale, distinct from self.Scale/ScaleDraw - it's
-        -- just "the ScaleDraw value as of the last kick"). Without
-        -- that half, confirmed live: once a zoom animation settled on
-        -- the same zoomType it started on, further continuous zoom
-        -- widened the widget's own bounds but never re-kicked, so
-        -- Blizzard's terrain stayed rendered at its last-kicked size -
-        -- same stale-render bug as the original fill-lag, just gated
-        -- on the wrong variable now that zoom is continuous.
+        -- zoomType (originally which of 6 discrete MMScales
+        -- candidates, before that preset search was replaced with a
+        -- direct fill-the-window calculation above) changed. Real
+        -- Carbonite's own trigger (MapEngine.lua:3480) is "zoomType
+        -- changed OR (zoomType > 0 AND self.MMScale ~= self.ScaleDraw)"
+        -- - it ALSO re-kicks on every continuous scale change, via a
+        -- second field (self.MMScale, distinct from self.Scale/
+        -- ScaleDraw - it's just "the ScaleDraw value as of the last
+        -- kick"). Without that half, confirmed live: once a zoom
+        -- animation settled, further continuous zoom widened the
+        -- widget's own bounds but never re-kicked, so Blizzard's
+        -- terrain stayed rendered at its last-kicked size - same
+        -- stale-render bug as the original fill-lag, just gated on
+        -- the wrong variable now that zoom is continuous. Still load-
+        -- bearing with the fill-the-window math: zoomType itself is
+        -- now just 1 (shown) or 0 (hidden), so the ScaleDraw half is
+        -- the only thing that still re-kicks a continuous resize.
         if self.MMZoomType ~= zoomType or self.MMScale ~= self.ScaleDraw then
             self.MMZoomType = zoomType
             self.MMScale = self.ScaleDraw

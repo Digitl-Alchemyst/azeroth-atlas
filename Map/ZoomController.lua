@@ -51,6 +51,12 @@ function ZoomController:SetScale(scale, stepTime)
     self:Move(m.MapPosX, m.MapPosY, scale, stepTime or 10)
 end
 
+-- Blizzard's Minimap widget's own zoom range. Matches AlchemyNavigation/
+-- Modules/Map/Minimap.lua:131 (MIN_MM_ZOOM, MAX_MM_ZOOM) exactly - that
+-- project confirmed these live-tested against the same client/flavor
+-- this addon targets.
+local MIN_MM_ZOOM, MAX_MM_ZOOM = 0, 5
+
 function ZoomController:ScrollSteps(steps)
     local m = mapInst()
     local ScrollScale = AlchemyGPS.Modules.Map.ScrollScale
@@ -60,6 +66,28 @@ function ZoomController:ScrollSteps(steps)
         m.Scale = ScrollScale:Compute(m.Scale, sign)
     end
     m.StepTime = 10
+
+    -- Frame pixel size (MinimapEngine:Update's ClipMMW fill-the-window
+    -- math) and how much real world the live widget actually renders
+    -- are two separate things in Blizzard's Minimap - only its own
+    -- discrete SetZoom() level controls the latter. Confirmed against
+    -- AlchemyNavigation/Modules/Map/Minimap.lua, which calls this out
+    -- explicitly as its own design constraint (:122-130, "size and
+    -- zoom are two completely separate code paths with zero shared
+    -- code") after live testing. Without this, only the background
+    -- world-art visibly reacted to this window's own zoom buttons -
+    -- confirmed live, 2026-11-10. One button click/scroll step here
+    -- (regardless of its `steps` magnitude) = one Blizzard zoom level,
+    -- same granularity Nav's own dedicated zoom buttons used
+    -- (Minimap.lua:183-192) - just hung off this window's existing
+    -- zoom controls instead of separate ones, so both layers move
+    -- together under the one control the user already has.
+    local mm = m.MMFrm
+    if mm and mm.SetZoom and mm.GetZoom then
+        local z = mm:GetZoom()
+        local newZ = math.max(MIN_MM_ZOOM, math.min(MAX_MM_ZOOM, z + sign))
+        if newZ ~= z then mm:SetZoom(newZ) end
+    end
 end
 
 function ZoomController:Move(x, y, scale, stepTime)
