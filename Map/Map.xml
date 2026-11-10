@@ -3,7 +3,14 @@
          instance NativeMinimapHide.lua's caller (OnEnable) reads DB from.
          Later build-order phases append ZoomController/ScrollScale/
          MiniMap/Coords/FrameToWorld here as they're ported. -->
+    <!-- Pure data, no dependencies - loads first so MinimapEngine.lua's
+         AlchemyGPS.Map alias (build-order step 8) finds it already
+         populated, whichever of the two happens to load first. -->
+    <Script file="Data\NxMapData.lua" />
     <Script file="MinimapWindow.lua" />
     <Script file="NativeMinimapHide.lua" />
+    <Script file="ScrollScale.lua" />
+    <Script file="ZoomController.lua" />
     <Script file="MinimapEngine.lua" />
+    <Script file="MinimapDock.lua" />
 </Ui>

@@ -123,12 +123,18 @@ function Window:Create(name, minResizeW, minResizeH, secure, titleLines, borderT
 
     -- Real source reads/writes this window's layout (position, size,
     -- lock state, fade) through Nx:GetData("Win")[name], a Carbonite
-    -- character-data accessor this addon doesn't have. Phase 3 is
-    -- chrome-only - SaveData just lives in memory for this session
-    -- (drag/resize/lock during play all still work, backed by this
-    -- table); wiring it to real AceDB-backed persistence across
-    -- /reload is build-order step 9's job, not this one.
-    local wd = {}
+    -- character-data accessor this addon doesn't have. Backed by
+    -- AlchemyGPS.db.profile.WindowLayouts instead (an AceDB profile
+    -- table, see Core/SavedVariables.lua's bind()) - confirmed live
+    -- 2026-11-09 that drag/resize/lock already worked fine all along
+    -- (OnMouseUp already calls RecordLayoutData, :1791-1808) but never
+    -- persisted, because `wd` used to be a fresh empty table on every
+    -- single Create() call, so `wd[name]` could never find anything
+    -- saved by a previous session no matter what wrote into it.
+    AlchemyGPS.db = AlchemyGPS.db or {}
+    AlchemyGPS.db.profile = AlchemyGPS.db.profile or {}
+    AlchemyGPS.db.profile.WindowLayouts = AlchemyGPS.db.profile.WindowLayouts or {}
+    local wd = AlchemyGPS.db.profile.WindowLayouts
     local svdata = name and wd[name]
 
     if not svdata then        -- No data for our name?
@@ -138,6 +144,16 @@ function Window:Create(name, minResizeW, minResizeH, secure, titleLines, borderT
         svdata["Hide"] = hide
         svdata["FI"] = self.CFadeIn or 1
         svdata["FO"] = self.CFadeOut or .75
+
+        -- Link the new table back into `wd` so it's actually the same
+        -- table AlchemyGPS.db.profile.WindowLayouts[name] holds, not
+        -- an orphan local - every later SetLayoutData/RecordLayoutData
+        -- call below mutates this same table in place (never
+        -- reassigns self.SaveData), so this one link-up is all that's
+        -- needed for every future write to reach the real saved file.
+        if name then
+            wd[name] = svdata
+        end
     end
 
     -- New

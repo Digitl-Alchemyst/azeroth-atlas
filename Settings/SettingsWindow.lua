@@ -5,12 +5,20 @@
 -- fixed-size utility panel, not something that needs free-edge
 -- resize.
 --
--- Two checkboxes + one button, per the build plan:
+-- Three checkboxes + one button, per the build plan:
 --   - "Hide Blizzard minimap": the existing native-hide toggle,
 --     wired to MinimapWindow's own saved value (the same one
 --     /gps minimap hide|show already drives).
 --   - "Debug mode": a runtime-only toggle (resets off on relog),
 --     wired straight to Core.Logger's level - no saved preference.
+--     Map/MinimapEngine.lua's debug overlay reads this same flag
+--     (Logger.minLevel == DEBUG) to show/hide itself, so this one
+--     checkbox (or the equivalent `/gps debug` slash command) is the
+--     single on/off for both verbose logging and the overlay window.
+--   - "Icon bar: vertical column": flips the MinimapDock window's
+--     single line of collected minimap-button icons between a row
+--     and a column (AlchemyGPS.db.profile.DockOrientation, "Row" by
+--     default) - see Map/MinimapDock.lua's Layout/IsVertical.
 --   - "Show Minimap": a one-way button, not a toggle. Opens the
 --     placeholder Nx.Window-chrome minimap window; that window only
 --     ever closes via its own X, never from here.
@@ -73,6 +81,22 @@ local function build(content)
     addCheckbox(content, y, "Debug mode",
         function() return Logger.minLevel == Logger.LEVEL.DEBUG end,
         function(value) Logger:SetLevel(value and "DEBUG" or "INFO") end)
+    y = y - 26
+
+    -- Icon bar (the MinimapDock window) orientation - a single line of
+    -- icons, either a row or a column, never wrapping (see
+    -- Map/MinimapDock.lua's Layout/IsVertical), so it can be docked
+    -- flush against another window's edge.
+    addCheckbox(content, y, "Icon bar: vertical column",
+        function()
+            local MinimapDock = AlchemyGPS.Modules.Map.MinimapDock
+            return MinimapDock and MinimapDock:IsVertical() or false
+        end,
+        function(value)
+            AlchemyGPS.db.profile.DockOrientation = value and "Column" or "Row"
+            local MinimapDock = AlchemyGPS.Modules.Map.MinimapDock
+            if MinimapDock and MinimapDock.Win then MinimapDock:Layout() end
+        end)
     y = y - 34
 
     local showBut = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
@@ -92,7 +116,7 @@ local function create()
         name   = "AlchemyGPSSettingsWindow",
         title  = "Alchemy GPS Settings",
         width  = 270,
-        height = 160,
+        height = 180,
     }
 
     build(win.content)
