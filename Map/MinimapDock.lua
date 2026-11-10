@@ -79,10 +79,10 @@ AlchemyGPS.Modules.Map.MinimapDock = MinimapDock
 -- first in self.Frms too, i.e. right after Create()'s drag handle
 -- (requested live, 2026-11-09: "add the clock the calendar button
 -- and a mail notifier under the square we use to move it"). Layout()
--- skips any entry that isn't currently IsVisible() (MiniMapMailFrame
--- in particular only shows with unread mail), so the bar just
--- shrinks/grows around whichever of the three are actually present,
--- no gap left behind.
+-- skips any entry that isn't currently IsShown() (MiniMapMailFrame in
+-- particular only shows with unread mail), so the bar just shrinks/
+-- grows around whichever of the three are actually present, no gap
+-- left behind.
 local KNOWN_NAMES = {
     "GameTimeFrame", "TimeManagerClockButton", "MiniMapMailFrame",
     "MiniMapWorldMapButton", "MiniMapTracking", "MiniMapVoiceChatFrame",
@@ -90,13 +90,42 @@ local KNOWN_NAMES = {
     "GarrisonLandingPageMinimapButton", "MiniMapLFGFrame",
 }
 
--- Real source's excludeFrames (MapEngine.lua:3860).
-local EXCLUDE_NAME_PATTERNS = { "HandyNotesPin", "QuestieFrame" }
+-- Real source's excludeFrames (MapEngine.lua:3860) PLUS the real
+-- source's separate self.AddonMinimapNames list (MapEngine.lua:315-
+-- 324) - that one isn't an exclude list in the real source, it's the
+-- recognize list for a whole separate subsystem (world-map POI pins
+-- for gathering/questing addons, drawn at their real coordinates on
+-- Carbonite's own big map) this addon hasn't built. Without that
+-- subsystem to claim them first, these pins fall through to the
+-- Dock's own "anchored to Minimap but parented elsewhere" sweep like
+-- any other button would - and unlike a real button, a node pin's
+-- owning addon re-SetPoints it to Minimap every single frame to track
+-- player position/rotation, fighting our own reparent-to-the-dock
+-- every time ScanChildren()/Layout() tick. Confirmed live, 2026-11-10:
+-- GatherMate2 node pins flashing between the map and the icon bar -
+-- exactly that tug-of-war. Excluding the name here (GatherMatePin)
+-- stops the Dock from ever claiming them in the first place; the rest
+-- of Carbonite's own recognize-list names are included pre-emptively
+-- for the same reason, even though only GatherMate2 was confirmed.
+local EXCLUDE_NAME_PATTERNS = {
+    "HandyNotesPin", "QuestieFrame", "GatherNote", "GatherMatePin",
+    "MobMapMinimapDot_", "CartographerNotesPOI", "RecipeRadarMinimapIcon",
+    "NauticusMiniIcon", "ZGVMarkerMini",
+}
 
 local ICON_SPACING = 30
 local BASE_X = 15
 local BASE_Y = 15
 local HANDLE_SIZE = 16
+
+local function isExcluded(f)
+    local name = f:GetName()
+    if not name then return false end
+    for _, pat in ipairs(EXCLUDE_NAME_PATTERNS) do
+        if name:find(pat, 1, true) then return true end
+    end
+    return false
+end
 
 -- Kept verbatim from Nx.Map:SetChildLevels (MapEngine.lua:2201-2213) -
 -- bumps a button's own nested children (icon texture, cooldown swipe,
@@ -177,6 +206,29 @@ function MinimapDock:Create()
     end, 1)
 end
 
+-- Split out of Scan() so ScanChildren()'s own continuous 1-second
+-- pass can retry it too, not just Scan()'s one-time immediate+3s-
+-- later pair. Confirmed live, 2026-11-10: the clock/calendar/mail
+-- trio only showed up after manually toggling the Blizzard minimap
+-- on/off a few times, sometimes not the first toggle either - those
+-- three globals don't always exist yet at either of Scan()'s two
+-- fixed checkpoints (Blizzard's own FrameXML appears to finish
+-- creating them lazily, on some later event neither checkpoint
+-- lines up with), and nothing used to re-check KNOWN_NAMES after
+-- that. Cheap enough (a handful of global-table lookups) to just run
+-- every tick alongside ScanChildren() until each name resolves - the
+-- owned[] guard already makes it a no-op once it has.
+function MinimapDock:ScanKnownNames()
+    local owned = self.OwnedFrms
+    for _, name in ipairs(KNOWN_NAMES) do
+        local f = _G[name]
+        if f and not owned[f] then
+            owned[f] = true
+            table.insert(self.Frms, f)
+        end
+    end
+end
+
 -- Trimmed from Nx.Map.Dock:MinimapOwnInit's full sweep (MapEngine.lua
 -- :15972-16068) - same two real passes (known global names, then
 -- every live frame anchored to Minimap via SetPoint but parented
@@ -186,16 +238,9 @@ function MinimapDock:Scan()
     local mm = _G["Minimap"]
     if not mm then return end
 
+    self:ScanKnownNames()
+
     local owned = self.OwnedFrms
-
-    for _, name in ipairs(KNOWN_NAMES) do
-        local f = _G[name]
-        if f and not owned[f] then
-            owned[f] = true
-            table.insert(self.Frms, f)
-        end
-    end
-
     local mapFrm = AlchemyGPS.Modules.Map.MinimapEngine and AlchemyGPS.Modules.Map.MinimapEngine.Frm
     local winFrm = self.Win
 
@@ -205,19 +250,9 @@ function MinimapDock:Scan()
             local ok, pt, relTo = pcall(f.GetPoint, f)
             if ok and relTo == mm then
                 local parent = f:GetParent()
-                if parent ~= mm and parent ~= mapFrm and parent ~= winFrm then
-                    local name = f:GetName() or ""
-                    local excluded = false
-                    for _, pat in ipairs(EXCLUDE_NAME_PATTERNS) do
-                        if name:find(pat, 1, true) then
-                            excluded = true
-                            break
-                        end
-                    end
-                    if not excluded then
-                        owned[f] = true
-                        table.insert(self.Frms, f)
-                    end
+                if parent ~= mm and parent ~= mapFrm and parent ~= winFrm and not isExcluded(f) then
+                    owned[f] = true
+                    table.insert(self.Frms, f)
                 end
             end
         end
@@ -230,15 +265,26 @@ end
 -- Minimap after Scan()'s one-time sweep already ran (late-loading
 -- addons). Cheap (just mm's direct children, not a full
 -- EnumerateFrames sweep), so safe to run every tick of the repeating
--- timer.
+-- timer. Also retries ScanKnownNames() every tick here (see that
+-- function's header) for the same "late-loading" reason.
+--
+-- BUG FIX 2026-11-10: this pass never applied isExcluded() at all -
+-- only Scan()'s EnumerateFrames half did. GatherMate2's node pins are
+-- direct children of Minimap (not "anchored to Minimap but parented
+-- elsewhere", the case Scan() guards), so this pass was the one
+-- actually grabbing them every second regardless of the exclude list,
+-- fighting GatherMate's own continuous re-anchor-to-Minimap and
+-- causing the reported flashing between the map and the icon bar.
 function MinimapDock:ScanChildren()
+    self:ScanKnownNames()
+
     local mm = _G["Minimap"]
     if not mm then return end
 
     local owned = self.OwnedFrms
 
     for _, child in ipairs({ mm:GetChildren() }) do
-        if child:IsShown() and not owned[child] and child:IsObjectType("Frame") then
+        if child:IsShown() and not owned[child] and child:IsObjectType("Frame") and not isExcluded(child) then
             owned[child] = true
             table.insert(self.Frms, child)
         end
@@ -276,8 +322,31 @@ function MinimapDock:Layout()
 
     local n = 1
 
+    -- Gated on IsShown(), NOT IsVisible() like the real source's own
+    -- check (MapEngine.lua:16150) - deliberately diverges, fixed
+    -- 2026-11-10 after tracing a real deadlock this addon creates for
+    -- itself: GameTimeFrame/TimeManagerClockButton/MiniMapMailFrame
+    -- are children of MinimapCluster, a SIBLING of Minimap, not a
+    -- descendant of it. The real source never hides that whole
+    -- cluster (confirmed by its own source - only ever reparents/
+    -- hides Minimap itself), so IsVisible() tracking their real
+    -- ancestor is fine there. Our own NativeMinimapHide.lua DOES hide
+    -- the whole cluster though (simpler, but collateral damage to
+    -- every other child riding along) - while it's hidden, these
+    -- three are IsShown()==true (their own flag) but
+    -- IsVisible()==false (inherited from the hidden ancestor), and
+    -- IsVisible() was exactly the condition gating the SetParent(win)
+    -- call below that would rescue them onto our always-visible dock -
+    -- a catch-22 they could never climb out of on their own. Gating
+    -- on IsShown() instead breaks it: reparents them the moment
+    -- they're first discovered regardless of the stale ancestor,
+    -- which is what actually fixes their visibility. Confirmed live:
+    -- they previously only ever appeared after manually toggling the
+    -- Blizzard minimap on/off, since only an actual
+    -- MinimapCluster:Show() made IsVisible() briefly true long enough
+    -- for a Layout() tick to catch it.
     for _, f in ipairs(self.Frms) do
-        if f:IsVisible() then
+        if f:IsShown() then
             local w = f:GetWidth()
             if w and w > 0 then
                 local sc = 32 / math.max(w, 32)
@@ -293,12 +362,14 @@ function MinimapDock:Layout()
                 setChildLevels(f, butLvl + 1)
 
                 n = n + 1
+            else
+                -- Real source's own fix for a specific addon
+                -- (Outfitter) whose minimap button goes invisible
+                -- without this nudge (MapEngine.lua:16206-16209) -
+                -- width not resolved yet; Layout()'s next tick
+                -- retries once it is.
+                f:Show()
             end
-        elseif f:IsShown() then
-            -- Real source's own fix for a specific addon (Outfitter)
-            -- whose minimap button goes invisible without this nudge
-            -- (MapEngine.lua:16206-16209).
-            f:Show()
         end
     end
 end
