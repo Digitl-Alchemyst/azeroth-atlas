@@ -16,10 +16,15 @@
 -- the name fields, which use real Carbonite's AceLocale lookup
 -- (L["..."]) - inlined as plain strings instead, same "no locale
 -- layer here" convention every other ported Guide file already uses.
--- Names aren't actually used below (this category gets no hover
--- tooltip, matching the plain dot Mailbox/Banker/Innkeeper also get) -
--- kept in the raw strings anyway so this stays a faithful, checkable
--- copy of the real source rather than a hand-trimmed one.
+--
+-- Build-order step 12, 2026-11-11: names ARE used now - hover-tooltip
+-- support (explicit user request) reads them as each point's label,
+-- falling back to the generic "Zone Transition" label only for the
+-- majority of entries (plain walk-through zone borders) whose real
+-- Carbonite source leaves both names blank. Checked: none of the real
+-- names below ("Boat to ...", "Zeppelin to ...", "Portal to ...",
+-- "Tram to ...") contain "," or "|", the two characters this format
+-- can't carry safely.
 --
 -- RAW_CONNECTIONS is parsed once at load time (ParseConnection below)
 -- and both endpoints are written into the same "[ownerMapId] =
@@ -117,21 +122,34 @@ local function ParseConnection(s)
         parts[#parts + 1] = p
     end
     -- flags, contType, name1, mapId1, x1, y1, name2, mapId2, x2, y2
-    return tonumber(parts[4]), tonumber(parts[5]), tonumber(parts[6]),
-        tonumber(parts[8]), tonumber(parts[9]), tonumber(parts[10])
+    return parts[3], tonumber(parts[4]), tonumber(parts[5]), tonumber(parts[6]),
+        parts[7], tonumber(parts[8]), tonumber(parts[9]), tonumber(parts[10])
 end
 
+-- Build-order step 12, second follow-up, 2026-11-11: a plain
+-- walk-through border's own name1/name2 are blank in Carbonite's real
+-- data (confirmed - unlike the boat/zeppelin/tram/portal entries,
+-- which already carry a real "Boat to X"-style name) - resolved to
+-- the OTHER endpoint's zone name instead of falling through to the
+-- generic "Zone Transition" label, matching Leatrix_Maps' own real
+-- behavior for its equivalent "Arrow" pins (confirmed: its tooltip
+-- renderer shows that pin's title field verbatim, and its own data
+-- stores the plain destination zone name there, no "to" prefix - see
+-- Map/Data/ZoneNames.lua's own header for the full citation).
 local byZone = {}
-local function addPoint(mapId, x, y)
+local function addPoint(mapId, x, y, name, otherMapId)
     if not mapId or not x or not y then return end
-    local entry = ("0,%g,%g"):format(x, y)
+    if not name or name == "" then
+        name = Map.ZoneNames and Map.ZoneNames[otherMapId] or ""
+    end
+    local entry = ("0,%g,%g,%s"):format(x, y, name)
     byZone[mapId] = byZone[mapId] and (byZone[mapId] .. "|" .. entry) or entry
 end
 
 for _, raw in ipairs(RAW_CONNECTIONS) do
-    local mapId1, x1, y1, mapId2, x2, y2 = ParseConnection(raw)
-    addPoint(mapId1, x1, y1)
-    addPoint(mapId2, x2, y2)
+    local name1, mapId1, x1, y1, name2, mapId2, x2, y2 = ParseConnection(raw)
+    addPoint(mapId1, x1, y1, name1, mapId2)
+    addPoint(mapId2, x2, y2, name2, mapId1)
 end
 
 Map.GuideData = Map.GuideData or {}

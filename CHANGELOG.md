@@ -1255,3 +1255,308 @@ readable.
   so none of their existing relative spacing needed touching; menu
   height grew from 220×320 to 220×310 to re-fit (shorter overall once
   the old 22px-tall buttons were replaced by 16px-tall rows).
+
+### Build-order step 10, second follow-up, 2026-11-11: corpse recovery.
+
+User request: "when the user is dead the ant trails should also lead
+to the players body and put the grave icon on their body." Read real
+Carbonite's own corpse-tracking first (`MapEngine.lua:6645-6650,
+7667-7712`) rather than guessing, and found it's a second, fully
+independent tracking system next to Goto (its own `DrawTracking` call,
+its own icon) — not a variant of Goto — so it was built the same way:
+its own frame pool (`self.CorpseTrailFrms`/`self.CorpseFrm`), its own
+update function (`UpdateCorpseTrack`), both wired alongside `UpdateGoto`
+in `Update()` so a goto and a corpse trail can both be visible at the
+same time, matching upstream.
+
+- **Detection + position**: `UnitIsDeadOrGhost("player")` gates the
+  whole feature, same as real Carbonite's own guard. Corpse position
+  comes from `C_DeathInfo.GetCorpseMapPosition(mapId)` — a live
+  Blizzard API returning a 0-1 normalized `{x,y}`, confirmed by reading
+  the real call site rather than guessed — fed into this engine's own
+  `GetWorldPos(mapId, pctX, pctY)` (already ported earlier this
+  session as the direct equivalent of real Carbonite's own
+  `Nx.Map:GetWorldPos`) after the same `*100` scaling real Carbonite's
+  own call site does.
+- **Battleground guard**: real Carbonite also skips corpse-tracking
+  inside a battleground via its own `IsBattleGroundMap` check, which
+  needs Carbonite's full zone-ID database — a much bigger port this
+  file has deliberately avoided elsewhere too (see
+  `GetArtSourceMapID`'s own header). Used the lightweight native
+  equivalent instead: `GetInstanceInfo()`'s `instanceType == "pvp"`,
+  no database needed, same practical effect.
+- **Icon**: `Interface\Minimap\POIIcons`, a standard **Blizzard**
+  atlas sheet — not a Carbonite art dependency, unlike the goto dot/
+  arrows — with the exact texcoord carve (`0.56640625-0.6328125,
+  0.00390625-0.0703125`, a 16×16 grid cell) real Carbonite's own
+  corpse code uses (`MapEngine.lua:7706-7709`), confirmed working
+  there rather than guessed here. Set *after* `ClipFrameW` (which
+  stomps texcoords for a plain 0-1 square icon) — the same "override
+  clipping" quirk real Carbonite's own corpse code has (its own "FIX
+  maybe?" comment at `:7708`) — ported with the same known
+  imperfection rather than solved better than the original.
+- **Trail**: reuses the same ant-trail renderer as Goto's own trail —
+  refactored the shared pooled-arrow spacing/cap/rotation math out of
+  `UpdateGoto` into a new `DrawAntTrail(pool, dx, dy, dist, r, g, b, a)`
+  helper, matching real Carbonite's own structure (a single shared
+  `DrawTracking` primitive serving every tracking type — goto, corpse,
+  taxi, battleground flags — tinted differently per caller via
+  `SetVertexColor`, not separate art per type: `MapEngine.lua:
+  9183-9189`). The corpse trail is tinted **red** (`1,0,0,1`), real
+  Carbonite's own exact tint for its "D" (death) tracking mode, so it
+  reads differently from a plain (untinted) goto trail at a glance.
+  `self.ArrowScroll`'s "flowing" creep is now advanced exactly once
+  per tick in `Update()` itself rather than inside `UpdateGoto` (its
+  previous location) — advancing it from two call sites in the same
+  tick would double its speed whenever a goto and a corpse trail are
+  both showing at once; matches real Carbonite's own single shared
+  advance before its own several tracking consumers draw
+  (`MapEngine.lua:7661-7664`).
+- **No arrival-radius auto-clear**, unlike Goto: real Carbonite's own
+  corpse-tracking has no such check either — it just keeps pointing at
+  the corpse every tick for as long as `UnitIsDeadOrGhost` is true and
+  `GetCorpseMapPosition` keeps returning a position, and stops on its
+  own once you resurrect.
+- Debug overlay: a new "Corpse Track" section reporting
+  `UnitIsDeadOrGhost` and whether a corpse is currently being tracked,
+  same treatment as every other build-order-10 field.
+- **Not yet live-tested** (requires an actual in-game death to check)
+  — added to `Phase9-IconsAndUI.md`'s "still needs confirming" list.
+
+### Build-order step 10, third follow-up, 2026-11-11: #yd label on the grave icon.
+
+User asked for the same live distance label over the grave marker that
+the goto dot already has. Real Carbonite's own corpse-tracking has no
+such label either (same as the goto dot didn't, before this addon
+added one earlier this session) — not a port, added for consistency
+between the two trail types per explicit request. Same mechanism as
+`GotoYdLabel`: a `FontString` child of the dot frame (`CorpseFrm`) so
+it rides along with `ClipFrameW`'s own repositioning for free, text set
+to `ceil(dist * YARDS_PER_WORLDUNIT)` and shown/hidden alongside the
+dot itself. Renamed `GOTO_YARDS_PER_WORLDUNIT` → `YARDS_PER_WORLDUNIT`
+since it's now a second consumer of the same constant, same reasoning
+as the earlier `TRAIL_ARROW_*` rename.
+
+### Build-order step 10, fourth follow-up, 2026-11-11: grave icon texcoord fix.
+
+User reported live: the grave icon rendered squished, with the Arathi
+Basin Lumber Mill flag icon visible underneath it — real Carbonite's
+own corpse-icon texcoord (carried over verbatim from `MapEngine.lua
+:7706-7709`, confirmed working *there*) turned out to be the wrong
+cell on this client, one column off from the real corpse icon (its
+own 16×16-grid math was right, just pointed at the wrong cell in that
+grid). Rather than guess a correction, found an independently-sourced,
+dedicated reference: Cartographer3's own `CorpsePOI.lua` — a file that
+exists for no other reason than drawing exactly this icon — fixed in
+WowAce issue #218 ("Fix POI icons for WoW 3.0.2," Ash Berlin,
+2008-10-24) for the exact same `Interface\Minimap\POIIcons` texture,
+post-3.0.2 (the patch that grew the atlas to the same 16×16 layout
+both this client and Carbonite's own math already agree on).
+`CORPSE_TEX_U1/U2/V1/V2` updated from `0.56640625/0.6328125/
+0.00390625/0.0703125` to `0.5/0.5625/0/0.0625`. Not yet re-confirmed
+live as of this writing — flagged accordingly.
+
+### Build-order step 10, fifth follow-up, 2026-11-11: grave icon texcoord fix, take two.
+
+The fourth follow-up's fix was ALSO wrong — user reported live it now
+showed a captured-objective flag plus an uncaptured Lumber Mill icon,
+still two wrong icons, not the grave. Rather than guess a third time,
+went to the actual source: fetched Blizzard's own live-client FrameXML
+(public mirror, `github.com/Gethe/wow-ui-source`,
+`Blizzard_SharedMapDataProviders/DeathMapDataProvider.xml`,
+`CorpsePinTemplate`) — the literal file defining this literal pin.
+Its real `<TexCoords left="0.56640625" right="0.6328125"
+top="0.001953125" bottom="0.03515625"/>` has the SAME left/right as
+the very first (Carbonite-sourced) attempt — that U-range was right
+all along — but a top/bottom HALF AS TALL. "Squished, with another
+icon bleeding in from underneath" (the user's own first bug report)
+is exactly what carving a cell twice the correct height would produce
+— the second attempt's value was a different, unrelated cell
+entirely and never had anything to do with the actual fix.
+`CORPSE_TEX_U1/U2/V1/V2` now `0.56640625/0.6328125/0.001953125/
+0.03515625`, sourced directly from Blizzard's own shipped template
+rather than another addon's possibly-stale copy of it. Still not
+independently re-confirmed live on this specific server as of this
+writing (its exact client build relative to the live-retail source
+used here is an open variable) — flagged accordingly, same as before.
+
+### Build-order step 11, 2026-11-11: Spirit Healer icons.
+
+Explicit user request: "add icons for the spirit healers too, leatrix
+has this so you can see how they get the data." Checked Carbonite
+first, per standing project convention — it has no spirit-healer data
+anywhere (no "Spirit"/"SpiritHealer" location table in any `Data/*/
+MapData` file; `NxMapGuide.lua`'s one `"Spirit"` string is the
+unrelated old character-stat name). Unlike Corpse (a live
+`C_DeathInfo` API) or Dungeon/Zone data (Carbonite's own real
+`Zones.lua`), spirit healer locations have no live Blizzard API and no
+Carbonite source at all — they're fixed, hand-surveyed points every
+addon that shows them has to hardcode, Leatrix_Maps included.
+
+Read `Leatrix_Maps.lua`'s `POIIcons`/`PinData` consumption code
+(`kind == "Spirit"`, gated by its own `ShowSpiritHealers` setting) and
+`Leatrix_Maps_Icons.lua`'s own `Leatrix_Maps["Icons"]` table — a
+per-mapID list of `{kind, x, y, title, subtitle, texture, ...}` rows.
+Extracted every `{"Spirit", ...}` row programmatically (not
+hand-retyped, to avoid transcription error across 89 rows), correctly
+excluding two commented-out duplicate rows in Leatrix's own Eastern
+Plaguelands (mapID 1423) data — its ACTIVE data, not its dead code.
+New `Map/Data/GuideSpiritHealer.lua`, same "RAW list → byZone
+`fac,x,y|fac,x,y` string" shape every other Guide data file already
+uses (`faction` built as 0/show-to-both for every row — Leatrix's own
+source never restricts a spirit healer to one side). Map IDs are the
+same uiMapID scheme already confirmed in this addon's own
+`GatherHerb.lua`/`GatherMining.lua`/`GatherTreasure.lua` (1417, 1418,
+1437, etc. all already present there), so no translation was needed.
+
+Icon: deliberately NOT Leatrix's own choice (the
+`Vehicle-TempleofKotmogu-GreenBall` atlas — a Temple of Kotmogu
+battleground ball icon repurposed as a convenient green dot, not real
+"spirit healer" art either, since none exists). Using it would mean
+adding atlas-vs-texture branching to `UpdateServiceIcons`, a function
+shared by seven other icon categories, all plain `Interface\Icons\...`
+paths. Picked `Interface\Icons\Spell_Holy_Resurrection` instead — same
+"guaranteed since vanilla" plain-icon-path reasoning as
+DungeonEntrance/ZoneTransition/GuardFlag, and thematically the closest
+fit available in that family (literally the resurrection-spell icon).
+
+Wired as a new `SpiritHealer` entry in `MinimapEngine.lua`'s
+`SERVICE_ICON_TEX` and a new "Spirit Healers" row in `FilterMenu.lua`'s
+`FILTERS` list — both `RefreshServiceIcons`/`UpdateServiceIcons` and
+`SetFilterOn`'s persistence/instant-refresh logic are fully generic
+over `SERVICE_ICON_TEX`'s keys already, so zero other code changed.
+
+### Build-order step 12, 2026-11-11: hover tooltips on every service icon.
+
+Explicit user request: "all of these things on our map, spirit healer,
+zone transitions areas inn keeper flight master mailbox anything i
+forgot to list, we want to support hovering the icon to tell what it
+is same as how the gather points work." Gather icons identify
+themselves via a per-node species database (name + skill-colored
+level); service icons have no such database, just a fixed category -
+so this is mostly a generic per-category label, upgraded to a real
+per-point name wherever the underlying data actually has one.
+
+- **New `SERVICE_ICON_LABEL` table** (`MinimapEngine.lua`) — the
+  generic fallback label per kind (`Mailbox`→"Mailbox", `Innkeeper`→
+  "Innkeeper", `Banker`→"Banker", `DungeonEntrance`→"Dungeon/Raid
+  Entrance", `ZoneTransition`→"Zone Transition", `SpiritHealer`→
+  "Spirit Healer", `FlightMaster`→"Flight Master", `GuardFlag`→"Guard
+  Directions"). Used whenever a point's own data has no more specific
+  name.
+- **`RefreshServiceIcons`'s main `SERVICE_ICON_TEX` loop**: the
+  `byZone` string parser's regex grew an optional 4th field
+  (`"(%d+),([%d%.]+),([%d%.]+),?([^|]*)"` instead of just 3 numeric
+  fields) — the `,?` makes the name field fully optional, so every
+  pre-existing Mailbox/Innkeeper/Banker/SpiritHealer entry (none of
+  which carry a name) still parses identically, no data-file changes
+  needed for those four. `GuideDungeonEntrance.lua`'s conversion loop
+  now passes its already-present `instanceName` through instead of
+  discarding it (`local _, ownerMapId, ...` → `local name,
+  ownerMapId, ...`) — it had the real dungeon/raid name the whole
+  time, just never used past this file's own header comment.
+  `GuideZoneTransition.lua`'s `ParseConnection`/`addPoint` similarly
+  now carry both connection endpoints' real names ("Boat to Menethil
+  Harbor," "Zeppelin to Undercity," "Portal to Darnassus," etc.)
+  through instead of discarding them — most zone-transition entries
+  are plain walk-through borders with no name in Carbonite's own
+  source either, so those still fall back to the generic "Zone
+  Transition" label, exactly as before.
+- **FlightMaster branch**: now reads `node.name` (a real
+  `TaxiNodeInfo` field — the flight point's own name, e.g.
+  "Orgrimmar"), falling back to the generic label only if it's ever
+  missing/blank.
+- **GuardFlag branch**: tries `info.name` then `info.description`
+  before falling back to the generic label — the exact field
+  `WorldMapPOIInfo` uses for this isn't confirmed on this server
+  build (same unconfirmed-API caveat this branch already carried), so
+  this is written defensively rather than assumed.
+- **`UpdateServiceIcons`**: newly-created `SvcFrms` now get
+  `EnableMouse(true)` + `OnEnter`/`OnLeave` wired to new
+  `ServiceFrameOnEnter`/`ServiceFrameOnLeave` functions, the same
+  pattern `GatherFrameOnEnter`/`OnLeave` already established for
+  gather nodes — just reading a plain `frm.svcLabel` string (set fresh
+  every pass from `pt.label`) instead of a dbType/nodeID lookup, since
+  there's no skill-level coloring question here.
+
+Not yet live-tested for any of the eight categories.
+
+### Build-order step 12, follow-up, 2026-11-11: zone-transition destination names + innkeeper location.
+
+Explicit user request, two parts:
+
+1. "for zone transitions don't say [the generic label] in its hover,
+   say like 'to Mulgore' 'to Undercity' 'to Duskwood,' leatrix
+   supports this, carbonite supports this." Checked both: real
+   Leatrix_Maps renders its equivalent "Arrow" zone-crossing pins'
+   tooltip as the pin's title field verbatim (`BuildPOITooltip`,
+   `local name = pinInfo[4] or ""` — no "to" prefix added at render
+   time), and its own data stores the plain destination zone name
+   there with no prefix either. Real Carbonite's `Nx.Zones` table
+   (`Data/camelot/Zones.lua`) is the matching real source for zone
+   display names. New `Map/Data/ZoneNames.lua` — a small, targeted
+   48-entry `mapID -> name` port of just the rows `GuideZoneTransition
+   .lua`/`GuideInnkeeper.lua` actually reference (same "don't expose
+   the whole real module" convention `GuideDungeonEntrance.lua`
+   already set for `Nx.Zones`), loaded early in `Map.xml` (right after
+   `NxMapData.lua`) since `GuideZoneTransition.lua`'s own conversion
+   loop needs it at load time.
+2. `GuideZoneTransition.lua`'s `addPoint` now takes the OTHER
+   connection endpoint's mapID too, and resolves a blank name (every
+   plain walk-through border — the majority of entries, confirmed
+   blank in Carbonite's own real data) to that other endpoint's zone
+   name via the new lookup, instead of falling through to the generic
+   "Zone Transition" label. Named entries (boat/zeppelin/tram/portal)
+   are untouched — they already had a real name from the prior
+   follow-up.
+3. "FOR THE INNKEEPER give the location like how you are [doing it]
+   from the FP master" — Innkeeper has no per-point name of its own
+   (Carbonite's real source never had one, re-confirmed), so
+   `RefreshServiceIcons` now special-cases `kind == "Innkeeper"` to
+   use `self.ZoneNames[self.MapId]` (the CURRENT zone's name) ahead of
+   the generic "Innkeeper" fallback — same plain-name-no-prefix
+   treatment FlightMaster's own `node.name` already has.
+
+**Investigated and explicitly declined, same day: real personal NPC
+names for Innkeeper/FlightMaster via QuestieDB.** User initially asked
+for the actual NPC's own name (not a location) for both categories,
+then narrowed Innkeeper back to a location name (the fix above) and
+asked specifically to pursue a real name for the Wind Rider
+Master/FlightMaster via QuestieDB. A fork investigation confirmed
+neither Carbonite nor Leatrix_Maps has any individual-NPC-name source
+for either category, but found QuestieDB (installed on the live
+client, not this repo) ships a genuine `NpcDB` with `name`/`spawns`/
+`npcFlags` fields and documented `INNKEEPER`/`FLIGHT_MASTER` flag
+constants - looked usable at first glance. Read QuestieDB's own public
+type definitions directly (`Types/Npc.t.lua`, `Types/General.t.lua`,
+`src/api.lua`) to verify before building anything: `spawns` is keyed
+by legacy `AreaId`, not this addon's own `uiMapID` scheme, and the
+ONLY AreaID<->uiMapID conversion anywhere in that addon lives inside
+Questie's own `ZoneDB` module (`support/Forever/Zones/
+areaIdToUiMapId.lua`/`uiMapIdToAreaId.lua`, both `QuestieLoader:
+ImportModule("ZoneDB")` - a private module, confirmed by checking
+QuestieDB's complete public API surface for any public equivalent and
+finding none). This is the exact same private, "not a stable public
+contract" Questie module this project already decided to avoid once
+before for an unrelated quest-icon feature (see this file's earlier
+QuestieIntegration-era history). Flagged this concretely to the user
+rather than silently building on it or silently declining - given the
+choice with this specific risk spelled out, user chose to decline and
+keep FlightMaster's existing `node.name` location-based tooltip
+instead. **No code changed for FlightMaster as a result** - it was
+already doing the chosen thing.
+
+Not yet live-tested for the zone-transition/innkeeper changes.
+
+### Build-order step 12, fourth follow-up, 2026-11-11: Innkeeper label reverted back to generic.
+
+Same-day reversal, explicit user request: "just call the innkeeper
+innkeeper, not the name - we will just have the name of the place be
+on the flight master." The third follow-up's `kind == "Innkeeper"`
+special case in `RefreshServiceIcons` (showing `self.ZoneNames
+[self.MapId]`) is removed - Innkeeper is back to the plain
+`SERVICE_ICON_LABEL.Innkeeper` fallback ("Innkeeper"), same treatment
+as Mailbox/Banker/SpiritHealer. Only FlightMaster carries a location
+name now (`node.name`, unchanged throughout this whole stretch).
+`Map/Data/ZoneNames.lua` is untouched - still needed by
+`GuideZoneTransition.lua`'s own destination-name resolution.

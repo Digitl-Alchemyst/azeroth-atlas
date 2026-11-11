@@ -41,6 +41,65 @@ all; bottom items are tuning/feel questions on things known to render.
       thin Carbonite-style highlight rows instead of full buttons — the
       underlying goto/ant-trail/arrival behavior itself is already
       confirmed working, see below, this is just the new row look/order).
+- [ ] **UNCONFIRMED GUESS, may still be wrong - 3rd attempt** — Corpse
+      recovery grave icon (die in a non-PvP area, go ghost, open the
+      map): should show a proper tombstone sprite from Blizzard's own
+      `Interface\Minimap\POIIcons`. Two prior attempts were both
+      confirmed wrong live (2026-11-11): first a squished icon with
+      the Arathi Basin Lumber Mill flag bleeding in underneath, then a
+      captured-objective flag plus an uncaptured Lumber Mill icon.
+      This 3rd attempt uses the texcoord straight from Blizzard's own
+      live-client source (`CorpsePinTemplate`,
+      `DeathMapDataProvider.xml`) rather than another addon's copy of
+      it - the strongest source used so far, but this exact server's
+      client build relative to that source is still unconfirmed. If
+      it's STILL wrong, say exactly what icon/shape shows (same level
+      of detail as both previous reports - that's what's let each one
+      get diagnosed precisely).
+      A `#yd` label above it (same live-updating label as the goto
+      dot's) and a RED ant trail leading from you to it should also
+      show, independent of (and simultaneous with, if you have one)
+      any active goto trail/dot - these two parts are already expected
+      to work correctly, only the icon itself was wrong. Should
+      disappear on resurrecting. Also check: no grave/trail appears
+      while inside a battleground.
+- [ ] **NEEDS DIAGNOSIS** — "AlchemyGPS has been blocked from an action
+      only available to the Blizzard UI" popup, reported live
+      2026-11-11 while dead with the corpse-tracking feature active.
+      Root cause not yet identified - exact error text/stack trace
+      (e.g. from a bug-catching addon like BugSack) still needed to
+      diagnose which call is tainted. Click "Ignore," not "Disable,"
+      if it recurs, so the rest of the addon keeps working while this
+      gets tracked down.
+- [ ] **NOT YET LIVE-TESTED** — Spirit Healer icons, 2026-11-11 (new
+      `Interface\Icons\Spell_Holy_Resurrection` icon, one per graveyard,
+      89 locations ported from Leatrix_Maps' own data since neither
+      Carbonite nor Blizzard has any). Toggle via the Filter menu's new
+      "Spirit Healers" row. Check: icons appear in the right spot in a
+      few different zones (not just one), icon isn't blank, toggling
+      the filter row instantly hides/shows them.
+- [ ] **NOT YET LIVE-TESTED** — Hover tooltips on every service icon,
+      2026-11-11 (Mailbox/Innkeeper/Banker/DungeonEntrance/
+      ZoneTransition/FlightMaster/GuardFlag/SpiritHealer - hover each
+      and a tooltip should appear, same mechanism as gather nodes).
+      Check per category: Mailbox/Innkeeper/Banker/SpiritHealer should
+      say exactly that ("Mailbox"/"Innkeeper"/"Banker"/"Spirit
+      Healer") - Innkeeper's tooltip briefly showed the current zone's
+      name instead, but that was reverted same-day per explicit user
+      request ("just call the innkeeper innkeeper... we will just have
+      the name of the place be on the flight master"); DungeonEntrance
+      should say the real
+      dungeon/raid name (e.g. "Ragefire Chasm"); **ZoneTransition
+      should say the DESTINATION zone's name** (e.g. "Mulgore,"
+      "Undercity," "Duskwood") for a plain walk-through border, or the
+      real boat/zeppelin/tram/portal destination where one exists
+      (e.g. "Boat to Menethil Harbor") - no entry should ever show the
+      old generic "Zone Transition" label anymore; FlightMaster should
+      say the real flight point name (kept as location-only, not an
+      individual NPC name - see CHANGELOG's QuestieDB/ZoneDB entry for
+      why); GuardFlag's label is an unconfirmed-API guess (tries
+      `info.name` then `info.description`) - if it ever shows and says
+      something wrong/blank, report exactly what it says.
 
 ## Confirmed (icon rendering only — exact tuning above may still be off)
 

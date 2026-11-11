@@ -179,6 +179,15 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.GotoTrailFrms = self.GotoTrailFrms or {}
     self.ArrowScroll = self.ArrowScroll or 0
 
+    -- Build-order step 10 follow-up (2026-11-11): corpse-recovery
+    -- trail pool - real Carbonite's own corpse-tracking (MapEngine.lua
+    -- :7667-7712) is a second, independent tracking system next to
+    -- Goto (its own icon, its own DrawTracking call), not a variant of
+    -- it, so it gets its own pool/dot rather than sharing Goto's -
+    -- both can be visible at once, same as upstream. See
+    -- UpdateCorpseTrack's own header for the rest.
+    self.CorpseTrailFrms = self.CorpseTrailFrms or {}
+
     -- PlyrX/Y are overwritten every tick once Update() resolves a real
     -- zone (build-order step 8's RefreshCurrentZone/live-position
     -- block) - this is just a safe fallback for the handful of ticks
@@ -1018,7 +1027,47 @@ local SERVICE_ICON_TEX = {
     Banker          = "Interface\\MINIMAP\\TRACKING\\Banker",
     DungeonEntrance = "Interface\\Icons\\INV_Misc_Key_03",
     ZoneTransition  = "Interface\\Icons\\INV_Misc_Map_01",
+    -- Build-order step 11, 2026-11-11: spirit healer icons, explicit
+    -- user request. No native Blizzard tracking icon or Carbonite data
+    -- exists for this (see Map/Data/GuideSpiritHealer.lua's own header
+    -- for the full citation) - same "guaranteed since vanilla" plain
+    -- Interface\Icons\... reasoning as DungeonEntrance/ZoneTransition
+    -- above, picked for thematic fit (the resurrection-spell icon)
+    -- rather than Leatrix_Maps' own atlas choice, to avoid adding
+    -- atlas-vs-texture branching to UpdateServiceIcons below.
+    SpiritHealer    = "Interface\\Icons\\Spell_Holy_Resurrection",
 }
+
+-- Build-order step 12, 2026-11-11: hover tooltips on every service
+-- icon, explicit user request ("hovering the icon to tell what it
+-- is, same as how the gather points work"). Gather icons identify
+-- themselves via per-node data (species name/level); these icons have
+-- no such per-node database, just a fixed category - so this is the
+-- generic fallback label shown whenever a point has no more specific
+-- name of its own (every Mailbox/Innkeeper/Banker/SpiritHealer point,
+-- plus any DungeonEntrance/ZoneTransition/FlightMaster/GuardFlag point
+-- whose real source data happens to have no name either).
+local SERVICE_ICON_LABEL = {
+    Mailbox         = "Mailbox",
+    Innkeeper       = "Innkeeper",
+    Banker          = "Banker",
+    DungeonEntrance = "Dungeon/Raid Entrance",
+    ZoneTransition  = "Zone Transition",
+    SpiritHealer    = "Spirit Healer",
+    FlightMaster    = "Flight Master",
+    GuardFlag       = "Guard Directions",
+}
+
+local function ServiceFrameOnEnter(frm)
+    GameTooltip:SetOwner(frm, "ANCHOR_CURSOR")
+    GameTooltip:SetText(frm.svcLabel or "?")
+    GameTooltip:Show()
+end
+
+local function ServiceFrameOnLeave()
+    GameTooltip:Hide()
+end
+
 -- Not yet confirmed either way - same TRACKING family as the now-
 -- confirmed-working Innkeeper path above, so likely fine; flight-
 -- master's own absence in the user's 2026-11-10 report is more likely
@@ -1113,11 +1162,29 @@ function MinimapEngine:RefreshServiceIcons()
             local data = self.GuideData and self.GuideData[kind]
             local entry = data and data[self.MapId]
             if entry then
-                for fac, x, y in entry:gmatch("(%d+),([%d%.]+),([%d%.]+)") do
+                -- Build-order step 12, 2026-11-11: trailing ",name" is
+                -- optional (the `,?` before it) - every pre-existing
+                -- Mailbox/Innkeeper/Banker/SpiritHealer entry has no
+                -- 4th field at all and still matches cleanly, name
+                -- just comes back "". Only GuideDungeonEntrance.lua/
+                -- GuideZoneTransition.lua's own conversion loops were
+                -- changed to actually populate it.
+                for fac, x, y, name in entry:gmatch("(%d+),([%d%.]+),([%d%.]+),?([^|]*)") do
                     if ServiceIconFactionOk(tonumber(fac)) then
                         local wx, wy = self:GetWorldPos(self.MapId, tonumber(x), tonumber(y))
                         if wx then
-                            pts[#pts + 1] = { x = wx, y = wy, tex = tex }
+                            -- Build-order step 12, fourth follow-up,
+                            -- 2026-11-11: reverted the third follow-
+                            -- up's Innkeeper-shows-zone-name special
+                            -- case - explicit user request ("just call
+                            -- the innkeeper innkeeper... we will just
+                            -- have the name of the place be on the
+                            -- flight master"). Innkeeper is back to
+                            -- the plain generic label, same as Mailbox
+                            -- /Banker/SpiritHealer; only FlightMaster's
+                            -- own node.name carries a location now.
+                            local label = (name ~= "" and name) or SERVICE_ICON_LABEL[kind]
+                            pts[#pts + 1] = { x = wx, y = wy, tex = tex, label = label }
                         end
                     end
                 end
@@ -1173,7 +1240,14 @@ function MinimapEngine:RefreshServiceIcons()
                     if nx and ny and nx >= 0 and nx <= 1 and ny >= 0 and ny <= 1 then
                         local wx, wy = self:GetWorldPos(self.MapId, nx * 100, ny * 100)
                         if wx then
-                            pts[#pts + 1] = { x = wx, y = wy, tex = FLIGHTMASTER_TEX }
+                            -- Build-order step 12, 2026-11-11: node.name
+                            -- is a real TaxiNodeInfo field (the flight
+                            -- point's own name, e.g. "Orgrimmar") -
+                            -- falls back to the generic label only if
+                            -- it's ever missing/blank.
+                            local label = (node.name and node.name ~= "" and node.name)
+                                or SERVICE_ICON_LABEL.FlightMaster
+                            pts[#pts + 1] = { x = wx, y = wy, tex = FLIGHTMASTER_TEX, label = label }
                         end
                     end
                 end
@@ -1197,7 +1271,16 @@ function MinimapEngine:RefreshServiceIcons()
                 if nx and ny then
                     local wx, wy = self:GetWorldPos(self.MapId, nx * 100, ny * 100)
                     if wx then
-                        pts[#pts + 1] = { x = wx, y = wy, tex = GUARDFLAG_TEX }
+                        -- Build-order step 12, 2026-11-11: WorldMapPOIInfo's
+                        -- exact field for the service name isn't
+                        -- confirmed on this client - tries .name then
+                        -- .description before falling back to the
+                        -- generic label, same defensive posture as the
+                        -- rest of this branch already has.
+                        local label = (info.name and info.name ~= "" and info.name)
+                            or (info.description and info.description ~= "" and info.description)
+                            or SERVICE_ICON_LABEL.GuardFlag
+                        pts[#pts + 1] = { x = wx, y = wy, tex = GUARDFLAG_TEX, label = label }
                     end
                 end
             end
@@ -1233,7 +1316,16 @@ function MinimapEngine:UpdateServiceIcons()
 
     if #self.SvcFrms < #pts then
         for n = #self.SvcFrms + 1, #pts do
-            self.SvcFrms[n] = self:CreateMiniFrame()
+            local frm = self:CreateMiniFrame()
+            -- Build-order step 12, 2026-11-11: hover tooltips, explicit
+            -- user request ("same as how the gather points work") -
+            -- same EnableMouse/OnEnter/OnLeave wiring GatherFrms already
+            -- uses, just reading frm.svcLabel (set fresh every pass
+            -- below) instead of a dbType/nodeID database lookup.
+            frm:EnableMouse(true)
+            frm:SetScript("OnEnter", ServiceFrameOnEnter)
+            frm:SetScript("OnLeave", ServiceFrameOnLeave)
+            self.SvcFrms[n] = frm
         end
     end
 
@@ -1244,6 +1336,7 @@ function MinimapEngine:UpdateServiceIcons()
             frm.texture:SetTexture(pt.tex)
             frm.svcTex = pt.tex
         end
+        frm.svcLabel = pt.label
         if self:ClipFrameW(frm, pt.x, pt.y, SERVICE_ICON_SIZE, SERVICE_ICON_SIZE) then
             frm:SetFrameLevel(level)
         end
@@ -2147,20 +2240,91 @@ local GOTO_ICON_SIZE = 16
 -- project (works with Carbonite installed-but-disabled, breaks only if
 -- it's removed from the AddOns folder entirely).
 local GOTO_DOT_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconWayTarget"
-local GOTO_ARROW_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconArrowGrad"
+-- Shared by DrawAntTrail below - NOT goto-specific despite living in
+-- this section, since real Carbonite's own trail renderer
+-- (DrawTracking) is itself a single shared primitive used by every
+-- tracking type (goto targets, corpse recovery, taxi, battleground
+-- flags - MapEngine.lua:9007-9205), just tinted differently per
+-- caller. Named TRAIL_ rather than GOTO_ for that reason.
+local TRAIL_ARROW_SIZE = 16
+local TRAIL_ARROW_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconArrowGrad"
 -- World-units per arrow and the arrow-count cap - real Carbonite's own
 -- /15/self.IconNavScale and min(,40) (MapEngine.lua:9134/9138). This
 -- addon has no IconNavScale slider, so that factor is just dropped
 -- (equivalent to it always being 1), same as other absent sliders
 -- elsewhere in this file.
-local GOTO_ARROW_SPACING = 15
-local GOTO_ARROW_MAX = 40
+local TRAIL_ARROW_SPACING = 15
+local TRAIL_ARROW_MAX = 40
 -- Real Carbonite's own default Target.Radius (MapEngine.lua:8866).
 local GOTO_ARRIVAL_YARDS = 7
 -- Same constant as Update()'s own PlyrSpeed block above - see this
 -- section's header comment for why it's a fresh local here rather
--- than touching that already-working line.
-local GOTO_YARDS_PER_WORLDUNIT = 4.575
+-- than touching that already-working line. Shared by UpdateCorpseTrack
+-- below too (its own #yd label) - named without the GOTO_ prefix for
+-- the same reason TRAIL_ARROW_* above lost theirs.
+local YARDS_PER_WORLDUNIT = 4.575
+
+-- Shared by UpdateGoto and UpdateCorpseTrack below - the pooled-arrow
+-- spacing/cap/rotation math is identical for both, matching real
+-- Carbonite's own single DrawTracking primitive serving multiple
+-- tracking types rather than each having its own copy (see
+-- TRAIL_ARROW_TEX's own comment above for the citation). Takes a
+-- caller-owned pool array (so Goto's and Corpse's trails never share
+-- frames and can both be visible at once, same as upstream's
+-- independent systems), the already-resolved dx/dy/dist from the
+-- caller (both callers need those themselves anyway), and an optional
+-- vertex-color tint - real Carbonite's own DrawTracking tints its
+-- shared arrow texture per tracking type via SetVertexColor rather
+-- than using separate art (:9183-9189: "B" faded-blue, "F" yellow for
+-- taxi, "D" red for corpse recovery) - UpdateCorpseTrack below passes
+-- red (1,0,0,1) for exactly that reason; UpdateGoto passes nothing,
+-- same as real Carbonite's own untinted plain-route-target case.
+-- self.ArrowScroll itself is advanced once per tick in Update(), NOT
+-- in here - see that call site's own comment for why.
+function MinimapEngine:DrawAntTrail(pool, dx, dy, dist, r, g, b, a)
+    local cnt = dist / TRAIL_ARROW_SPACING
+    if cnt < 5 then cnt = cnt + .5 end
+    cnt = math.min(math.floor(cnt), TRAIL_ARROW_MAX)
+
+    if cnt < 1 then
+        for n = 1, #pool do
+            pool[n]:Hide()
+        end
+        return
+    end
+
+    if #pool < cnt then
+        for n = #pool + 1, cnt do
+            local f = self:CreateMiniFrame()
+            f.texture:SetTexture(TRAIL_ARROW_TEX)
+            pool[n] = f
+        end
+    end
+
+    -- Derived for this engine's own ClipFrameW/:SetRotation convention,
+    -- not ported from Carbonite's degree formula - see UpdateGoto's own
+    -- comment (where this was originally written) for the full
+    -- reasoning and the "unconfirmed, may need a sign flip" caveat.
+    -- Confirmed correct live, 2026-11-11 (goto trail direction tested
+    -- in-game) - no longer unconfirmed.
+    local dir = math.atan2(-dx, -dy)
+    local stepX, stepY = dx / cnt, dy / cnt
+    local scroll = self.ArrowScroll or 0
+    local ox, oy = stepX * scroll, stepY * scroll
+    local level = (self.Frm:GetFrameLevel() or 1) + 7
+    for n = 1, cnt do
+        local f = pool[n]
+        local wx, wy = self.PlyrX + ox, self.PlyrY + oy
+        if self:ClipFrameW(f, wx, wy, TRAIL_ARROW_SIZE, TRAIL_ARROW_SIZE, dir) then
+            f.texture:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
+            f:SetFrameLevel(level)
+        end
+        ox, oy = ox + stepX, oy + stepY
+    end
+    for n = cnt + 1, #pool do
+        pool[n]:Hide()
+    end
+end
 
 function MinimapEngine:FramePosToWorldPos(fx, fy)
     local wx = self.MapPosX + (fx - self.MapW / 2) / self.Scale
@@ -2216,7 +2380,7 @@ function MinimapEngine:UpdateGoto()
     local dx = self.GotoWX - self.PlyrX
     local dy = self.GotoWY - self.PlyrY
     local dist = (dx * dx + dy * dy) ^ .5
-    local yards = dist * GOTO_YARDS_PER_WORLDUNIT
+    local yards = dist * YARDS_PER_WORLDUNIT
 
     -- Arrived - see this section's header comment for why this auto-
     -- clears rather than leaving the dot/trail sitting on the player.
@@ -2248,52 +2412,165 @@ function MinimapEngine:UpdateGoto()
         self.GotoYdLabel:Hide()
     end
 
-    -- Ant trail - see this section's header comment for the spacing/
-    -- cap/scroll formulas' real-source citations.
-    local cnt = dist / GOTO_ARROW_SPACING
-    if cnt < 5 then cnt = cnt + .5 end
-    cnt = math.min(math.floor(cnt), GOTO_ARROW_MAX)
+    -- Ant trail - see DrawAntTrail's own header for the spacing/cap/
+    -- scroll/tint formulas' real-source citations (untinted here,
+    -- same as real Carbonite's own plain-route-target case).
+    self:DrawAntTrail(self.GotoTrailFrms, dx, dy, dist)
+end
 
-    if not self.PlyrSpeed or self.PlyrSpeed == 0 then
-        local scroll = (self.ArrowScroll or 0) + .01
-        self.ArrowScroll = scroll > 1 and 0 or scroll
+---------------------------------------------------------------------------------------
+-- Build-order step 10 follow-up (2026-11-11): corpse recovery - "when
+-- the user is dead, the ant trails should also lead to the player's
+-- body and put the grave icon on their body" (explicit user request).
+-- Investigated real Carbonite's own corpse-tracking first
+-- (MapEngine.lua:6645-6650, :7667-7712) rather than guessing:
+-- - Detection: UnitIsDeadOrGhost("player"), gated the same way real
+--   Carbonite gates it ("Only check corpse if player is actually
+--   dead").
+-- - Position: C_DeathInfo.GetCorpseMapPosition(mapId) - a live
+--   Blizzard API returning a 0-1 normalized {x,y} on the given map,
+--   confirmed by reading the real call site rather than guessed. Fed
+--   into this engine's own GetWorldPos(mapId, pctX, pctY) (defined
+--   above, already the direct equivalent of real Carbonite's own
+--   Nx.Map:GetWorldPos - see that function's header) after the *100
+--   scaling real Carbonite's own call site also does (GetWorldPos
+--   expects 0-100, not 0-1).
+-- - Battleground guard: real Carbonite also skips this inside a
+--   battleground (its own IsBattleGroundMap check, MapEngine.lua
+--   :6281) - that needs Carbonite's full zone-ID database, a much
+--   bigger port this file has deliberately avoided elsewhere too (see
+--   GetArtSourceMapID's own header). GetInstanceInfo()'s native
+--   instanceType == "pvp" is the lightweight equivalent - no database
+--   needed, same practical effect.
+-- - Icon: Interface\Minimap\POIIcons, a standard BLIZZARD atlas sheet
+--   (not a Carbonite art dependency, unlike the goto dot/arrows above).
+--   **CORRECTED TWICE, 2026-11-11** - full history, in order:
+--   1) Originally carried over real Carbonite's own corpse-icon
+--      texcoord (MapEngine.lua:7706-7709) verbatim. User reported live
+--      it rendered squished with the Arathi Basin Lumber Mill flag
+--      icon bleeding in underneath.
+--   2) Replaced with Cartographer3's own `CorpsePOI.lua` fix (WowAce
+--      issue #218, 2008-10-24). User reported live this was ALSO
+--      wrong - now a captured-objective flag plus an uncaptured
+--      Lumber Mill icon, still two icons, still wrong.
+--   3) Went to the source instead of a third addon-code guess: fetched
+--      Blizzard's OWN current live-client FrameXML (the public mirror
+--      at github.com/Gethe/wow-ui-source,
+--      Blizzard_SharedMapDataProviders/DeathMapDataProvider.xml,
+--      CorpsePinTemplate) - the literal file defining this literal
+--      pin. Its `<TexCoords left="0.56640625" right="0.6328125"
+--      top="0.001953125" bottom="0.03515625"/>` has the SAME left/
+--      right as attempt #1 (Carbonite's own U-range was right all
+--      along) but a top/bottom HALF AS TALL - "squished with another
+--      icon bleeding in underneath" is exactly what carving a cell
+--      twice the correct height would look like. Attempt #2's value
+--      was a different, unrelated cell (shifted left) and never had
+--      anything to do with the real fix - a wrong detour, not a step
+--      toward this answer.
+--   These values (CORPSE_TEX_U1/U2/V1/V2 below) are now sourced
+--   directly from Blizzard's own shipped template rather than from
+--   another addon's possibly-stale copy of it - the strongest source
+--   available short of this server's own client files. Still not
+--   independently re-confirmed live on THIS server as of this
+--   writing, since its exact client build is still an unknown
+--   variable - if it's wrong a fourth time, these two constants below
+--   are the one spot to fix, not this function.
+--   ClipFrameW's own SetTexCoord stomps this right after it's set (it
+--   assumes a plain 0-1 square icon) - same "override clipping" quirk
+--   real Carbonite's own corpse code has (its own "FIX maybe?" comment
+--   at :7708) - set AFTER ClipFrameW below, ported with the same known
+--   imperfection rather than solved better than the original.
+-- - Trail: DrawAntTrail above, same shared primitive as Goto's own
+--   trail, tinted RED (1,0,0,1) - real Carbonite's own DrawTracking
+--   tints its shared arrow texture red specifically for its "D"
+--   (death) tracking mode (:9189), so the corpse trail reads
+--   differently from a plain goto trail at a glance, exactly like
+--   upstream.
+-- - No arrival-radius auto-clear (unlike Goto): real Carbonite's own
+--   corpse-tracking has no such check either - it just keeps pointing
+--   at the corpse every tick for as long as UnitIsDeadOrGhost is true
+--   and GetCorpseMapPosition keeps returning a position; it stops on
+--   its own once you resurrect (dot/trail just hide via the early
+--   return below).
+-- - #yd label (2026-11-11 follow-up, explicit user request): same
+--   treatment as the goto dot's own GotoYdLabel above - NOT a port
+--   (real Carbonite's corpse-tracking has no such label either, same
+--   as the goto dot didn't originally), added for consistency between
+--   the two trail types.
+---------------------------------------------------------------------------------------
+
+local CORPSE_ICON_SIZE = 16
+local CORPSE_TEX = "Interface\\Minimap\\POIIcons"
+-- Blizzard's own live-client CorpsePinTemplate (DeathMapDataProvider
+-- .xml) - see this section's header comment above for the full,
+-- two-wrong-attempts-before-this history.
+local CORPSE_TEX_U1, CORPSE_TEX_U2 = 0.56640625, 0.6328125
+local CORPSE_TEX_V1, CORPSE_TEX_V2 = 0.001953125, 0.03515625
+
+function MinimapEngine:HideCorpseFrames()
+    if self.CorpseFrm then self.CorpseFrm:Hide() end
+    if self.CorpseYdLabel then self.CorpseYdLabel:Hide() end
+    for i = 1, #self.CorpseTrailFrms do
+        self.CorpseTrailFrms[i]:Hide()
+    end
+end
+
+-- Called every tick from Update(), alongside UpdateGoto - see this
+-- section's header comment above for the full citation trail.
+function MinimapEngine:UpdateCorpseTrack()
+    if not UnitIsDeadOrGhost("player") then
+        self:HideCorpseFrames()
+        return
     end
 
-    if cnt >= 1 then
-        if #self.GotoTrailFrms < cnt then
-            for n = #self.GotoTrailFrms + 1, cnt do
-                local f = self:CreateMiniFrame()
-                f.texture:SetTexture(GOTO_ARROW_TEX)
-                self.GotoTrailFrms[n] = f
-            end
-        end
+    local _, instanceType = GetInstanceInfo()
+    if instanceType == "pvp" then
+        self:HideCorpseFrames()
+        return
+    end
 
-        -- Derived for this engine's own ClipFrameW/:SetRotation
-        -- convention, not ported from Carbonite's degree formula - see
-        -- this section's header comment for the full reasoning and the
-        -- "unconfirmed, may need a sign flip" caveat.
-        local dir = math.atan2(-dx, -dy)
+    local mapId = C_Map.GetBestMapForUnit("player")
+    local info = mapId and C_DeathInfo.GetCorpseMapPosition(mapId)
+    if not info then
+        self:HideCorpseFrames()
+        return
+    end
 
-        local stepX, stepY = dx / cnt, dy / cnt
-        local scroll = self.ArrowScroll or 0
-        local ox, oy = stepX * scroll, stepY * scroll
-        local level = (self.Frm:GetFrameLevel() or 1) + 7
-        for n = 1, cnt do
-            local f = self.GotoTrailFrms[n]
-            local wx, wy = self.PlyrX + ox, self.PlyrY + oy
-            if self:ClipFrameW(f, wx, wy, GOTO_ICON_SIZE, GOTO_ICON_SIZE, dir) then
-                f:SetFrameLevel(level)
-            end
-            ox, oy = ox + stepX, oy + stepY
-        end
-        for n = cnt + 1, #self.GotoTrailFrms do
-            self.GotoTrailFrms[n]:Hide()
-        end
+    local wx, wy = self:GetWorldPos(mapId, info.x * 100, info.y * 100)
+    if not wx then
+        self:HideCorpseFrames()
+        return
+    end
+
+    if not self.CorpseFrm then
+        self.CorpseFrm = self:CreateMiniFrame()
+        self.CorpseFrm.texture:SetTexture(CORPSE_TEX)
+        -- Same "#yd" treatment as the goto dot's own label (GotoYdLabel,
+        -- UpdateGoto above) - not a port, real Carbonite's corpse-
+        -- tracking has no such label either (same as the goto dot
+        -- didn't), but kept consistent with it per explicit user
+        -- request. A child of the dot frame so it rides along with
+        -- ClipFrameW's own repositioning below for free.
+        local lbl = self.CorpseFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        lbl:SetPoint("BOTTOM", self.CorpseFrm, "TOP", 0, 2)
+        self.CorpseYdLabel = lbl
+    end
+
+    local dx = wx - self.PlyrX
+    local dy = wy - self.PlyrY
+    local dist = (dx * dx + dy * dy) ^ .5
+
+    local dotShown = self:ClipFrameW(self.CorpseFrm, wx, wy, CORPSE_ICON_SIZE, CORPSE_ICON_SIZE, 0)
+    if dotShown then
+        self.CorpseFrm.texture:SetTexCoord(CORPSE_TEX_U1, CORPSE_TEX_U2, CORPSE_TEX_V1, CORPSE_TEX_V2)
+        self.CorpseFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 9)
+        self.CorpseYdLabel:SetText(("%dyd"):format(math.ceil(dist * YARDS_PER_WORLDUNIT)))
+        self.CorpseYdLabel:Show()
     else
-        for n = 1, #self.GotoTrailFrms do
-            self.GotoTrailFrms[n]:Hide()
-        end
+        self.CorpseYdLabel:Hide()
     end
+
+    self:DrawAntTrail(self.CorpseTrailFrms, dx, dy, dist, 1, 0, 0, 1)
 end
 
 ---------------------------------------------------------------------------------------
@@ -2443,6 +2720,17 @@ function MinimapEngine:UpdateDebugOverlay()
             fmtNum(self.GotoWX, "%.1f"), fmtNum(self.GotoWY, "%.1f"), math.ceil(yd)))
     else
         tinsert(lines, "GotoWX: nil   (no goto set)")
+    end
+
+    tinsert(lines, "")
+    tinsert(lines, DEBUG_HEADER_COLOR:format("Corpse Track  (Build-order step 10 follow-up)"))
+    local dead = UnitIsDeadOrGhost("player")
+    if not dead then
+        tinsert(lines, "UnitIsDeadOrGhost: false   (alive)")
+    elseif self.CorpseFrm and self.CorpseFrm:IsShown() then
+        tinsert(lines, "UnitIsDeadOrGhost: true   Corpse: tracked")
+    else
+        tinsert(lines, "UnitIsDeadOrGhost: true   Corpse: not tracked (pvp map, or no corpse info yet)")
     end
 
     debugText:SetText(table.concat(lines, "\n"))
@@ -2732,7 +3020,21 @@ function MinimapEngine:Update(elapsed)
 
     -- Build-order step 10: independent of the tile/icon layers above -
     -- see UpdateGoto's own header for why this runs every tick.
+    --
+    -- ArrowScroll is advanced exactly ONCE here, shared by whichever
+    -- of UpdateGoto/UpdateCorpseTrack draw a trail this tick (both
+    -- read it via DrawAntTrail, neither mutates it) - advancing it
+    -- from two call sites in the same tick would double its speed
+    -- whenever both a goto AND a corpse trail are showing at once.
+    -- Matches real Carbonite's own structure, a single shared advance
+    -- before any of its own several tracking consumers draw
+    -- (MapEngine.lua:7661-7664).
+    if not self.PlyrSpeed or self.PlyrSpeed == 0 then
+        local scroll = (self.ArrowScroll or 0) + .01
+        self.ArrowScroll = scroll > 1 and 0 or scroll
+    end
     self:UpdateGoto()
+    self:UpdateCorpseTrack()
 
     -- Build-order step 9b: repositions already-resolved static service
     -- icons for the current pan/zoom - see UpdateServiceIcons' own

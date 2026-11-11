@@ -30,6 +30,12 @@
 -- header comment on GUARDFLAG_TEX for why this one specifically isn't
 -- confirmed to render anything yet).
 --
+-- Build-order step 11 (2026-11-11): Spirit Healers, explicit user
+-- request - same shape as Mailbox/Innkeeper/Banker (a static
+-- GuideData category), so it falls into SetFilterOn's existing
+-- RefreshServiceIcons/UpdateServiceIcons branch below with no new
+-- code there.
+--
 -- Persisted as AlchemyGPS.db.profile.MapFilters[key] (true/false/nil -
 -- nil/missing means "on", same "absent means default" convention
 -- MinimapWindow.lua's AutoFollow checkbox already uses, so a brand
@@ -57,6 +63,7 @@ local FILTERS = {
     { key = "DungeonEntrance", label = "Dungeon/Raid Entrances" },
     { key = "ZoneTransition",  label = "Zone Transitions" },
     { key = "GuardFlag",       label = "Guard Directions" },
+    { key = "SpiritHealer",    label = "Spirit Healers" },
 }
 
 local ROW_HEIGHT = 22

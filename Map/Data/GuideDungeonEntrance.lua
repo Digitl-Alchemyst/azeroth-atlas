@@ -37,8 +37,8 @@
 local AlchemyGPS = _G.AlchemyGPS
 local Map = AlchemyGPS.Map
 
--- { instanceName, ownerMapId, ex, ey } - instanceName is kept only for
--- human readability of this file, not stored/used further.
+-- { instanceName, ownerMapId, ex, ey } - instanceName now also feeds
+-- the hover-tooltip label (build-order step 12), not just readability.
 local RAW_INSTANCES = {
     { "Ragefire Chasm",               1454, 51.9,  58.4 },
     { "Zul'Farrak",                   1446, 39.2,  21.4 },
@@ -77,10 +77,15 @@ local RAW_INSTANCES = {
     { "Krol'dok Stronghold",          2548, 37.5,  37.4 },
 }
 
+-- Build-order step 12, 2026-11-11: instanceName is no longer discarded
+-- - hover-tooltip support (explicit user request) needs a real per-
+-- point name, and this table already had one. None of these names
+-- contain "," or "|" (checked), the two characters this format can't
+-- carry safely.
 local byZone = {}
 for _, inst in ipairs(RAW_INSTANCES) do
-    local _, ownerMapId, ex, ey = inst[1], inst[2], inst[3], inst[4]
-    local entry = ("0,%g,%g"):format(ex, ey)
+    local name, ownerMapId, ex, ey = inst[1], inst[2], inst[3], inst[4]
+    local entry = ("0,%g,%g,%s"):format(ex, ey, name)
     byZone[ownerMapId] = byZone[ownerMapId] and (byZone[ownerMapId] .. "|" .. entry) or entry
 end
 
