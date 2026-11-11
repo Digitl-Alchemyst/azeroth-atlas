@@ -346,7 +346,27 @@ end
 -- Blizzard's own native Minimap draws survives in isolation (confirmed
 -- earlier this session), so anything found with other addons enabled
 -- is third-party.
-local function HideMinimapPassengers(frm, hidden)
+-- Build-order step 17, sixth follow-up, same day: /gps mmpassengers
+-- found one specific passenger that was STILL shown despite being a
+-- key in `hidden` (so we HAD hidden it) - it re-shows itself faster
+-- than the 0.5s re-scan throttle in UpdateLiveBlips can catch (some
+-- addon's own OnUpdate/OnShow-driven redisplay, same category as the
+-- icon/texture passengers before it, just quicker about it). A
+-- throttled poll can only ever catch up after the fact; hooking
+-- OnShow reacts the instant it tries, regardless of how fast that is.
+-- Kept separate from `hidden` (a per-ownership-cycle restore record)
+-- since the hook itself needs to persist and keep applying across
+-- cycles once attached, but must only actually suppress the Show()
+-- while live blips are presently active - gated on `engine.MMOwn`,
+-- checked fresh every time it fires, not captured at hook time, so a
+-- hook attached during one gathering-tracking session doesn't silence
+-- this addon's button forever once tracking turns back off.
+-- HookScript only exists on Frame-type objects, not plain texture/
+-- fontstring Regions - the region loop below stays throttle-only,
+-- which is fine since it was the Frame path that showed this symptom.
+local HookedPassengers = setmetatable({}, { __mode = "k" })
+
+local function HideMinimapPassengers(frm, hidden, engine)
     for _, region in ipairs({ frm:GetRegions() }) do
         if region:IsShown() and not hidden[region] then
             hidden[region] = true
@@ -358,7 +378,15 @@ local function HideMinimapPassengers(frm, hidden)
             hidden[child] = true
             child:Hide()
         end
-        HideMinimapPassengers(child, hidden)
+        if not HookedPassengers[child] then
+            HookedPassengers[child] = true
+            child:HookScript("OnShow", function(frame)
+                if engine.MMOwn then
+                    frame:Hide()
+                end
+            end)
+        end
+        HideMinimapPassengers(child, hidden, engine)
     end
 end
 
@@ -413,9 +441,10 @@ function MinimapEngine:ShowLiveBlips()
     -- Carbonite picks between a Retail round mask and a Classic one
     -- here (Nx.isRetail) - the archive found the Classic one dead on
     -- this client and used the Retail path unconditionally; kept the
-    -- same way (MinimapUpdateMask below immediately overrides this
-    -- with a square mask anyway, matching this window's own square
-    -- content area).
+    -- same way. This round mask is what actually crops the widget's
+    -- content for the rest of this feature's life - MinimapUpdateMask
+    -- no longer touches the mask at all (a square-mask override was
+    -- tried and reverted - see CHANGELOG's step 17 follow-ups).
     mm:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
     mm:SetClampedToScreen(true)
     mm:SetWidth(140)
@@ -449,7 +478,7 @@ function MinimapEngine:ShowLiveBlips()
     -- recursing into every descendant, not just direct children, is
     -- safe here.
     self.MMHiddenChildren = {}
-    HideMinimapPassengers(mm, self.MMHiddenChildren)
+    HideMinimapPassengers(mm, self.MMHiddenChildren, self)
 end
 
 -- Gives the live widget back to Blizzard. Adapted from the archived
@@ -511,7 +540,6 @@ function MinimapEngine:HideLiveBlips()
         mm:SetPlayerTexture("Interface\\Minimap\\MinimapArrow")
     end
     self.MMArrowName = nil
-    self.MMMaskName = nil
 
     local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
     if NativeMinimapHide and self.MMPrevNativeHidden ~= nil then
@@ -525,6 +553,16 @@ end
 -- XY is center. Width and height are not scaled.
 -- Kept verbatim from Nx.Map:ClipMMW (UIEngine.lua:10988) via the
 -- archived port - the real positioning math, unchanged.
+--
+-- Build-order step 17: hides the widget outright whenever its aligned
+-- size exceeds the window (vx1<0 or vx2>clipW) - confirmed live as a
+-- real ceiling, not a bug: Blizzard's own most-zoomed-in native level
+-- still has a fixed minimum real-world radius, and past that this
+-- engine's own zoom can't be matched by any native level at all, no
+-- matter the widget's pixel size. (A SetClipsChildren-based oversize-
+-- and-crop workaround was tried for this and reverted - confirmed
+-- live that the API exists on this client but doesn't actually clip -
+-- see CHANGELOG's "oversize+clip REVERTED" entry.)
 ---------------------------------------------------------------------------------------
 function MinimapEngine:ClipMMW(frm, bx, by, w, h)
     local scale = self.ScaleDraw
@@ -631,22 +669,25 @@ function MinimapEngine:MinimapSetScale(scale, iconScale)
 end
 
 -- Adapted from the archived MinimapUpdateMask (MapEngine.lua:3746-
--- 3759) - always a square mask (matches this window's own square
--- content area, confirmed live before as the right call - the real
--- source's round-vs-square is a per-user setting this addon doesn't
--- expose). Simplified from the archive: that version's custom
+-- 3759) - simplified from the archive: that version's custom
 -- transparent-arrow fallback branch is gone (its texture asset,
 -- Gfx/Map/32Transparent, was deleted along with the rest of Mode:Live
 -- and isn't worth restoring - the branch only ran when MMOwn was
 -- false, which can't be true inside this function, so it was
--- provably unreachable anyway). Always sets Blizzard's own arrow now.
+-- provably unreachable anyway). Always blanks Blizzard's own arrow.
+--
+-- Doesn't touch the mask at all - a square mask was tried here (fill
+-- this window's own square content area edge to edge) and reverted:
+-- Blizzard's native minimap source texture is square internally and
+-- normally cropped to a circle, and a fully-uncropped mask revealed
+-- whatever's baked into the corners outside that circle, never meant
+-- to be seen (confirmed via /gps mmpassengers coming back with zero
+-- Lua-visible passengers while the artifact was still there - not a
+-- Lua object, native rendering). ShowLiveBlips's own initial
+-- SetMaskTexture("...TempPortraitAlphaMask") is what actually crops
+-- the widget now, round, same as normal gameplay - see its own
+-- comment and CHANGELOG's step 17 follow-ups for the full history.
 function MinimapEngine:MinimapUpdateMask()
-    local squareMask = "Interface\\Buttons\\White8x8"
-    if self.MMMaskName ~= squareMask then
-        self.MMMaskName = squareMask
-        self.MMFrm:SetMaskTexture(squareMask)
-    end
-
     -- Build-order step 17, live-tested follow-up: this used to restore
     -- Blizzard's own player-facing arrow here. Confirmed live this own
     -- addon's doing - this engine already draws its own player marker
@@ -894,7 +935,7 @@ function MinimapEngine:UpdateLiveBlips()
     if not self.MMPassengerCheckAt or now >= self.MMPassengerCheckAt then
         self.MMPassengerCheckAt = now + 0.5
         self.MMHiddenChildren = self.MMHiddenChildren or {}
-        HideMinimapPassengers(mm, self.MMHiddenChildren)
+        HideMinimapPassengers(mm, self.MMHiddenChildren, self)
     end
 
     local shown = false
@@ -2925,27 +2966,41 @@ AlchemyGPS.Core.SlashCommands:Register("mmpassengers", function()
         return
     end
 
+    -- 2026-11-11, same-day follow-up: the first version logged every
+    -- descendant unconditionally - 2045 of them on a live character
+    -- with Questie installed, which blew straight past WoW's own chat
+    -- scrollback before the user could find the one that mattered.
+    -- Only shown:true entries get logged now - that's the entire
+    -- point of the dump (find what's actually visibly riding along),
+    -- so filtering to just those loses nothing and makes the output
+    -- usable instead of a wall of noise.
     local hidden = MinimapEngine.MMHiddenChildren or {}
-    local n = 0
+    local n, shownCount = 0, 0
     local function walk(frm, depth)
         for _, region in ipairs({ frm:GetRegions() }) do
             n = n + 1
-            Logger:info("  [region]%s shown:%s hidden-by-us:%s  %s",
-                ("  "):rep(depth), tostring(region:IsShown()), tostring(hidden[region] == true),
-                DescribeMinimapChild(region))
+            if region:IsShown() then
+                shownCount = shownCount + 1
+                Logger:info("  [region]%s shown:true hidden-by-us:%s  %s",
+                    ("  "):rep(depth), tostring(hidden[region] == true),
+                    DescribeMinimapChild(region))
+            end
         end
         for _, child in ipairs({ frm:GetChildren() }) do
             n = n + 1
-            Logger:info("  [frame] %s shown:%s hidden-by-us:%s  %s",
-                ("  "):rep(depth), tostring(child:IsShown()), tostring(hidden[child] == true),
-                DescribeMinimapChild(child))
+            if child:IsShown() then
+                shownCount = shownCount + 1
+                Logger:info("  [frame] %s shown:true hidden-by-us:%s  %s",
+                    ("  "):rep(depth), tostring(hidden[child] == true),
+                    DescribeMinimapChild(child))
+            end
             walk(child, depth + 1)
         end
     end
-    Logger:info("mmpassengers: walking Minimap's full descendant tree...")
+    Logger:info("mmpassengers: walking Minimap's full descendant tree (shown-only)...")
     walk(MinimapEngine.MMFrm, 0)
-    Logger:info("mmpassengers: %d total descendant(s) listed above", n)
-end, "dump every frame/region under the live Minimap patch, shown + hidden-by-us state (build-order step 17 diagnostic)")
+    Logger:info("mmpassengers: %d shown out of %d total descendant(s)", shownCount, n)
+end, "dump only the SHOWN frames/regions under the live Minimap patch, hidden-by-us state (build-order step 17 diagnostic)")
 
 -- Trimmed from Nx.Map:UpdateWorld (MapEngine.lua:5945-6147) - see this
 -- section's header for what's dropped and why. What's kept is the

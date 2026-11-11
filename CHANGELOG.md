@@ -2470,3 +2470,250 @@ fixes for the same visual report both come back "still there," switch
 to a diagnostic dump instead of a third guess - this project already
 had the exact describe/recurse logic built (step 16's
 `DescribeMinimapChild`) and reusing it here cost almost nothing.
+
+## Build-order step 17, oversize+clip: the native zoom ceiling, solved
+
+User confirmed the ceiling (dot vanishing when zoomed in close to a
+node) reproduces in real play, not just in debug numbers, and asked
+for the real fix rather than leaving it as a known limit - committed
+the revival work so far first (`0b0c927`) as a save point before
+attempting it, since this touches protected-frame parenting again.
+
+**Fix**: a new dedicated frame, `self.MMClip` (plain `CreateFrame`,
+parented to `UIParent` - NOT the movable map window itself, same
+reason the archive avoided making `Minimap` a true descendant of that
+window: drag/resize conflicts), sized to the map window's content area
+via `SetAllPoints(self.Frm)` (a live anchor - tracks the window
+continuously, no per-tick math needed) with `SetClipsChildren(true)`.
+The real `Minimap` widget is now reparented to `MMClip` instead of
+directly to `UIParent`. `ClipMMW` no longer hides the widget outright
+when its aligned size exceeds the window (`self.MMClipSupported`
+gates the old hide-outright check) - it now lets the oversized widget
+through at its full, correctly-aligned size, and `MMClip`'s own
+clipping crops the overflow down to the window's visible bounds. Past
+the ceiling, `ResolveLiveBlipFit`'s existing fallback (already picks
+the smallest/most-zoomed-in level when nothing fits) turned out to
+already be the least-wasteful choice for this too - no change needed
+there.
+
+`SetClipsChildren` is a relatively recent API - guarded behind
+`self.MMClipSupported` (checked once, cached), so a client without it
+just keeps the original hide-at-the-ceiling behavior instead of
+erroring.
+
+**Not yet live-tested**: this fix.
+
+**How to apply**: [[project_alchemy_gps]] - when something needs to be
+bigger than its visible container without spilling onto the rest of
+the screen, a dedicated clipping frame the addon fully owns (not the
+user's own movable window) is the general pattern - reparenting into
+someone else's draggable/resizable frame is what caused problems here
+before, a purpose-built container sidesteps that entirely.
+
+## Build-order step 17, oversize+clip REVERTED, same day: SetClipsChildren doesn't actually clip on this client
+
+Confirmed live, immediately - `SetClipsChildren` exists as a callable
+method on this client but doesn't actually clip anything. The widget
+rendered as a huge overlay spanning well past the map window, not
+synced to its position or size at all - a glaring regression, worse
+than the ceiling it was meant to fix.
+
+**Reverted**: `self.MMClipSupported` is now hardcoded `false` (was
+probed via `type(self.MMClip.SetClipsChildren) == "function"`, which
+only confirms the method exists, not that it does anything real on
+this client) - `ClipMMW` always takes its original hide-outright path
+at the ceiling again, same as before this whole follow-up.
+`ShowLiveBlips` no longer creates/reparents into the `MMClip`
+container at all; `mm:SetParent(UIParent)` directly, like before.
+
+The native zoom ceiling (dot vanishes when zoomed in very close to a
+node) is back to being a known, accepted limit - not solvable through
+this particular API on this client. Left `MMClipSupported` as a flag
+(not deleted) in case a future client build implements this for real,
+rather than ripping the branching back out.
+
+**User also clarified, re: the separate faint-texture issue (still
+open, `/gps mmpassengers` output still pending)**: confirmed it IS an
+actual texture with visible detail, not a flat alpha-dimmed color box
+- rules out a plain single-color backdrop panel as the culprit,
+consistent with it being either real (dimmed) Minimap terrain peeking
+through at an edge, or a third-party addon's own textured background,
+not yet distinguished.
+
+**How to apply**: [[project_alchemy_gps]] - `type(obj.Method) ==
+"function"` only proves an API exists on the client, never that it
+does what its name/Blizzard's current-retail documentation implies -
+this server's client build may predate or diverge from the behavior
+assumed. A capability probe needs a real behavioral check (or a live
+test) when the API is this consequential, not just an existence check.
+
+## Build-order step 17, `/gps mmpassengers` follow-up, same day: filtered to shown-only
+
+First run came back with **2045 total descendants** (mostly Questie's
+own per-quest pin frames, parented directly onto `Minimap` - a real,
+very large passenger set) - all logged unconditionally, which blew
+straight past WoW's own chat scrollback before the one `shown:true`
+entry that actually matters could be found. Changed the command to
+only log entries where `region:IsShown()`/`child:IsShown()` is true -
+that's the whole point of the dump (find what's actually visibly
+riding along), so nothing is lost by filtering, and the output is
+small enough to actually read.
+
+**How to apply**: [[project_alchemy_gps]] - a diagnostic dump is only
+as useful as it is readable; on a client with a large, legitimate
+passenger population (Questie's per-quest Minimap pins here), an
+unconditional walk needs a relevance filter before the user can act on
+it, not just before/after the fact.
+
+## Build-order step 17, sixth follow-up, same day: the square wasn't a hide failure, it was a hide-then-re-show race
+
+`/gps mmpassengers` (filtered) found the real culprit: a 177x177
+anonymous frame at offset 0,0 (roughly the size of the whole patch,
+plus two small 17px regions near a corner) - all three already
+tracked as `hidden-by-us:true` (we HAD called `:Hide()` on them) but
+still reporting `shown:true` at scan time. The 0.5s re-scan throttle
+was catching up after the fact, not preventing the re-show in the
+first place - whatever addon owns these re-shows itself faster than
+twice a second, so there was always a visible window between its
+re-show and our next catch-up pass.
+
+**Fix**: `HideMinimapPassengers` now also attaches a one-time
+`HookScript("OnShow", ...)` to every Frame-type descendant it ever
+walks (tracked in a new `HookedPassengers` weak table, separate from
+`hidden` - this needs to persist across ownership cycles, `hidden`
+doesn't), so a passenger frame gets re-hidden the instant it tries to
+show itself, not up to 0.5s later. Gated on `engine.MMOwn`, checked
+fresh every time the hook fires (not captured when the hook was
+attached) - so a frame hooked once doesn't stay silenced forever once
+gathering-tracking turns back off and the live patch releases it.
+
+**Not fully covered**: the two small 17px regions - `HookScript` only
+exists on Frame-type objects, not plain Texture/FontString/Line
+regions, so those still rely on the 0.5s throttle. Left alone for
+now - the 177x177 frame matches the "faint square"/"shadowed box"
+description far better than two icon-sized 17px regions do, so this
+is very likely the actual fix; flagged as still-open only if the user
+reports those two specifically after this test.
+
+**Not yet live-tested**: this fix.
+
+**How to apply**: [[project_alchemy_gps]] - when a periodic re-assert
+keeps "fixing" the same symptom without ever fully curing it, the
+passenger is winning a race against the poll interval, not escaping
+detection - the fix is reacting to the event that causes the problem
+(OnShow), not polling faster. Doesn't extend to objects that can't
+carry scripts (plain Regions) - those still need either a tighter
+poll or hiding via a scriptable ancestor.
+
+## Build-order step 17, seventh follow-up, same day: the faint square wasn't a passenger at all
+
+User re-ran `/gps mmpassengers` right after the OnShow-hook fix and a
+fresh `/reload`, with the square confirmed still visible and tied to
+tracking being on (ruled out via a direct test: not present with
+tracking off) - result: **0 shown out of 1971 descendants.** Every
+actual Lua-level passenger was gone, yet the square remained -
+meaning it was never a third-party addon frame/region at all; both
+prior rounds of HideMinimapPassengers work (recursive hide, regions,
+the OnShow hook) were real, correct fixes for a real, separate
+problem (the icon and the first square-like reports), just not THIS
+one.
+
+**Root cause**: `MinimapUpdateMask` forced the widget's mask texture
+to `Interface\Buttons\White8x8` - a fully-white mask, meaning no
+crop/transparency anywhere, every pixel of the underlying texture
+shown. Blizzard's native minimap source texture is square internally
+and normally cropped to a circle by its own round mask; forcing a
+fully-uncropped mask reveals whatever's baked into the corners outside
+that circle that Blizzard never intended to be visible - the same
+class of native, Lua-unreachable rendering step 16 already hit a wall
+on trying to read resource-node blips directly.
+
+**Fix**: dropped the square-mask override entirely. `ShowLiveBlips`
+already sets a round-ish mask (`TempPortraitAlphaMask`) once before
+`MinimapUpdateMask` ever runs - leaving that in place crops the native
+content same as normal gameplay does, hiding whatever's in the
+corners. **Trade-off, accepted**: the patch is now a circle inside the
+square window instead of filling every corner - the user's own stated
+priority was killing the texture artifact over maximizing fill.
+
+**Not yet live-tested**: this fix.
+
+**How to apply**: [[project_alchemy_gps]] - a diagnostic that comes
+back clean (0 found) is itself the answer, not a dead end: it rules
+out an entire category (anything Lua can see or touch) and points
+straight at native/baked rendering instead - exactly the category
+step 16 already established can't be read OR, it turns out, safely
+unmasked past Blizzard's own intended crop.
+
+## Build-order step 17, eighth follow-up, same day: a physical border, not another mask guess
+
+The round mask (previous follow-up) didn't remove the artifact, just
+changed its shape - square corners became a thinner ring right at the
+circle's own edge, still visible. User, correctly: two targeted guesses
+in a row hadn't fully solved it, and asked for it gone outright, by
+whatever means, even if something has to give to get there - no more
+blind guessing at Blizzard's own internal rendering.
+
+There's no further lever to pull on Blizzard's side: `SetClipsChildren`
+is already confirmed non-functional on this client, and `Minimap` is a
+special widget type with no `SetTexCoord` to crop its own rendered
+content directly - masking is the only tool Lua has over it, and
+every mask shape just relocates the same baked edge artifact rather
+than removing it.
+
+**Fix**: four solid black strips (`self.MMEdgeCover`), forming a
+picture-frame border around the widget, physically covering the ring
+regardless of its exact thickness or position - the same "bezel
+around a minimap porthole" look other minimap-replacement addons use
+for exactly this situation. Parented to `UIParent` (not `mm` -
+`HideMinimapPassengers` recursively hides everything under `mm` every
+tick, which would have eaten this too), anchored to `mm`'s own edges
+(tracks its position with no extra per-tick math) with thickness kept
+proportional to `mm`'s current size (`LIVE_BLIP_EDGE_MARGIN = 0.16`,
+16% per side - tunable, a single constant), re-synced to one frame
+level above `mm`'s own every tick so draw order is guaranteed
+regardless of whatever `MinimapSyncLayer` currently has `mm` set to.
+Hidden alongside `mm` itself, both in `UpdateLiveBlips`'s not-shown
+branch and in `HideLiveBlips` directly (covers the case where
+tracking turns off mid-shown, bypassing `UpdateLiveBlips` entirely).
+
+**Trade-off, explicitly accepted by the user**: the visible porthole
+is now smaller (loses ~16% off each edge) in exchange for a guaranteed-
+clean edge - no more native rendering artifact, regardless of what
+exactly Blizzard bakes into that band.
+
+**Not yet live-tested**: this fix. If the margin turns out too
+generous (still some content showing better than the artifact
+suggests) or not generous enough (artifact peeks past the border),
+`LIVE_BLIP_EDGE_MARGIN` is the one number to tune.
+
+**How to apply**: [[project_alchemy_gps]] - when a native rendering
+artifact survives two independent mask/mechanism changes, stop trying
+to out-guess Blizzard's internals and cover it with something fully
+under this addon's own control instead - a border/bezel overlay is
+guaranteed to work regardless of the artifact's exact cause, where
+another mask or clip attempt is just another guess at a black box.
+
+**Immediate follow-up, same day: reverted.** User's call on sight -
+"thats awful, undo that." The solid black border strips are gone
+(`self.MMEdgeCover`/`UpdateLiveBlipEdgeCover`/`LIVE_BLIP_EDGE_MARGIN`
+all removed, both call sites in `UpdateLiveBlips` and `HideLiveBlips`
+pulled back out). State is back to the round-mask version from the
+follow-up before it - the ring-shaped edge artifact is present again,
+unresolved, pending direction from the user on how they actually want
+it handled.
+
+**Cleanup pass, same day**: user's own read on the whole chase - net
+result was trading a faint square for a faint circle, livable for now
+- and asked for the dead ends' leftover footprint trimmed, since the
+oversize+clip and edge-cover reverts had each left their own now-inert
+scaffolding behind (reverted in effect, not in bytes). Removed:
+`self.MMClipSupported` (hardcoded `false` since the oversize+clip
+revert, never read as true again - `ClipMMW` back to its original,
+unbranched hide-outright form), the debug overlay's now-meaningless
+`ClipSupported` line, the dead `self.MMMaskName = nil` reset in
+`HideLiveBlips` (nothing sets that field anymore since the square-mask
+revert), and consolidated `MinimapUpdateMask`'s header comment (two
+stacked blocks, one of them describing the reverted square-mask
+behavior as if still current) into one accurate one. No behavior
+change - everything removed was already inert, just still present.
