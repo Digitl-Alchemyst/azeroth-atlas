@@ -247,6 +247,693 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
 end
 
 ---------------------------------------------------------------------------------------
+-- Build-order step 17 (2026-11-11): a scoped-down revival of the
+-- removed "Mode: Live" live-widget reparenting mechanism (see this
+-- file's own top header comment, and CHANGELOG.md's build-order step
+-- 16/17 for the full history) - not to blend the real Minimap into
+-- the window cosmetically like before, but because it's the only way
+-- to surface Blizzard's own native resource-node blips: this same
+-- session's research (CHANGELOG.md step 16) confirmed those blips are
+-- otherwise unreachable from Lua on this client - no region, no
+-- child frame, nothing, even standing directly on a visible node with
+-- every other addon disabled. They're baked into the Minimap widget's
+-- own internal rendering, so the only way to see them through this
+-- addon's own window is to put the real widget there.
+--
+-- That removed mechanism was blamed for a recurring "blocked from an
+-- action only available to the Blizzard UI" taint popup, but the
+-- commit that removed it (`4076ed8`) says plainly that removing it was
+-- live-tested and did NOT fix the popup - so it's not confirmed to be
+-- the cause, just a prior suspect. Reviving it with fresh, isolated
+-- testing is reasonable; if the popup reappears THIS time, that's
+-- real, clean evidence (a single-variable test, unlike the original
+-- multi-cause investigation) and this section should come back out.
+--
+-- Scoped down from the original per explicit user direction: only
+-- takes over the real Minimap widget while the player's gathering-
+-- tracking buff (Find Herbs/Find Minerals/Find Fish) is active, not
+-- for the whole time the map window is open - smaller exposure window
+-- for the protected-frame work below, and it's only useful while
+-- actually gathering anyway. Detection confirmed via a real, already-
+-- installed, already-working addon on this exact server
+-- (GatherMate2/Constants.lua:806-810, Display.lua:325-335) -
+-- C_Minimap.GetNumTrackingTypes()/GetTrackingInfo(id) (.name/.active),
+-- matched against C_Spell.GetSpellName(id) for the known tracking-
+-- spell IDs below - not a guess, the same mechanism that addon already
+-- uses successfully here. Checked on a cheap 1s poll from Update()
+-- (see the gather-tracking block further down) rather than a new
+-- MINIMAP_UPDATE_TRACKING event-frame registration - this file has no
+-- event plumbing of its own, it's driven entirely by Update()'s own
+-- throttle, same pattern as the quest-icon 2s/gather-icon 0.1s polls
+-- already in Update() below.
+--
+-- Most of what follows (ShowLiveBlips/HideLiveBlips/ClipMMW/
+-- PositionOwnedMinimap/MinimapSetScale/MinimapUpdateMask/
+-- MinimapSyncLayer/MinimapIsHostVisible/MinimapSyncVisibility) is
+-- lifted near-verbatim from the archived ApplyTakeOwnership/
+-- ReleaseOwnership/etc. (`git show 4076ed8^:Map/MinimapEngine.lua`),
+-- already real Carbonite math/logic, already combat-lockdown-guarded,
+-- already confirmed live before removal - not rewritten from scratch.
+-- Two things deliberately dropped as dead weight, not ported back:
+-- the custom transparent POI-arrow texture (`Gfx/Map/32Transparent`,
+-- deleted along with the rest of Mode:Live and not worth restoring -
+-- the branch that used it was provably unreachable anyway, see
+-- MinimapUpdateMask below), and the archive's Ctrl/Alt-modified
+-- "see-through" alpha levels (that was for a cosmetic background
+-- blend - this revival's whole point is seeing blips clearly, so it's
+-- always full alpha instead). `MinimapDetachFrms` stays the same
+-- no-op stub it already was in the archive.
+---------------------------------------------------------------------------------------
+
+local GATHER_TRACKING_SPELL_IDS = { 2383, 2580, 43308 } -- Find Herbs, Find Minerals, Find Fish
+local gatherTrackingSpellNames -- lazily resolved by name, see IsGatherTrackingActive
+
+local function IsGatherTrackingActive()
+    if not gatherTrackingSpellNames then
+        gatherTrackingSpellNames = {}
+        for _, spellID in ipairs(GATHER_TRACKING_SPELL_IDS) do
+            local name = C_Spell.GetSpellName(spellID)
+            if name then gatherTrackingSpellNames[name] = true end
+        end
+    end
+    for id = 1, (C_Minimap.GetNumTrackingTypes() or 0) do
+        local info = C_Minimap.GetTrackingInfo(id)
+        if info and info.active and gatherTrackingSpellNames[info.name] then
+            return true
+        end
+    end
+    return false
+end
+
+-- Build-order step 17, live-tested follow-up: recursively hides every
+-- shown descendant of frm (not just direct children - confirmed live
+-- a first, direct-children-only pass still missed a passenger, most
+-- likely nested one level deeper inside its own button frame), storing
+-- each one in `hidden` so HideLiveBlips can restore exactly what was
+-- touched. Safe to walk unconditionally: this session's own earlier,
+-- fully-isolated testing (every other addon disabled) already
+-- confirmed Blizzard's native Minimap has zero Lua-visible children of
+-- its own, so anything found here with other addons enabled is a
+-- third-party addon's own unprotected frame, never Blizzard's.
+-- Live-tested follow-up: the addon-button icon itself stopped
+-- appearing once this walked frames, but a faint dark square stayed
+-- behind - its own background is most likely a bare Texture region
+-- (GetChildren() only returns Frame-type children; a plain decorative
+-- texture parented straight onto a frame, with no frame of its own
+-- wrapping it, is invisible to that call and needs GetRegions()
+-- instead). Hiding regions at every level this walks, not just
+-- frames, for the same reason frames are safe to hide here - nothing
+-- Blizzard's own native Minimap draws survives in isolation (confirmed
+-- earlier this session), so anything found with other addons enabled
+-- is third-party.
+local function HideMinimapPassengers(frm, hidden)
+    for _, region in ipairs({ frm:GetRegions() }) do
+        if region:IsShown() and not hidden[region] then
+            hidden[region] = true
+            region:Hide()
+        end
+    end
+    for _, child in ipairs({ frm:GetChildren() }) do
+        if child:IsShown() and not hidden[child] then
+            hidden[child] = true
+            child:Hide()
+        end
+        HideMinimapPassengers(child, hidden)
+    end
+end
+
+-- Takes over the real Minimap widget. Adapted from the archived
+-- ApplyTakeOwnership - same InCombatLockdown deferral (retried from
+-- Update(), see MMApplyPending below), same "SetParent(UIParent) and
+-- position purely by anchor math (PositionOwnedMinimap) rather than
+-- true reparenting into this window's own frame tree" approach - the
+-- archive's own comment explains this avoids drag/resize conflicts
+-- with a movable window.
+function MinimapEngine:ShowLiveBlips()
+    if self.MMOwn then return end
+    if InCombatLockdown() then
+        self.MMApplyPending = true
+        return
+    end
+    self.MMApplyPending = nil
+
+    local mm = _G["Minimap"]
+    if not mm then return end
+    self.MMFrm = mm
+    self.MMOwn = true
+
+    if not self.MMOriginalParent then
+        self.MMOriginalParent = mm:GetParent()
+        self.MMOriginalStrata = mm:GetFrameStrata()
+        self.MMOriginalLevel = mm:GetFrameLevel()
+        self.MMOriginalShown = mm:IsShown()
+        self.MMOriginalAlpha = mm:GetAlpha()
+        self.MMOriginalWidth = mm:GetWidth()
+        self.MMOriginalHeight = mm:GetHeight()
+        self.MMOriginalScale = mm:GetScale()
+        self.MMOriginalPoints = {}
+        for index = 1, mm:GetNumPoints() do
+            self.MMOriginalPoints[index] = { mm:GetPoint(index) }
+        end
+    end
+
+    -- The real widget is a single object - moving it would leave the
+    -- on-screen MinimapCluster an empty shell if the user currently
+    -- has it shown. Force it hidden for the duration (same as the
+    -- archived Mode:Live did), restoring whatever it was in
+    -- HideLiveBlips below.
+    local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
+    if NativeMinimapHide then
+        if self.MMPrevNativeHidden == nil then
+            self.MMPrevNativeHidden = NativeMinimapHide:IsNativeHidden()
+        end
+        NativeMinimapHide:SetNativeHidden(true)
+    end
+
+    -- Carbonite picks between a Retail round mask and a Classic one
+    -- here (Nx.isRetail) - the archive found the Classic one dead on
+    -- this client and used the Retail path unconditionally; kept the
+    -- same way (MinimapUpdateMask below immediately overrides this
+    -- with a square mask anyway, matching this window's own square
+    -- content area).
+    mm:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    mm:SetClampedToScreen(true)
+    mm:SetWidth(140)
+    mm:SetHeight(140)
+
+    -- Keep Blizzard's hierarchy out of the movable window - see this
+    -- section's own header.
+    mm:SetParent(UIParent)
+
+    -- Kept verbatim from the archive (MapEngine.lua:2541-2544): a
+    -- separate global sibling frame under MinimapCluster, not a
+    -- descendant of mm, confirmed live before - nothing about
+    -- reparenting mm itself needs to touch it, just keep it out of the
+    -- way.
+    local backdrop = _G["MinimapBackdrop"]
+    if backdrop then
+        backdrop:Hide()
+        local mmc = _G["MinimapCluster"]
+        if mmc then backdrop:SetParent(mmc) end
+    end
+
+    -- Build-order step 17, live-tested follow-up: a third-party
+    -- addon's own minimap button (a LibDBIcon-style icon; several
+    -- addons already running this session announce themselves as
+    -- exactly this kind - Titan Panel, Dungeon Journal, Lore Forever)
+    -- parents itself as a descendant of the real Minimap and
+    -- recalculates its own position from Minimap's current size/
+    -- shape - resizing/repositioning mm for the live-blip patch
+    -- dragged one along, showing up (icon and backdrop both) inside
+    -- this window's patch. See HideMinimapPassengers above for why
+    -- recursing into every descendant, not just direct children, is
+    -- safe here.
+    self.MMHiddenChildren = {}
+    HideMinimapPassengers(mm, self.MMHiddenChildren)
+end
+
+-- Gives the live widget back to Blizzard. Adapted from the archived
+-- ReleaseOwnership - same combat-lockdown-safe restore, same zoom-kick
+-- nudge (without it, confirmed live before: the restored widget comes
+-- back at its correct native size, but the terrain inside stays
+-- rendered at whatever smaller size it last was).
+function MinimapEngine:HideLiveBlips()
+    local mm = self.MMFrm
+    if not mm or not self.MMOwn then return end
+
+    self.MMOwn = false
+    self.MMZoomType = nil
+    self.MMPassengerCheckAt = nil
+    mm:Hide()
+
+    -- Restore whatever third-party addon buttons ShowLiveBlips hid
+    -- (see its own header) - plain unprotected frames, no combat-
+    -- lockdown concern, safe to do unconditionally.
+    if self.MMHiddenChildren then
+        for child in pairs(self.MMHiddenChildren) do
+            child:Show()
+        end
+        self.MMHiddenChildren = nil
+    end
+
+    if not InCombatLockdown() and self.MMOriginalParent then
+        mm:SetParent(self.MMOriginalParent)
+        mm:ClearAllPoints()
+        for _, point in ipairs(self.MMOriginalPoints or {}) do
+            mm:SetPoint(unpack(point))
+        end
+        if self.MMOriginalStrata then mm:SetFrameStrata(self.MMOriginalStrata) end
+        if self.MMOriginalLevel then mm:SetFrameLevel(self.MMOriginalLevel) end
+        if self.MMOriginalAlpha then mm:SetAlpha(self.MMOriginalAlpha) end
+        if self.MMOriginalWidth then mm:SetWidth(self.MMOriginalWidth) end
+        if self.MMOriginalHeight then mm:SetHeight(self.MMOriginalHeight) end
+        if self.MMOriginalScale then mm:SetScale(self.MMOriginalScale) end
+
+        if mm.GetZoom and mm.SetZoom then
+            local ok, err = pcall(function()
+                local zoom = mm:GetZoom() or 0
+                local altZoom = zoom == 0 and 1 or 0
+                mm:SetZoom(altZoom)
+                mm:SetZoom(zoom)
+            end)
+            if not ok then
+                AlchemyGPS.Core.Logger:warn("release zoom-kick failed: %s", tostring(err))
+            end
+        end
+
+        if type(mm.SetMaskTexture) == "function" then
+            mm:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+        end
+        if self.MMOriginalShown then mm:Show() else mm:Hide() end
+    end
+
+    if type(mm.SetPlayerTexture) == "function" then
+        mm:SetPlayerTexture("Interface\\Minimap\\MinimapArrow")
+    end
+    self.MMArrowName = nil
+    self.MMMaskName = nil
+
+    local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
+    if NativeMinimapHide and self.MMPrevNativeHidden ~= nil then
+        NativeMinimapHide:SetNativeHidden(self.MMPrevNativeHidden)
+        self.MMPrevNativeHidden = nil
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Clip minimap frame to the map and set position, size and texture coords.
+-- XY is center. Width and height are not scaled.
+-- Kept verbatim from Nx.Map:ClipMMW (UIEngine.lua:10988) via the
+-- archived port - the real positioning math, unchanged.
+---------------------------------------------------------------------------------------
+function MinimapEngine:ClipMMW(frm, bx, by, w, h)
+    local scale = self.ScaleDraw
+
+    local bw = w * scale
+    local bh = h * scale
+    local clipW = self.MapW
+    local clipH = self.MapH
+    local x = (bx - self.MapPosXDraw) * scale + clipW * .5
+    local y = (by - self.MapPosYDraw) * scale + clipH * .5
+
+    local vx0 = x - bw * .5
+    local vx1 = vx0
+    local vx2 = vx0 + bw
+
+    if vx1 < 0 or vx2 > clipW then
+        return false
+    end
+
+    w = vx2 - vx1
+
+    if w <= 0 then
+        return false
+    end
+
+    local vy0 = y - bh * .5
+    local vy1 = vy0
+    local vy2 = vy0 + bh
+
+    if vy1 < 0 or vy2 > clipH then
+        return false
+    end
+
+    h = vy2 - vy1
+
+    if h <= 0 then
+        return false
+    end
+
+    local sc = w / 140
+    self.MMFScale = sc
+
+    local isc = 1
+    self:MinimapSetScale(sc, isc)
+
+    if not self:PositionOwnedMinimap(vx1, -vy1 - self.TitleH) then
+        frm:Hide()
+        return false
+    end
+
+    frm:Show()
+
+    return true
+end
+
+---------------------------------------------------------------------------------------
+-- Position Blizzard's owned minimap without anchoring or parenting it to the
+-- movable window. localX/localY are offsets from the map content
+-- frame's TOPLEFT, in that frame's unscaled coordinates.
+-- Kept verbatim from Nx.Map:PositionOwnedMinimap (MapEngine.lua:3696)
+-- via the archived port.
+---------------------------------------------------------------------------------------
+function MinimapEngine:PositionOwnedMinimap(localX, localY)
+    if InCombatLockdown() then
+        return false
+    end
+
+    local mm = self.MMFrm
+    local mapFrame = self.Frm
+    if not mm or not mapFrame then
+        return false
+    end
+
+    local mapLeft = mapFrame:GetLeft()
+    local mapTop = mapFrame:GetTop()
+    local mapScale = mapFrame:GetEffectiveScale()
+    local minimapScale = mm:GetEffectiveScale()
+    if type(mapLeft) ~= "number" or type(mapTop) ~= "number"
+        or type(mapScale) ~= "number" or mapScale <= 0
+        or type(minimapScale) ~= "number" or minimapScale <= 0 then
+        return false
+    end
+
+    local left = (mapLeft + localX) * mapScale / minimapScale
+    local top = (mapTop + localY) * mapScale / minimapScale
+
+    mm:ClearAllPoints()
+    mm:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+
+    return true
+end
+
+-- Kept verbatim from Nx.Map:MinimapSetScale (MapEngine.lua:3734) via
+-- the archived port.
+function MinimapEngine:MinimapSetScale(scale, iconScale)
+    if InCombatLockdown() then
+        return
+    end
+    local mm = self.MMFrm
+    local sz = 140 * scale / iconScale
+    mm:SetWidth(sz)
+    mm:SetHeight(sz)
+    mm:SetScale(iconScale)
+end
+
+-- Adapted from the archived MinimapUpdateMask (MapEngine.lua:3746-
+-- 3759) - always a square mask (matches this window's own square
+-- content area, confirmed live before as the right call - the real
+-- source's round-vs-square is a per-user setting this addon doesn't
+-- expose). Simplified from the archive: that version's custom
+-- transparent-arrow fallback branch is gone (its texture asset,
+-- Gfx/Map/32Transparent, was deleted along with the rest of Mode:Live
+-- and isn't worth restoring - the branch only ran when MMOwn was
+-- false, which can't be true inside this function, so it was
+-- provably unreachable anyway). Always sets Blizzard's own arrow now.
+function MinimapEngine:MinimapUpdateMask()
+    local squareMask = "Interface\\Buttons\\White8x8"
+    if self.MMMaskName ~= squareMask then
+        self.MMMaskName = squareMask
+        self.MMFrm:SetMaskTexture(squareMask)
+    end
+
+    -- Build-order step 17, live-tested follow-up: this used to restore
+    -- Blizzard's own player-facing arrow here. Confirmed live this own
+    -- addon's doing - this engine already draws its own player marker
+    -- (UpdatePlayerMarker) at the same spot, so the native one was
+    -- pure redundant clutter sitting on top of it (and easy to mistake
+    -- for something else, like a quest-direction pointer, since it's a
+    -- gray arrow rotating with facing). Blanked out instead of set -
+    -- "" is the standard trick other minimap-replacement addons use to
+    -- suppress Blizzard's own player icon without hiding the rest of
+    -- the widget.
+    local arrow = ""
+    if self.MMArrowName ~= arrow then
+        self.MMArrowName = arrow
+        if type(self.MMFrm.SetPlayerTexture) == "function" then
+            local ok, err = pcall(self.MMFrm.SetPlayerTexture, self.MMFrm, arrow)
+            if not ok then
+                AlchemyGPS.Core.Logger:warn("SetPlayerTexture blank failed: %s", tostring(err))
+            end
+        end
+    end
+end
+
+-- Kept verbatim from Nx.Map:MinimapSyncLayer (MapEngine.lua:2977) via
+-- the archived port.
+function MinimapEngine:MinimapSyncLayer(preferredLevel, hostOffset, aboveHost)
+    local mm = self.MMFrm
+    if not mm then
+        return preferredLevel or 1
+    end
+
+    local level = type(preferredLevel) == "number" and preferredLevel or 1
+    local offset = type(hostOffset) == "number" and hostOffset or 1
+    local winFrame = self.Win and self.Win.Frm
+    local mapFrame = self.Frm
+
+    if not InCombatLockdown() and mm.SetFrameStrata then
+        local targetStrata = winFrame and winFrame.GetFrameStrata
+            and winFrame:GetFrameStrata()
+        local targetRank = targetStrata
+            and MINIMAP_STRATA_RANK[targetStrata] or -1
+        local mapStrata = mapFrame and mapFrame.GetFrameStrata
+            and mapFrame:GetFrameStrata()
+        local mapRank = mapStrata and MINIMAP_STRATA_RANK[mapStrata] or -1
+
+        if mapStrata and mapRank > targetRank then
+            targetStrata = mapStrata
+        end
+
+        if aboveHost and targetStrata then
+            targetStrata = MINIMAP_STRATA_ABOVE[targetStrata] or targetStrata
+        end
+
+        if targetStrata and mm:GetFrameStrata() ~= targetStrata then
+            mm:SetFrameStrata(targetStrata)
+        end
+    end
+
+    if winFrame then
+        if winFrame.GetFrameLevel then
+            local winLevel = winFrame:GetFrameLevel()
+            if type(winLevel) == "number" then
+                level = max(level, winLevel + offset)
+            end
+        end
+    end
+
+    if mapFrame and mapFrame.GetFrameLevel then
+        local mapLevel = mapFrame:GetFrameLevel()
+        if type(mapLevel) == "number" then
+            level = max(level, mapLevel + offset)
+        end
+    end
+
+    mm:SetFrameLevel(level)
+    return level
+end
+
+-- Kept verbatim from Nx.Map:MinimapIsHostVisible (MapEngine.lua:3032)
+-- via the archived port.
+function MinimapEngine:MinimapIsHostVisible()
+    return self.Win and self.Win.Frm:IsVisible()
+        and self.Frm and self.Frm:IsVisible() or false
+end
+
+-- Kept verbatim from Nx.Map:MinimapSyncVisibility (MapEngine.lua:3037)
+-- via the archived port.
+function MinimapEngine:MinimapSyncVisibility()
+    local mm = self.MMFrm
+    if not self.MMOwn or not mm then return true end
+    local visible = self:MinimapIsHostVisible()
+    if visible and not self.MMHiddenByMap then return true end
+
+    self.MMHiddenByMap = true
+    local inCombat = InCombatLockdown()
+    if inCombat and mm.IsProtected and mm:IsProtected() then
+        mm:SetAlpha(0)
+    elseif mm:IsShown() then
+        mm:Hide()
+    end
+    return visible and not inCombat
+end
+
+-- Not ported (no-op stub, same as the archive) - the real
+-- Nx.Map:MinimapDetachFrms hands addon buttons/pins parented to the
+-- minimap off to a dock/recognized-addon-name system this project
+-- doesn't have.
+function MinimapEngine:MinimapDetachFrms()
+end
+
+local LIVE_BLIP_FIT_MARGIN = 0.9 -- see ResolveLiveBlipFit's own header
+
+-- Build-order step 17, live-tested follow-up: user asked to "remove
+-- the blizz texture" once alignment was confirmed working - full
+-- removal isn't possible (same confirmed-this-session fact that made
+-- blips themselves unreadable: terrain and blips are one baked
+-- render, there's no known way to fade one without the other), so
+-- this dims the whole widget instead of hiding it outright - enough
+-- that the native terrain reads as a faint backdrop instead of a
+-- competing image, while the blip (small, bright) still shows through.
+-- A first-guess tunable, not a measured constant - raise it if blips
+-- end up too faint to see, lower it if the terrain is still too loud.
+local LIVE_BLIP_ALPHA = 0.55
+
+-- Build-order step 17 follow-up, same day: live-tested - the real
+-- widget DOES show native blips once reparented (confirmed, yellow
+-- dot visible), but didn't line up with this engine's own background/
+-- icons, and zoomed oddly on top of our own canvas. Root cause: the
+-- widget's own zoom LEVEL (an index, SetZoom(0..GetZoomLevels()-1))
+-- determines how many real-world yards its content spans - that's
+-- independent of pixel size, so resizing the frame to "fill the
+-- window" (this function's first pass) changes how big the content
+-- LOOKS without changing what real-world distance it represents,
+-- which is exactly why the blip didn't land where our own drawn node
+-- icon says it should.
+--
+-- Fix: read the widget's actual current view radius in yards
+-- (C_Minimap.GetViewRadius() - confirmed available on this client the
+-- same way C_Minimap.GetTrackingInfo/C_VignetteInfo etc. were already
+-- confirmed this session) and pick whichever of the widget's real
+-- discrete zoom levels makes its yards-per-pixel match this engine's
+-- own background scale (self.ScaleDraw px-per-worldunit, divided by
+-- the same YARDS_PER_WORLDUNIT conversion the Goto/gather-dedupe
+-- sections already use) while still fitting the window. This is a
+-- principled version of the exact thing this file's own header
+-- explains Carbonite's real preset-search did (MapEngine.lua:3384-
+-- 3391) and this project deliberately replaced for the old cosmetic-
+-- blend use case (continuous smooth fill mattered more than exact
+-- scale there) - here exact scale IS the point, so searching real
+-- zoom levels is the correct trade this time, not a regression.
+local GATHER_YARDS_PER_WORLDUNIT = 4.575
+
+-- Fallback constants for a client (or moment) without
+-- C_Minimap.GetViewRadius - ported from GatherMate2's own bundled
+-- HereBeDragons-Pins-2.0.lua:66-83 (real, maintained library
+-- constants also used to place that addon's own minimap pins, not
+-- guessed here).
+local MINIMAP_VIEW_RADIUS_FALLBACK = {
+    [false] = { [0] = 466 + 2 / 3, [1] = 400, [2] = 333 + 1 / 3, [3] = 266 + 2 / 3, [4] = 200, [5] = 133 + 1 / 3 },
+    [true]  = { [0] = 300, [1] = 240, [2] = 180, [3] = 120, [4] = 80, [5] = 50 },
+}
+
+local function GetMinimapViewRadius(zoom)
+    if C_Minimap and C_Minimap.GetViewRadius then
+        return C_Minimap.GetViewRadius()
+    end
+    local byIndoor = MINIMAP_VIEW_RADIUS_FALLBACK[IsIndoors() and true or false]
+    return byIndoor and byIndoor[zoom]
+end
+
+-- Searches the widget's real zoom levels (visited most-zoomed-out
+-- first, since view radius shrinks monotonically as the level index
+-- rises - confirmed against the fallback table above) for the
+-- largest one whose resulting size still fits the window, so the
+-- patch shows as much real-world context as it can while staying
+-- aligned. Sets the widget's real zoom to the chosen level as a side
+-- effect (calling SetZoom per candidate costs nothing visible -
+-- these all happen within one tick, before any frame renders).
+-- Returns a fit width/height in this engine's own world-pos units
+-- (same units ClipMMW already expects), or nil if not even the most-
+-- zoomed-in level has a usable radius.
+function MinimapEngine:ResolveLiveBlipFit()
+    local mm = self.MMFrm
+    local scale = self.ScaleDraw
+    if not scale or scale <= 0 then return nil end
+
+    local fitBound = LIVE_BLIP_FIT_MARGIN * min(self.MapW or 0, self.MapH or 0)
+    local levels = (mm.GetZoomLevels and mm:GetZoomLevels()) or 1
+
+    local bestFit, bestLevel
+    for level = 0, levels - 1 do
+        mm:SetZoom(level)
+        local radius = GetMinimapViewRadius(level)
+        if radius and radius > 0 then
+            local fit = (2 * radius) / GATHER_YARDS_PER_WORLDUNIT
+            if fit * scale <= fitBound then
+                bestFit, bestLevel = fit, level
+                break
+            end
+            if not bestFit or fit < bestFit then
+                bestFit, bestLevel = fit, level
+            end
+        end
+    end
+
+    if bestLevel then
+        mm:SetZoom(bestLevel)
+    end
+    return bestFit
+end
+
+-- Per-tick positioning/sizing of the owned widget while gathering-
+-- tracking is active - adapted from the archived Mode:Live's own
+-- inline Update() block, now sized/zoomed via ResolveLiveBlipFit
+-- above instead of a plain "fill the window" calculation (see that
+-- function's own header for why). The zoom-level search only re-runs
+-- when self.ScaleDraw actually changes (cached otherwise) - re-
+-- probing every one of the widget's zoom levels every single tick
+-- regardless of whether anything changed would be needless churn.
+--
+-- Simplified from the archive for this new purpose: no "Tiles" mode
+-- gate (tied to a Mode button this revival doesn't use - this
+-- function is only ever called while self.MMOwn is true, which
+-- already serves as the gate), and always full alpha (the archive's
+-- Ctrl/Alt "see-through" alpha was for a cosmetic background blend -
+-- this revival's whole point is seeing native blips clearly, not
+-- blending them in).
+function MinimapEngine:UpdateLiveBlips()
+    local mm = self.MMFrm
+    if not mm then return end
+
+    if not self:MinimapSyncVisibility() then
+        return
+    end
+    self.MMHiddenByMap = nil
+
+    -- Build-order step 17, live-tested follow-up: the one-time hide in
+    -- ShowLiveBlips wasn't enough - confirmed live, a passenger button
+    -- was still appearing. Several addon minimap-button libraries keep
+    -- re-showing/repositioning their own button from an ongoing OnUpdate
+    -- (that's how they support being dragged around the minimap edge),
+    -- which would undo a one-time Hide() almost immediately. Re-scanning
+    -- on a cheap throttle (not every tick) catches that without the
+    -- cost of a full recursive walk 20x/sec.
+    local now = GetTime()
+    if not self.MMPassengerCheckAt or now >= self.MMPassengerCheckAt then
+        self.MMPassengerCheckAt = now + 0.5
+        self.MMHiddenChildren = self.MMHiddenChildren or {}
+        HideMinimapPassengers(mm, self.MMHiddenChildren)
+    end
+
+    local shown = false
+    if not InCombatLockdown() then
+        if self.MMScale ~= self.ScaleDraw or not self.MMLiveFit then
+            self.MMLiveFit = self:ResolveLiveBlipFit()
+        end
+        local fit = self.MMLiveFit
+        if fit and fit > 0 and self:ClipMMW(mm, self.PlyrX, self.PlyrY, fit, fit) then
+            shown = true
+        end
+    end
+
+    if shown then
+        mm:SetAlpha(LIVE_BLIP_ALPHA)
+        self:MinimapUpdateMask()
+        self:MinimapSyncLayer(self.Win.Frm:GetFrameLevel() or 1, 1)
+        self:MinimapDetachFrms()
+
+        if self.MMZoomType ~= 1 or self.MMScale ~= self.ScaleDraw then
+            self.MMZoomType = 1
+            self.MMScale = self.ScaleDraw
+            local ok, err = pcall(function()
+                local zoom = mm:GetZoom() or 0
+                local altZoom = zoom == 0 and 1 or 0
+                mm:SetZoom(altZoom)
+                mm:SetZoom(zoom)
+            end)
+            if not ok then
+                AlchemyGPS.Core.Logger:warn("zoom-kick failed: %s", tostring(err))
+            end
+        end
+    else
+        self.MMZoomType = 0
+        mm:Hide()
+    end
+end
+
+---------------------------------------------------------------------------------------
 -- Build-order step 8: real world-art canvas. The player's actual
 -- continent/zone, drawn as a tile grid of Blizzard's own live map art
 -- (C_Map.GetMapArtLayers/GetMapArtLayerTextures) positioned/scaled by
@@ -2219,6 +2906,47 @@ AlchemyGPS.Core.SlashCommands:Register("diffblips", function(rest)
     end
 end, "diff Minimap's child frames vs. a snapshot ('/gps diffblips start' first) - gathering-node active-detection research")
 
+-- Build-order step 17, live-tested follow-up: after two rounds of
+-- blind HideMinimapPassengers fixes (frames, then regions) the user
+-- still reported a faint dark square - rather than guess a third time,
+-- this dumps ground truth: every descendant of Minimap right now
+-- (frames AND regions, same recursion HideMinimapPassengers itself
+-- uses), each one's own description (reusing DescribeMinimapChild -
+-- works on regions too, GetSize/GetCenter aren't frame-only), whether
+-- it's currently shown, and whether this engine's own hide pass has
+-- already caught it. Only useful while the live patch is actually
+-- shown (self.MMOwn) - run it then.
+AlchemyGPS.Core.SlashCommands:Register("mmpassengers", function()
+    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if not MinimapEngine.MMOwn or not MinimapEngine.MMFrm then
+        Logger:warn("mmpassengers: live patch isn't shown right now (MMOwn=%s) - turn on gathering tracking first",
+            tostring(MinimapEngine.MMOwn))
+        return
+    end
+
+    local hidden = MinimapEngine.MMHiddenChildren or {}
+    local n = 0
+    local function walk(frm, depth)
+        for _, region in ipairs({ frm:GetRegions() }) do
+            n = n + 1
+            Logger:info("  [region]%s shown:%s hidden-by-us:%s  %s",
+                ("  "):rep(depth), tostring(region:IsShown()), tostring(hidden[region] == true),
+                DescribeMinimapChild(region))
+        end
+        for _, child in ipairs({ frm:GetChildren() }) do
+            n = n + 1
+            Logger:info("  [frame] %s shown:%s hidden-by-us:%s  %s",
+                ("  "):rep(depth), tostring(child:IsShown()), tostring(hidden[child] == true),
+                DescribeMinimapChild(child))
+            walk(child, depth + 1)
+        end
+    end
+    Logger:info("mmpassengers: walking Minimap's full descendant tree...")
+    walk(MinimapEngine.MMFrm, 0)
+    Logger:info("mmpassengers: %d total descendant(s) listed above", n)
+end, "dump every frame/region under the live Minimap patch, shown + hidden-by-us state (build-order step 17 diagnostic)")
+
 -- Trimmed from Nx.Map:UpdateWorld (MapEngine.lua:5945-6147) - see this
 -- section's header for what's dropped and why. What's kept is the
 -- real texture-fetch/assign core: resolve the art source mapID, fetch
@@ -3133,6 +3861,21 @@ function MinimapEngine:UpdateDebugOverlay()
         tinsert(lines, "UnitIsDeadOrGhost: true   Corpse: not tracked (pvp map, or no corpse info yet)")
     end
 
+    tinsert(lines, "")
+    tinsert(lines, DEBUG_HEADER_COLOR:format("Live Blips  (Build-order step 17)"))
+    if self.MMOwn then
+        local mm = self.MMFrm
+        tinsert(lines, ("MMOwn: true   Zoom: %s/%s"):format(
+            tostring(mm and mm:GetZoom()), tostring(mm and mm.GetZoomLevels and mm:GetZoomLevels())))
+        tinsert(lines, ("LiveFit (worldunits): %s   MMScale: %s"):format(
+            fmtNum(self.MMLiveFit, "%.2f"), fmtNum(self.MMScale, "%.3f")))
+        tinsert(lines, ("MM px size: %s   ZoomType: %s"):format(
+            tostring(mm and mm:GetWidth()), tostring(self.MMZoomType)))
+    else
+        tinsert(lines, ("MMOwn: false   (tracking %s)"):format(
+            tostring(self.Frm and IsGatherTrackingActive())))
+    end
+
     debugText:SetText(table.concat(lines, "\n"))
 end
 
@@ -3155,6 +3898,13 @@ function MinimapEngine:Update(elapsed)
     self.Ttl = (self.Ttl or 0) + (elapsed or 0)
     if self.Ttl < 0.05 then return end
     self.Ttl = 0
+
+    -- Build-order step 17: retry a deferred ShowLiveBlips (see its own
+    -- header - every call it makes touches protected frame state, so
+    -- it bails out and sets this flag instead of erroring mid-combat).
+    if self.MMApplyPending and not InCombatLockdown() then
+        self:ShowLiveBlips()
+    end
 
     -- Build-order step 6: apply an active drag. Ported verbatim from
     -- Nx.Map:OnUpdate's own "Scroll map with mouse" block
@@ -3464,6 +4214,26 @@ function MinimapEngine:Update(elapsed)
     if not self.GatherUpdateAt or now >= self.GatherUpdateAt then
         self.GatherUpdateAt = now + 0.1
         self:UpdateGatherIcons()
+    end
+
+    -- Build-order step 17: gathering-tracking gate for the live-widget
+    -- blip patch (see ShowLiveBlips' own header for why) - cheap 1s
+    -- poll, same reasoning as the quest/gather throttles above. Only
+    -- takes over the real widget if this window has actually been
+    -- opened at least once this session (self.Frm is set once by
+    -- TakeOwnership and persists across close/reopen) - no point
+    -- owning it with nothing yet to position it against.
+    if not self.GatherTrackingCheckAt or now >= self.GatherTrackingCheckAt then
+        self.GatherTrackingCheckAt = now + 1
+        local active = self.Frm and IsGatherTrackingActive()
+        if active and not self.MMOwn then
+            self:ShowLiveBlips()
+        elseif not active and self.MMOwn then
+            self:HideLiveBlips()
+        end
+    end
+    if self.MMOwn then
+        self:UpdateLiveBlips()
     end
 
     self:UpdateDebugOverlay()

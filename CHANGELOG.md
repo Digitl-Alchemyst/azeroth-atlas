@@ -2189,3 +2189,284 @@ angles. The honest next move is reporting the dead end plainly and
 asking whether a genuinely different, adjacent feature (here: depletion-
 tracking instead of live-presence) is worth pursuing instead - not
 silently downgrading scope or quietly letting the request drop.
+
+## Build-order step 17, 2026-11-11: surfacing native blips by reviving a scoped-down live-widget patch
+
+Direct follow-up, same day. User supplied outside research (FarmHud's
+own `.toc`/GitHub) proposing a different angle entirely: since the
+native blips can't be READ (step 16's confirmed dead end), show them
+by putting the real `Minimap` widget itself inside this addon's own
+window, the way FarmHud does.
+
+**Correction to that research, verified by reading FarmHud's actual
+source (`R:\addons\FarmHud\FarmHud.lua`)**: it does NOT isolate blips
+from terrain via an alpha/mask trick - `UpdateMapAlpha`
+(`FarmHud.lua:218-231`) sets the WHOLE `Minimap` frame's alpha
+uniformly, terrain and blips together; there's no known way to fade
+one without the other, since they're the same native rendering.
+FarmHud's real technique is simpler: `MinimapMT.SetParent(Minimap,
+FarmHud)` (`:728`), anchored to fill its HUD, `EnableMouse(Minimap,
+false)` (`:739`) for click-through, native zoom forced to 0 while
+visible (`:1072`). Terrain always comes along with the blips - the win
+is just "the real widget, now bigger/positioned where I want it."
+
+**Important prior art, found via `git log` before writing anything
+new**: this addon already built almost exactly this. An earlier "Mode:
+Live" design (commit history around `4076ed8`, "Remove Mode:Live") had
+reparented the real `Minimap` as a small always-on low-alpha accent
+blended into the custom map window - then removed it entirely on
+suspicion it caused a recurring "blocked from an action only available
+to the Blizzard UI" taint popup. The removal commit says plainly that
+removing it was live-tested and did **not** fix the popup (which
+persisted even with GatherMate2 fully disabled, now blaming AlchemyGPS
+itself) - so Mode:Live was specifically tested and isn't confirmed to
+be the cause, just a prior suspect. The archived code (`git show
+4076ed8^:Map/MinimapEngine.lua`) already guarded every `Minimap`-
+touching call with `InCombatLockdown()`, deferred via a pending flag
+retried from `Update()` - real, working, already-tested safety logic,
+not something that needed redoing.
+
+**What shipped, after a plan the user approved**: a scoped-down
+revival, per the user's own explicit direction - gate it behind the
+player's gathering-tracking buff (Find Herbs/Find Minerals/Find Fish)
+instead of the whole time the map window is open, so the protected-
+frame work only ever runs while actually gathering. Detection method
+confirmed via a real, already-installed, already-working addon on this
+exact server (`GatherMate2/Constants.lua:806-810`, `Display.lua:325-
+335`) - `C_Minimap.GetNumTrackingTypes()`/`GetTrackingInfo(id)`
+(`.name`/`.active`) matched against `C_Spell.GetSpellName(id)` for
+spell IDs 2383/2580/43308 - not a guess, the exact mechanism that addon
+already uses successfully here. Checked on a cheap 1s poll from
+`Update()` rather than a new event-frame registration (this file had
+no event plumbing of its own; a poll this infrequent matches the
+quest-icon 2s/gather-icon 0.1s throttles already there).
+
+`Map/MinimapEngine.lua`: new `ShowLiveBlips`/`HideLiveBlips` (bodies
+lifted near-verbatim from the archived `ApplyTakeOwnership`/
+`ReleaseOwnership`), restored `ClipMMW`/`PositionOwnedMinimap`/
+`MinimapSetScale`/`MinimapUpdateMask`/`MinimapSyncLayer`/
+`MinimapIsHostVisible`/`MinimapSyncVisibility`/`MinimapDetachFrms`
+verbatim from the same archive, a new `UpdateLiveBlips` (the archive's
+own inline per-tick fit/position/zoom-kick block, extracted into its
+own method), and `IsGatherTrackingActive`. Current `TakeOwnership` was
+NOT touched or restored wholesale - it already does all the per-window
+pool setup (tile/player-marker/service/quest/gather pools, drag-to-pan
+wiring) that was tangled into the same-named function in the archive;
+duplicating that would have conflicted. Two things deliberately
+dropped, not ported back: the archive's custom transparent POI-arrow
+texture (`Gfx/Map/32Transparent` - deleted along with the rest of
+Mode:Live, and its branch was provably unreachable anyway, see
+`MinimapUpdateMask`'s own comment), and the archive's Ctrl/Alt
+"see-through" alpha levels (that was for a cosmetic blend - this
+revival's whole point is seeing blips clearly, so it's always full
+alpha). While owned, the on-screen native minimap would otherwise go
+empty (it's a single widget, not copied) - `ShowLiveBlips` forces
+`NativeMinimapHide` on for the duration and `HideLiveBlips` restores
+whatever it was, same as the archive did.
+
+**Not yet live-tested - this needs the user's own test, in this
+order, not static analysis**: (1) does the old taint/"blocked from an
+action" popup reappear (toggling tracking on/off, opening/closing the
+map window, entering/leaving combat while active) - if so, stop
+immediately and report exactly what reproduces it, this is a cleaner
+single-variable test than the original investigation ever got; (2) do
+native resource-node blips actually become visible inside the patch
+once a known-active node is in range, and does the patch line up/track
+correctly as the player moves and the window pans/zooms.
+
+**How to apply**: [[project_alchemy_gps]] - when outside research about
+a known addon makes a specific factual claim (here: "alpha/mask
+isolates blips from terrain"), verify it against that addon's own real
+source before acting on it, the same discipline this project already
+applies to its own prior conclusions - the claim was wrong in a way
+that would have produced a confusing bug (set alpha low to hide
+terrain, blips vanish too) if taken on faith. Separately: before
+reviving ANY previously-removed code in this project, `git log`/`git
+show` it first - this project's history is full of deliberate removals
+with real reasons, and the removal commit itself often already
+contains the live-test evidence needed to judge whether reviving it is
+safe (here: "removal was tested, didn't fix the thing it was blamed
+for" - a materially different risk posture than "removed and never
+re-examined").
+
+## Build-order step 17, live-tested follow-up, same day: zoom sync, the native zoom-in limit, and cleanup
+
+First live test came back fast: no taint popup (clean through toggling
+tracking, opening/closing the map, combat in/out), and the native
+blip DID render - but didn't line up with this engine's own
+background, and looked wrong zoomed in (its own terrain texture
+floating on top, player-facing arrow visible).
+
+**Root cause, found from the user's own debug-overlay numbers**:
+Blizzard's Minimap zoom is a discrete LEVEL (an index into
+`GetZoomLevels()`), which determines how many real-world YARDS the
+widget shows - independent of its pixel size. Resizing the widget to
+"fill the window" (this step's first pass) changed how big it looked
+without changing what distance it represented, so it could never
+align with this engine's own ScaleDraw-driven background.
+
+**Fix**: `ResolveLiveBlipFit` (new) reads the widget's real current
+view radius via `C_Minimap.GetViewRadius()` (confirmed available the
+same way `C_Minimap.GetTrackingInfo`/`C_VignetteInfo` etc. already
+were this session - with a fallback table ported from GatherMate2's
+own bundled `HereBeDragons-Pins-2.0.lua:66-83` for safety) and
+searches the widget's real zoom levels for the one whose resulting
+yards-per-pixel matches this engine's own scale
+(`self.ScaleDraw / YARDS_PER_WORLDUNIT`) while still fitting the
+window - picking the largest (most context) that fits. Only re-
+searches when `self.ScaleDraw` actually changes, not every tick.
+**Confirmed live**: the blip now lines up with this engine's own drawn
+node icon at matching zoom.
+
+**Confirmed hard limit, also from the user's own live numbers**:
+zooming the custom window in close enough, the search runs out of
+levels (`Zoom: 5/6` - already the most zoomed-in Blizzard offers) and
+that level's own fixed view radius (~133 yards outdoor) still doesn't
+fit the window at that scale - `ResolveLiveBlipFit` falls back to the
+closest-available (still too big) size, `ClipMMW`'s own fit-check
+correctly fails, and the widget hides (`ZoomType: 0`, confirmed in the
+user's own debug overlay). This is a REAL ceiling, not a bug: Blizzard
+'s own minimap cannot represent less than its own most-zoomed-in
+level's fixed real-world radius, regardless of pixel size - there is
+no further level to search. A true fix (oversizing the widget past the
+window's bounds and clipping the overflow via `SetClipsChildren`,
+rather than resizing it to fit) is possible in principle but adds a
+new, nontested mechanism for a corner case that only bites at very
+tight custom-zoom levels - not attempted this session; flagged as a
+possible future follow-up, not a bug to fix blindly.
+
+**Cleanup, both explicit user asks once alignment was confirmed
+working**: (1) the native player-facing arrow (misread as a quest-
+pointer in testing - a fair read, it's a plain gray arrow that rotates
+with facing) was Blizzard's own, restored by this engine's own
+`MinimapUpdateMask` - blanked via `SetPlayerTexture("")` (the standard
+trick other minimap-replacement addons use) since this engine already
+draws its own player marker in the same spot, making the native one
+pure redundant clutter, not something we needed to identify or isolate
+first. (2) "remove the blizz texture" - full removal isn't possible
+(same confirmed fact that makes blips unreadable: terrain and blips
+are one baked render, no known way to fade one without the other), so
+the widget is now dimmed (`LIVE_BLIP_ALPHA = 0.55`, a first-guess
+tunable) rather than fully opaque or fully hidden - terrain reads as a
+faint backdrop, the blip (small, bright) still shows through.
+
+**Not yet live-tested**: the dimmed alpha and blanked arrow (both
+shipped right after the zoom-sync confirmation, in the same pass).
+
+**How to apply**: [[project_alchemy_gps]] - when a live test surfaces
+a numeric mismatch (here: blip offset from the drawn icon), check
+whether the debug overlay already being used for OTHER features (Pan/
+Zoom, World/Position) can be extended to show the new feature's own
+internal state too, rather than adding print-spam - the user was
+already watching that exact panel and could read the new values
+immediately without being told where to look.
+
+## Build-order step 17, second live-tested follow-up, same day: a third-party addon button was riding along
+
+Next test pass: quest arrow confirmed gone. Two new things reported -
+(1) "one addon icon shows briefly in the bottom left corner" of the
+patch while zooming, (2) with the widget now dimmed (`LIVE_BLIP_ALPHA`),
+what looked like terrain looked "mostly opaque", or if it was actually
+gone, left "a shadowed box" visible behind it.
+
+**Diagnosis**: several addons already running this same session
+announce themselves in chat as exactly the kind of addon that places a
+small button ON the minimap (Titan Panel, Dungeon Journal, Lore
+Forever - all common LibDBIcon-style minimap buttons). That style of
+button parents itself as a TRUE CHILD of the real `Minimap` and
+recalculates its own position from Minimap's current size/shape.
+Reparenting and resizing `Minimap` for the live-blip patch drags any
+such button along with it - showing up (and its own background panel,
+likely the "shadowed box") inside this window's patch instead of its
+normal spot, moving as the patch resizes during zoom. This is NOT the
+same thing as the native blips (confirmed baked into unreachable C-
+side rendering) - a third-party addon's own button is a plain,
+unprotected Lua frame, so hiding it is simple and safe.
+
+**Fix**: `ShowLiveBlips` now snapshots and hides every currently-shown
+child of `Minimap` before taking it over, `HideLiveBlips` shows them
+all back. One-time hide per ownership cycle (when tracking turns on),
+not a continuous per-tick re-check - if some addon re-shows its own
+button later while tracking stays on, it could reappear; not expected
+to be common, but if it recurs this would need to become a per-tick
+scan instead.
+
+**Not yet live-tested**: this specific fix.
+
+**How to apply**: [[project_alchemy_gps]] - when reparenting/resizing
+a real, live Blizzard frame (not a copy), remember OTHER addons may
+already treat that exact frame as a stable anchor (minimap buttons are
+the classic case) - check `GetChildren()` for third-party passengers,
+not just for the thing you're trying to read/manipulate yourself.
+
+## Build-order step 17, third live-tested follow-up, same day: the one-time hide wasn't enough
+
+Confirmed live - both issues still occurred after the previous fix.
+Two gaps in that attempt: (1) it only checked DIRECT children of
+`Minimap`, but the passenger button is most likely nested one level
+deeper inside its own button frame; (2) it only ran once, at the
+moment tracking turned on, but several minimap-button libraries keep
+an ongoing `OnUpdate` that re-shows/repositions their own button
+(that's how they support being dragged around a minimap's edge) -
+which would undo a one-time `Hide()` almost immediately.
+
+Fixed both: `HideMinimapPassengers` (new) recurses into every
+descendant of `Minimap`, not just direct children - safe to do
+unconditionally, since this session's own earlier fully-isolated
+testing already confirmed Blizzard's native Minimap has zero Lua-
+visible children of its own, so anything found with other addons
+enabled is always a third-party frame. It's now also called
+repeatedly from `UpdateLiveBlips` on a cheap 0.5s throttle (not every
+tick), not just once from `ShowLiveBlips`, so a button that re-shows
+itself mid-session gets caught again quickly instead of staying
+visible until the next full show/hide cycle.
+
+**Not yet live-tested**: this fix.
+
+**How to apply**: [[project_alchemy_gps]] - a "hide it once" fix for
+something another addon actively maintains (shows/repositions on its
+own schedule) needs to re-assert itself on a throttle, not just run
+once at the state transition - the first attempt at this exact fix
+assumed a one-time hide would stick, and live testing proved it
+doesn't for this class of addon behavior.
+
+## Build-order step 17, fourth live-tested follow-up, same day: regions, not just frames
+
+Confirmed live - the flashing icon is gone (previous fix worked), but
+a faint dark square stayed behind in its place. Gap: `GetChildren()`
+only returns Frame-type children - a plain decorative background
+texture parented straight onto a frame with no frame of its own
+wrapping it (common for a simple button backdrop) is invisible to that
+call and needs `GetRegions()` instead. `HideMinimapPassengers` now
+hides shown regions at every level it walks, not just frames - same
+safety reasoning as before (confirmed earlier this session Blizzard's
+own Minimap has zero Lua-visible regions of its own in isolation, so
+anything found with other addons enabled is third-party).
+
+**Not yet live-tested**: this fix.
+
+**How to apply**: [[project_alchemy_gps]] - when walking a frame tree
+to find "anything another addon attached here," remember Frames and
+Regions (Texture/FontString/Line) are separate APIs
+(`GetChildren()` vs `GetRegions()`) - a walk that only checks one will
+silently miss bare decorative textures that aren't wrapped in their
+own frame.
+
+## Build-order step 17, fifth follow-up, same day: stopped guessing, added a diagnostic instead
+
+Confirmed live again - the dark square is STILL there after the
+regions fix, faint. Two blind guesses in a row (frames, then regions)
+both reduced but didn't fully solve it, and each cycle costs a live-
+test round-trip. Rather than guess a third time, added `/gps
+mmpassengers` - dumps every frame AND region under the live Minimap
+patch right now, each one's own description (name/size/offset/nested
+texture, reusing the existing `DescribeMinimapChild` from the step-16
+research), whether it's currently shown, and whether this engine's own
+hide pass already caught it. Next step is running this live and
+reading the actual answer instead of inferring it from a screenshot.
+
+**How to apply**: [[project_alchemy_gps]] - after two guess-and-check
+fixes for the same visual report both come back "still there," switch
+to a diagnostic dump instead of a third guess - this project already
+had the exact describe/recurse logic built (step 16's
+`DescribeMinimapChild`) and reusing it here cost almost nothing.

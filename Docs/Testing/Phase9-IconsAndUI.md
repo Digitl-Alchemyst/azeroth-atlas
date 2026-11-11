@@ -8,6 +8,32 @@ history in `CHANGELOG.md` — this doc is the checklist only.
 Roughly in priority order — top items are things that may not render at
 all; bottom items are tuning/feel questions on things known to render.
 
+- [ ] **NOT YET LIVE-TESTED, HIGH CAUTION** — Native resource-node
+      blips via a revived live-widget patch, 2026-11-11 (build-order
+      step 17, `CHANGELOG.md`). A scoped-down revival of this addon's
+      own previously-removed "Mode: Live" mechanism (real `Minimap`
+      widget reparented so its native terrain+blip rendering becomes
+      visible inside this window) - this time gated behind the
+      player's gathering-tracking buff (Find Herbs/Find Minerals/Find
+      Fish) instead of being on whenever the map window is open.
+      **Test in this exact order, do not skip to step 2:**
+      1. Toggle tracking on/off a few times with the map window open
+         (buff bar, or the minimap's own Tracking dropdown), open/close
+         the map window while tracking is active, and go in and out of
+         combat while it's active. Watch specifically for the "AlchemyGPS
+         has been blocked from an action only available to the Blizzard
+         UI" popup reappearing - this exact mechanism was removed once
+         before on suspicion of causing that popup (though removing it
+         didn't actually fix it at the time). If it reappears, STOP,
+         click "Ignore" not "Disable", and report exactly what sequence
+         reproduced it (this addon's own bug, not a fresh guess needed).
+      2. Only if step 1 is clean: with tracking active and standing
+         near a node you can see is active, confirm native resource
+         blips actually show up inside the patch on the custom map
+         window, confirm the patch's position/size tracks correctly as
+         you move and as the window is panned/zoomed, and confirm your
+         on-screen native minimap (if you don't have "Hide Blizzard
+         minimap" on) goes back to normal once tracking turns off.
 - [x] **CONCLUDED - confirmed dead end, 2026-11-11.** "Is this
       gathering node actually active right now" - user cited FarmHud as
       an example; its source was read and it does no independent
