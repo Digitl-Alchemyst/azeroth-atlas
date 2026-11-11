@@ -6,9 +6,17 @@
 -- widget and arranges them in a small bar, instead of leaving them
 -- cluttering whatever window currently owns the live widget.
 --
--- Confirmed needed live, 2026-11-09: once MinimapEngine.lua borrows
--- the real Minimap widget (ApplyTakeOwnership), every button still
--- parented to it rides along and renders inside our window too.
+-- Confirmed needed live, 2026-11-09: MinimapEngine.lua used to borrow
+-- the real Minimap widget (ApplyTakeOwnership) and every button still
+-- parented to it rode along into our window too. That borrowing was
+-- removed entirely 2026-11-10 ("Mode: Live" removal - see
+-- MinimapEngine.lua's own header), but this dock's real job hasn't
+-- gone away: Scan() (below) reads `_G["Minimap"]` directly rather than
+-- through MinimapEngine, so it keeps working unchanged - and it's now
+-- the ONLY way to reach those buttons at all whenever the user's own
+-- "Hide Blizzard minimap" preference is on, since the native minimap
+-- (and every button riding on it) is then genuinely hidden, not just
+-- borrowed elsewhere.
 --
 -- NOT built on the real source's Nx.Window (the same UI/Window.lua
 -- class our own map window uses) any more, despite the original port

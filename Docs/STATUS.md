@@ -6,15 +6,31 @@ fixes) — update it whenever the roadmap below advances a step.
 
 ## TL;DR
 
-The addon boots clean, the ported minimap window works (chrome, live
-Blizzard-widget blend, zoom, pan, resize, real world-art background),
-and three features beyond the original build plan's scope have also
-been built and are working in-game: a right-click tile-brightness
-menu, a minimap icon dock (addon/Blizzard button collector), and a
-native-mail-button forward with a working icon. What's left to reach
-"done": confirm Phase 5-8 testing formally, add the Ctrl+Shift+M
-keybind, and run one real deploy+regression pass. See `ROADMAP.md` for
-the ordered plan.
+The addon boots clean, the ported minimap window works (chrome, zoom,
+pan, resize, real world-art background, player marker, service/quest/
+gather icons), and three features beyond the original build plan's
+scope have also been built and are working in-game: a right-click
+tile-brightness menu, a minimap icon dock (addon/Blizzard button
+collector), and a native-mail-button forward with a working icon.
+What's left to reach "done": confirm Phase 5-8 testing formally, add
+the Ctrl+Shift+M keybind, and run one real deploy+regression pass. See
+`ROADMAP.md` for the ordered plan.
+
+**2026-11-10, same-day amendment**: the "live Blizzard widget blend"
+row below (step 4) describes a mechanism that no longer exists.
+Removed entirely — the window never reparents or blends in the real
+Minimap widget anymore; it's a self-contained tile canvas only. This
+was removed on strong, specific evidence it was the cause of a
+recurring GatherMate2 taint popup (`mm:SetParent(UIParent)`, a
+protected-frame call, touching the same widget GatherMate2 parents its
+own pins to) — **confirmed by live re-test NOT to have fixed it**,
+along with 8 further rounds of fixes and isolation tests (see
+`CHANGELOG.md`'s round-9 entry). The actual root cause was never
+conclusively found. GatherMate2 integration was dropped entirely as a
+result — see item 10 further down and `CHANGELOG.md` for the full
+history. The live-widget removal itself stands regardless (it was also
+the direct, confirmed cause of a separate bug: the "Hide Blizzard
+minimap" checkbox not remembering its state across reload).
 
 ## Build-order status against the original plan (`../../AlchemyGPS-Plan.md`)
 
@@ -23,7 +39,7 @@ the ordered plan.
 | 1 | Addon skeleton boots cleanly | **Done.** `/gps` slash, SavedVariables, zero-error login — never regressed since. |
 | 2 | Native-hide toggle in isolation | **Done**, now exposed via the Settings window checkbox, not just a temp slash command. |
 | 3 | Window chrome only (`Nx.Window` port + Settings window) | **Done.** `UI/Window.lua` (2029 lines, the real ported chrome), `Settings/SettingsWindow.lua`. |
-| 4 | Live Blizzard widget blend (`ClipMMW` etc.) | **Done.** |
+| 4 | Live Blizzard widget blend (`ClipMMW` etc.) | **Removed, 2026-11-10** (see TL;DR amendment above) — the real Minimap widget is never reparented/blended in anymore; suspected (not confirmed) as the GatherMate2 taint popup's cause, fixed a separate real bug either way ("Hide Blizzard minimap" not persisting). |
 | 5 | Zoom (wheel + buttons) | **Built; test doc exists (`Docs/Testing/Phase5-Zoom.md`), pass/fail not yet formally confirmed back in writing.** |
 | 6 | Pan-drag | **Built; test doc exists (`Phase6-PanDrag.md`), same confirmation gap as Phase 5.** |
 | 7 | Resize correctness | **Built; test doc exists (`Phase7-Resize.md`), same confirmation gap.** |
@@ -126,9 +142,12 @@ original docs' pass/fail as still valid against today's code.
    (confirmed with the Freewind Post inn, 2026-11-10) mostly aren't in
    Carbonite's static camelot-flavor zone catalog, so the background
    world-art correctly goes blank there (by design — see
-   `RefreshCurrentZone`'s own comment) and, as of this session, the
-   live-widget patch now *freezes* in place instead of disappearing
-   (see `CHANGELOG.md`). It still doesn't track real indoor movement.
+   `RefreshCurrentZone`'s own comment) and the view *freezes* at the
+   last good outdoor position instead of jumping to noise (see
+   `CHANGELOG.md`). It still doesn't track real indoor movement. (The
+   live-widget patch this was originally written against no longer
+   exists at all — see this file's TL;DR amendment, 2026-11-10 — but
+   the same freeze-gate still applies to the tile canvas/player marker.)
    Carbonite's real fix for this is its full `Nx.Zones` zone-metadata
    database feeding `NxMapData.lua`'s `GetZoneInfo`/
    `BuildMissingZoneInfo` resolver — confirmed this session (by reading
@@ -215,47 +234,50 @@ original docs' pass/fail as still valid against today's code.
     blow-by-blow in `CHANGELOG.md`'s step-9e entries, compressed here:
     v1 ported a static Wowhead dump into this addon's own data files
     (doubled-up markers once the user's real GatherMate2 install was
-    also present); v2 tried GatherMate2's live addon object but got the
-    global name wrong (`GatherMate` is file-local in its own code); v3
-    pivoted to force-loading `Carbonite.Gathermate2_Data` directly -
-    wrong direction entirely, since **this addon exists to phase
-    Carbonite out**, and moot anyway since the user's whole Carbonite
-    suite is disabled; that force-load also tripped a real Blizzard
-    "blocked from an action only available to the Blizzard UI" popup
-    that neither a taint-deferral fix nor dropping the force-load
-    (while still depending on Carbonite's data existing) resolved.
-    **Current design**: reads GatherMate2's own live database directly
-    and ONLY - `gm:GetNodesForZone(mapId, dbType)` /
-    `gm:DecodeLoc(coord)` / `gm.nodeTextures` for real per-species
-    icons, via `GetGatherMate()` (`LibStub("AceAddon-3.0"):GetAddon(
-    "GatherMate2", true)` - the correct way to reach another addon's
-    Ace3 object regardless of what it calls its own internal local).
-    No Carbonite anywhere in this code, no local data file, and this
-    addon never calls `LoadAddOn` on anything - the taint popup turned
-    out to be caused exactly by trying to do programmatically what
-    GatherMate2's own first-party "Import GatherMate2Data" button
-    (`/gathermate` -> Import tab) does safely via a direct player click.
-    Needs zero setup: GatherMate2 records nodes automatically as the
-    player gathers, and this addon just reads whatever's already there;
-    a one-time chat tip mentions the Import button only as an optional
-    way to pre-seed an empty zone faster. Profession-gated (herb/
-    mining/fish only show if the player knows that profession; treasure
-    always shows). True live "is this node active right now" detection
-    was investigated and hit a real wall - neither GatherMate2 nor
-    Carbonite's own node-pin renderer do it either, and two live API
+    also present); v2-v8 progressively integrated GatherMate2's own
+    live database directly instead, chasing a recurring Blizzard
+    "blocked from an action only available to the Blizzard UI" taint
+    popup through 8 rounds of fixes - including removing this addon's
+    entire live-Blizzard-widget-reparenting mechanism ("Mode: Live") on
+    strong, specific evidence it was the cause. **None of it worked.**
+    Round 9's systematic isolation (stub the gathering feature's own
+    GatherMate2 calls entirely - popup still fired; stub
+    `NativeMinimapHide` and `MinimapDock` together, the only other two
+    places this addon touches the real Minimap - popup still fired)
+    ruled out literally every mechanism in this addon individually,
+    while disabling the whole addon still reliably fixed it every time
+    - a paradox pointing at something structural (addon load order/
+    count/timing) rather than any one line of code. One data point that
+    broke every theory tried: enabling the otherwise-unused Carbonite
+    suite alongside AlchemyGPS *suppressed* the popup entirely. See
+    `CHANGELOG.md`'s full round-9 entry for the complete isolation-test
+    history - **the actual root cause was never conclusively found.**
+    **User's call, given that**: stop chasing an unreproducible-by-
+    isolation bug and drop the GatherMate2 integration entirely,
+    reverting to this feature's own original static-data design (user
+    is also disabling GatherMate2 on their end). **Current design**:
+    static Wowhead data again, but a cleaner port than v1 - herb/
+    mining/treasure from the standalone `GatherMate2_Data` addon's own
+    "Forever"-flavor pack (tailored to this exact server), fish from
+    `Carbonite.Gathermate2_Data`'s broader "camelot" pack instead (the
+    Forever pack's own fish data is empty) - `Map/Data/Gather{Herb,
+    Mining,Fish,Treasure}.lua`, global tables renamed `AlchemyGPS*` to
+    avoid any collision if GatherMate2/Carbonite are also present.
+    Coordinate decode inlined from GatherMate2's own real `DecodeLoc`
+    formula (confirmed via source read). Icons are one guaranteed-
+    present Blizzard profession-spell texture per category, not per-
+    species - zero runtime dependency on GatherMate2 or Carbonite at
+    all now. Profession-gated (herb/mining/fish only show if the player
+    knows that profession; treasure always shows) - unchanged from
+    every prior version. True live "is this node active right now"
+    detection was investigated and hit a real wall - neither GatherMate2
+    nor Carbonite's own node-pin renderer do it either, and two live API
     checks (`C_VignetteInfo.GetVignettes`, minimap child-texture
     scanning) both came back unusable on this server. Ships a proximity
     approximation instead (bright when near a known point, dimmed
-    otherwise) - not a confirmed-active claim. **Round 7 fix**: user
-    reported the decisive clue - the taint popup ONLY ever appears at
-    initial login/reload, never during normal play - pointing at this
-    addon's own very first `RefreshGatherIcons` call (fired during
-    `TakeOwnership`'s initial zone setup, before any hardware event
-    this session) rather than GatherMate2's own continuous pin-drawing.
-    Fixed by deferring that call's entire body one frame via
-    `C_Timer.After(0, ...)`. **Completely untested in-game** - this is
-    the seventh pass on this feature and needs a clean live test before
-    trusting it's fixed.
+    otherwise) - not a confirmed-active claim, unchanged from every
+    prior version. Deployed and verified byte-identical; **completely
+    untested in-game as of this writing.**
 
 ## Current file tree (non-library files)
 

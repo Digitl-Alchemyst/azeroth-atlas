@@ -5,22 +5,18 @@
 ## Version: 0.1.0-dev
 ## SavedVariables: AlchemyGPSDB
 ## DefaultState: Enabled
-## OptionalDeps: GatherMate2
-# Gathering-node field (step 9e, MinimapEngine.lua). Reads GatherMate2's
-# own live database directly (GetNodesForZone/DecodeLoc/nodeTextures) -
-# whatever the player has gathered or imported through GatherMate2's
-# own UI, no local copy, no Carbonite anywhere in this addon (this
-# project exists to phase Carbonite OUT, so depending on
-# Carbonite.Gathermate2_Data was explicitly rejected - that addon hard-
-# requires Carbonite itself, which this addon's own user doesn't even
-# run). This addon never calls LoadAddOn on anything - an earlier
-# attempt to force-load a Wowhead data pack ourselves tripped a real
-# Blizzard "blocked from an action only available to the Blizzard UI"
-# popup on this server; GatherMate2 has its own first-party import
-# button (/gathermate -> Import tab) for that, triggered by the
-# player's own click, which is the only sanctioned way to do it here.
-# Every call site guards safely; nothing here breaks without GatherMate2
-# present, it just shows no gathering nodes.
+# Gathering-node field (step 9e, MinimapEngine.lua). Static Wowhead
+# data (Map/Data/Gather{Herb,Mining,Fish,Treasure}.lua), no runtime
+# dependency on GatherMate2 or Carbonite at all. A prior design read
+# GatherMate2's own live database directly instead, but that triggered
+# a recurring Blizzard "blocked from an action only available to the
+# Blizzard UI" taint popup that 8+ rounds of fixes - including removing
+# this addon's entire live-Blizzard-widget-blend mechanism on strong
+# evidence it was the cause - never resolved; isolating tests even
+# showed the popup surviving with every GatherMate2-touching call in
+# this addon stubbed out, while disabling this addon entirely fixed it.
+# Reverted to static data on that basis - see MinimapEngine.lua's own
+# header comment on this section for the full history.
 
 # Phase 3: window chrome. Locales/Util must load before UI (Window.lua
 # reads locale strings and Util helpers at file scope); UI before Map/

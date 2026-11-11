@@ -4,6 +4,15 @@ Companion to `STATUS.md` (current state) and `../CHANGELOG.md` (dated
 history). This is the ordered plan from here to "the minimap module is
 done" — read `STATUS.md` first if picking this up cold.
 
+**2026-11-10 amendment**: "Mode: Live"/the live Blizzard-widget blend
+(build-order step 4, `ClipMMW` etc.) was removed entirely this same
+day — see `STATUS.md`'s TL;DR amendment. `Docs/Testing/Phase4-*.md`
+(if it exists) and anything in Phase5-7's docs that specifically tests
+the live-widget patch (zoomType tiers, widget show/hide at fit
+boundaries) now tests a mechanism that no longer exists — read each
+doc against today's code before running it, same as Step A item 3
+below already flags for the preset-search rewrite.
+
 ## Step A — Close out Phase 5-8 testing formally
 
 Nothing here is expected to fail based on live use so far, but it's
@@ -75,22 +84,19 @@ what to report back), and run each once:
   hides the opposite faction's innkeeper/mailbox entries where the
   data marks one.
 - `Docs/Testing/GatherNodes.md` (new, 2026-11-10, highest priority —
-  genuinely untested, not just undocumented) — reads GatherMate2
-  directly now (no local data file), so test with GatherMate2 actually
-  installed/enabled: herb/mining/fish/treasure icons appear using
-  GatherMate2's own real per-species icons (not one generic icon per
-  category — confirms `GatherMate.nodeTextures` lookup is working);
-  no markers at all with GatherMate2 disabled/missing (confirms the
-  `if GatherMate then` guard, not an error); gated correctly by which
+  genuinely untested, not just undocumented) — **reverted to static
+  Wowhead data, 2026-11-10 (see `CHANGELOG.md`'s round-9 entry); no
+  GatherMate2 dependency at all now, test with it disabled** — herb/
+  mining/fish/treasure icons appear using one generic profession-icon
+  texture per category (`Trade_Herbalism`/`Trade_Mining`/
+  `Trade_Fishing`/a bag icon for treasure); gated correctly by which
   professions the character actually knows; icons dim/brighten
   correctly as the player walks toward and away from a known point
   (confirms `GATHER_NEARBY_RANGE` is in the right ballpark — adjust
   the constant in `MinimapEngine.lua` if it triggers obviously too
   early or too late); no visible frame-rate stutter in a dense zone
   (confirms the 0.1s reposition throttle is enough); icons disappear/
-  reappear correctly on zone change; no more doubled-up markers at a
-  single node (the bug that caused the rewrite away from a locally
-  ported data copy).
+  reappear correctly on zone change.
 - `Docs/Testing/AutoFollow.md` (new, 2026-11-10) — unchecking the
   title-bar checkbox lets a manual pan stay put instead of snapping
   back to center within ~30 ticks of releasing the drag; re-checking

@@ -1,56 +1,39 @@
 -- Alchemy GPS | Map / MinimapEngine
--- Blends the live Blizzard Minimap widget into our undocked window as
--- a small, low-alpha patch near the player - Carbonite's real
--- mechanism (reparent the widget to UIParent, clip/scale/position it
--- against a world-space viewport, never just stretch it to fill a
--- box). Ported from Carbonite/Modules/Map/MapEngine.lua.
+-- Renders the undocked map window as a self-contained tile canvas
+-- (Blizzard's own continent/zone art, C_Map.GetMapArtLayerTextures) -
+-- this engine's own PlyrX/Y/Scale/pan state, our own drawn player
+-- marker, and our own service/quest/gather icon layers. No dependency
+-- on the real Blizzard Minimap widget anywhere in this file.
 --
--- Build-order step 4 turned out much deeper than the plan's own
--- anchors assumed. ClipMMW/MinimapUpdate/MinimapDetachFrms aren't a
--- small isolated slice of Carbonite's map engine - they're wired
--- into:
---   - self.MinimapOnMouseDown/Up/Wheel + MinimapSetInputMode: input
---     routing that only matters once Carbonite's own zoom/pan replace
---     native minimap clicks - that's steps 5/6, not this one. Not
---     ported here; the widget keeps its native Blizzard clicks/wheel-
---     zoom for now, which is harmless, not broken, and the correct
---     "no zoom/pan yet" interim behavior.
---   - Nx.Map.Dock (the button-dock system) - explicitly a non-goal
---     per the plan ("unrelated to the map window despite the similar
---     name"). MinimapDetachFrms's real job is handing off addon
---     buttons/pins attached to the minimap to that dock; without it,
---     this file's MinimapDetachFrms just hides anything unrecognized
---     instead, so the small patch stays clean.
---   - A whole Nx.db.profile.MiniMap options schema (dock position,
---     dock-on-max, per-zone alpha, icon scale, instance/BG/garrison
---     auto-docking, indoor/bugged auto-full-size) this project's
---     feature list never asked for. Dropped; fixed sensible defaults
---     stand in (see Update() below).
---   - A real world-art canvas (self.MapPosXDraw/Y, self.ScaleDraw,
---     self.MapW/H as a drawn map surface) that doesn't exist until
---     build-order step 8. Standing in for it here: the player is
---     always treated as sitting at the canvas center (no pan yet -
---     that's step 6) at a fixed 1-world-unit-per-pixel scale (no zoom
---     yet - step 5), with "canvas size" just being our window's
---     content frame size. Once steps 5/6/8 land, PlyrX/Y, ScaleDraw
---     and MapW/H get driven by the real systems instead of these
---     fixed stand-ins - ClipMMW/PositionOwnedMinimap/MinimapSetScale
---     themselves are already the real, verbatim math and need no
---     changes when that happens.
+-- REMOVED same day (2026-11-10, "Mode: Live" removal): earlier
+-- versions of this file also reparented the real Minimap widget
+-- (TakeOwnership/ApplyTakeOwnership/ReleaseOwnership/ClipMMW/
+-- PositionOwnedMinimap/MinimapSetScale/MinimapUpdateMask/
+-- MinimapSyncLayer/MinimapIsHostVisible/MinimapSyncVisibility/
+-- MinimapDetachFrms - ~500 lines, ported from Carbonite/Modules/Map/
+-- MapEngine.lua) and blended it into the window as a small low-alpha
+-- "Live" accent on top of the tile canvas ("Mode: Tiles" toggled this
+-- off). Removed entirely, on explicit direction, after this turned
+-- out to be the real root cause of a recurring "GatherMate2 has been
+-- blocked from an action only available to the Blizzard UI" taint
+-- popup: GatherMate2 (and presumably other addons) parent their own
+-- minimap pins directly to the real Minimap widget, and
+-- ApplyTakeOwnership's `mm:SetParent(UIParent)` - explicitly noted in
+-- its own prior comment as "touches protected frame state" - rips that
+-- widget out of MinimapCluster and into this addon's own window,
+-- automatically, on login if the map window was left open, before any
+-- hardware event that session. GatherMate2's own pin code then
+-- inherited taint from that reparent the next time it touched its
+-- pins. The real Blizzard minimap now stays fully under Blizzard's own
+-- control always - shown or hidden per the user's own "Hide Blizzard
+-- minimap" preference, persisted directly with no override tied to
+-- this window's own open/close state (see MinimapWindow.lua).
 --
--- ClipMMW/PositionOwnedMinimap/MinimapSetScale/MinimapSyncLayer/
--- MinimapSyncVisibility/MinimapIsHostVisible/
--- MinimapShouldUseBlizzardPlayerArrow are kept verbatim (the real
--- positioning/clipping/layering math - this is "the single most
--- important function for the map that sits inside it to actually
--- look like Carbonite", per the plan). TakeOwnership is a trimmed
--- MinimapOwnInit (one-time setup only; this addon has no "own
--- minimap" checkbox - it's just how the window works). Update is a
--- new, much-trimmed replacement for MinimapUpdate/MinimapUpdateEnd
--- combined, keeping only the "try each preset size, biggest first,
--- blend if it fits" loop and the alpha/mask/layer/detach calls that
--- loop needs - every dock-position/instance/BG/garrison/indoor-auto-
--- toggle/menu-checkbox branch is dropped, not approximated.
+-- TakeOwnership is kept as a name (one-time per-window setup: tile/
+-- marker/icon frame pools, mouse wheel/drag wiring) even though it no
+-- longer "owns" anything external - renaming it was considered and
+-- rejected to keep this diff reviewable; a future cleanup pass can
+-- rename it along with MinimapWindow.lua's own call site.
 
 local AlchemyGPS = _G.AlchemyGPS
 local Nx = AlchemyGPS
@@ -120,11 +103,6 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.BackgndAlpha = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.BackgndBrightness) or 1
 
-    self.MMOwn = true
-    local mm = _G["Minimap"]
-    assert(mm, "Minimap widget not found")
-    self.MMFrm = mm
-
     -- Build-order step 8: the zone-art tile frame pool. Created once
     -- (persists across close/reopen, same as the pan/zoom state below -
     -- recreating it would just leak the old 150 frames).
@@ -183,7 +161,6 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.StepTime = self.StepTime or 0
     self.ScaleDraw = self.ScaleDraw or 1
     self.MapPosXDraw, self.MapPosYDraw = self.MapPosXDraw or 0, self.MapPosYDraw or 0
-    self.MMZoomType = nil
 
     -- Drag-to-pan state (build-order step 6) is transient, unlike the
     -- zoom/pan target fields above - always reset on (re)open instead
@@ -218,395 +195,6 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     contentFrm:SetScript("OnMouseUp", function(_, button)
         self:OnMouseUp(button)
     end)
-
-    if not self.MMOriginalParent then
-        self.MMOriginalParent = mm:GetParent()
-        self.MMOriginalStrata = mm:GetFrameStrata()
-        self.MMOriginalLevel = mm:GetFrameLevel()
-        self.MMOriginalShown = mm:IsShown()
-        self.MMOriginalAlpha = mm:GetAlpha()
-        self.MMOriginalWidth = mm:GetWidth()
-        self.MMOriginalHeight = mm:GetHeight()
-        self.MMOriginalScale = mm:GetScale()
-        self.MMOriginalPoints = {}
-        for index = 1, mm:GetNumPoints() do
-            self.MMOriginalPoints[index] = { mm:GetPoint(index) }
-        end
-    end
-
-    -- Every call below (SetParent above all) touches protected frame
-    -- state - every other mutator in this file (ReleaseOwnership,
-    -- PositionOwnedMinimap, MinimapSetScale) already guards against
-    -- combat lockdown, but this one didn't, and it's the one that
-    -- actually reparents the widget. Confirmed live: closing/reopening
-    -- our window while in combat left TakeOwnership erroring out
-    -- partway through, which silently aborted MinimapWindow:Open()
-    -- before it reached win:Show(true) - the window just never
-    -- reappeared. Deferred the same way Carbonite defers its own
-    -- combat-unsafe minimap work (MMChkDelay-style retry): Update()
-    -- re-attempts this every tick until it succeeds.
-    if InCombatLockdown() then
-        self.MMApplyPending = true
-        return
-    end
-    self:ApplyTakeOwnership(mm)
-end
-
-function MinimapEngine:ApplyTakeOwnership(mm)
-    self.MMApplyPending = nil
-
-    -- Carbonite normally picks between a Retail round mask
-    -- ("Interface\\CharacterFrame\\TempPortraitAlphaMask") and a
-    -- Classic one ("textures\\MinimapMask") here (Nx.isRetail,
-    -- MapEngine.lua:3748). The Classic mask is confirmed dead on this
-    -- client (blank terrain once the widget's resized, regardless of
-    -- the zoom-kick below) - but WoW Forever may behave more like a
-    -- modern client under the hood despite its Classic-range TOC, so
-    -- trying Carbonite's OTHER real mask path here instead of jumping
-    -- straight to the square fallback.
-    mm:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    mm:SetClampedToScreen(true)
-    mm:SetWidth(140)
-    mm:SetHeight(140)
-
-    -- Keep Blizzard's hierarchy out of the movable window: a managed
-    -- descendant of a StartMoving/StartSizing frame can invalidate
-    -- the drag/resize on current clients (the exact reason Carbonite
-    -- itself positions this in screen coordinates instead).
-    mm:SetParent(UIParent)
-
-    local transparentPOITexture = "Interface\\Addons\\AlchemyGPS\\Gfx\\Map\\32Transparent"
-    if type(mm.SetPOIArrowTexture) == "function" then
-        mm:SetPOIArrowTexture(transparentPOITexture)
-    end
-    if type(mm.SetStaticPOIArrowTexture) == "function" then
-        mm:SetStaticPOIArrowTexture(transparentPOITexture)
-    end
-
-    -- Kept verbatim from this same real function (MapEngine.lua:2541-
-    -- 2544). The "ring" that kept showing regardless of the mask/
-    -- region fiddling above was never one of mm's own regions or
-    -- children at all (confirmed live: the always-on debug overlay's
-    -- own regions=0 count) - it's a SEPARATE global frame,
-    -- `MinimapBackdrop`, this client's Classic/Wrath-era FrameXML
-    -- ships as the minimap's round border backdrop (a sibling of
-    -- Minimap under MinimapCluster, not a descendant of it) - so
-    -- nothing about reparenting mm itself ever touched it. Confirmed
-    -- live 2026-11-09.
-    local backdrop = _G["MinimapBackdrop"]
-    if backdrop then
-        backdrop:Hide()
-        local mmc = _G["MinimapCluster"]
-        if mmc then backdrop:SetParent(mmc) end
-    end
-end
-
--- Give the live widget back to Blizzard when our window closes, so a
--- still-visible native MinimapCluster (the user has "Hide Blizzard
--- minimap" off) doesn't end up an empty shell missing its Minimap
--- child. Re-opening calls TakeOwnership again.
-function MinimapEngine:ReleaseOwnership()
-    local mm = self.MMFrm
-    if not mm or not self.MMOwn then return end
-
-    self.MMOwn = false
-    self.MMZoomType = nil
-    mm:Hide()
-
-    if not InCombatLockdown() and self.MMOriginalParent then
-        mm:SetParent(self.MMOriginalParent)
-        mm:ClearAllPoints()
-        for _, point in ipairs(self.MMOriginalPoints or {}) do
-            mm:SetPoint(unpack(point))
-        end
-        if self.MMOriginalStrata then mm:SetFrameStrata(self.MMOriginalStrata) end
-        if self.MMOriginalLevel then mm:SetFrameLevel(self.MMOriginalLevel) end
-        if self.MMOriginalAlpha then mm:SetAlpha(self.MMOriginalAlpha) end
-        if self.MMOriginalWidth then mm:SetWidth(self.MMOriginalWidth) end
-        if self.MMOriginalHeight then mm:SetHeight(self.MMOriginalHeight) end
-        if self.MMOriginalScale then mm:SetScale(self.MMOriginalScale) end
-
-        -- Same "force icon update" nudge as the zoom-kick in Update()
-        -- (see ApplyTakeOwnership's header comment) - a size change
-        -- alone doesn't make Blizzard re-render the content to fill
-        -- it. Without this, confirmed live: the restored widget comes
-        -- back at its correct native size, but the terrain inside
-        -- stays rendered at whatever smaller size it last was while
-        -- we owned it, pinned in one corner instead of filling the
-        -- now-bigger frame.
-        if mm.GetZoom and mm.SetZoom then
-            local ok, err = pcall(function()
-                local zoom = mm:GetZoom() or 0
-                local altZoom = zoom == 0 and 1 or 0
-                mm:SetZoom(altZoom)
-                mm:SetZoom(zoom)
-            end)
-            if not ok then
-                AlchemyGPS.Core.Logger:warn("release zoom-kick failed: %s", tostring(err))
-            end
-        end
-
-        -- Same retail round mask ApplyTakeOwnership now uses (see its
-        -- comment) instead of the Classic one confirmed dead on this
-        -- client - restores the native minimap to its real round look
-        -- instead of a square (or square-inset-to-fit) substitute.
-        if type(mm.SetMaskTexture) == "function" then
-            mm:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-        end
-        if self.MMOriginalShown then mm:Show() else mm:Hide() end
-    end
-
-    if type(mm.SetPlayerTexture) == "function" then
-        mm:SetPlayerTexture("Interface\\Minimap\\MinimapArrow")
-    end
-    self.MMArrowName = nil
-    self.MMMaskName = nil
-end
-
----------------------------------------------------------------------------------------
--- Clip minimap frame to the map and set position, size and texture coords.
--- XY is center. Width and height are not scaled.
--- Kept verbatim from Nx.Map:ClipMMW (UIEngine.lua:10988) - the real
--- positioning math, unchanged by this file's simplifications.
----------------------------------------------------------------------------------------
-
-function MinimapEngine:ClipMMW(frm, bx, by, w, h)
-
-    local scale = self.ScaleDraw
-
-    local bw = w * scale
-    local bh = h * scale
-    local clipW = self.MapW
-    local clipH = self.MapH
-    local x = (bx - self.MapPosXDraw) * scale + clipW * .5
-    local y = (by - self.MapPosYDraw) * scale + clipH * .5
-
-    local vx0 = x - bw * .5
-    local vx1 = vx0
-    local vx2 = vx0 + bw
-
-    if vx1 < 0 or vx2 > clipW then
-        return false
-    end
-
-    w = vx2 - vx1
-
-    if w <= 0 then
-        return false
-    end
-
-    local vy0 = y - bh * .5
-    local vy1 = vy0
-    local vy2 = vy0 + bh
-
-    if vy1 < 0 or vy2 > clipH then
-        return false
-    end
-
-    h = vy2 - vy1
-
-    if h <= 0 then
-        return false
-    end
-
-    local sc = w / 140
-    self.MMFScale = sc
-
-    local isc = 1
-    self:MinimapSetScale(sc, isc)
-
-    if not self:PositionOwnedMinimap(vx1, -vy1 - self.TitleH) then
-        frm:Hide()
-        return false
-    end
-
-    frm:Show()
-
-    return true
-end
-
----------------------------------------------------------------------------------------
--- Position Blizzard's owned minimap without anchoring or parenting it to the
--- movable Carbonite window. localX/localY are offsets from the map content
--- frame's TOPLEFT, in that frame's unscaled coordinates.
--- Kept verbatim from Nx.Map:PositionOwnedMinimap (MapEngine.lua:3696).
----------------------------------------------------------------------------------------
-
-function MinimapEngine:PositionOwnedMinimap(localX, localY)
-    if InCombatLockdown() then
-        return false
-    end
-
-    local mm = self.MMFrm
-    local mapFrame = self.Frm
-    if not mm or not mapFrame then
-        return false
-    end
-
-    local mapLeft = mapFrame:GetLeft()
-    local mapTop = mapFrame:GetTop()
-    local mapScale = mapFrame:GetEffectiveScale()
-    local minimapScale = mm:GetEffectiveScale()
-    if type(mapLeft) ~= "number" or type(mapTop) ~= "number"
-        or type(mapScale) ~= "number" or mapScale <= 0
-        or type(minimapScale) ~= "number" or minimapScale <= 0 then
-        return false
-    end
-
-    local left = (mapLeft + localX) * mapScale / minimapScale
-    local top = (mapTop + localY) * mapScale / minimapScale
-
-    mm:ClearAllPoints()
-    mm:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-
-    return true
-end
-
--- Kept verbatim from Nx.Map:MinimapSetScale (MapEngine.lua:3734).
-function MinimapEngine:MinimapSetScale(scale, iconScale)
-    if InCombatLockdown() then
-        return
-    end
-    local mm = self.MMFrm
-    local sz = 140 * scale / iconScale
-    mm:SetWidth(sz)
-    mm:SetHeight(sz)
-    mm:SetScale(iconScale)
-end
-
--- Trimmed from Nx.Map:MinimapUpdateMask (MapEngine.lua:3746-3759): the
--- real source swaps between the round mask and a fully-opaque square
--- one (Interface\Buttons\White8x8 - opaque everywhere, so as a MASK
--- texture it clips nothing) based on a per-user Square/round setting
--- (Nx.db.profile.MiniMap[optName]) this addon doesn't expose - always
--- square instead, unconditionally. Confirmed live, 2026-11-10: the
--- live-rendered accent patch was only filling the inscribed circle,
--- while the static world-art background behind it (UpdateWorldArt)
--- already correctly filled the whole square content area - the round
--- mask was the only thing cropping the live patch down from the same
--- square footprint ClipMMW already sizes/positions it as (see that
--- function's own header: "w and h are not scaled" square math, no
--- circular clipping in it at all). No Nx.NXMiniMapBut:Move() call
--- either (the button-dock launcher icon isn't ported - non-goal).
-function MinimapEngine:MinimapUpdateMask()
-
-    local squareMask = "Interface\\Buttons\\White8x8"
-
-    if self.MMMaskName ~= squareMask then
-        self.MMMaskName = squareMask
-        self.MMFrm:SetMaskTexture(squareMask)
-    end
-
-    local useBlizzardPlayerArrow = self:MinimapShouldUseBlizzardPlayerArrow()
-    local name = useBlizzardPlayerArrow
-        and "Interface\\Minimap\\MinimapArrow"
-        or "Interface\\Addons\\AlchemyGPS\\Gfx\\Map\\32Transparent"
-    if self.MMArrowName ~= name then
-        self.MMArrowName = name
-        if name ~= "" and type(self.MMFrm.SetPlayerTexture) == "function" then
-            self.MMFrm:SetPlayerTexture(name)
-        end
-    end
-
-end
-
--- Kept verbatim from Nx.Map:MinimapShouldUseBlizzardPlayerArrow (MapEngine.lua:3080).
-function MinimapEngine:MinimapShouldUseBlizzardPlayerArrow()
-    return self.MMOwn and self.MMFrm ~= nil
-end
-
--- Kept verbatim from Nx.Map:MinimapSyncLayer (MapEngine.lua:2977).
-function MinimapEngine:MinimapSyncLayer(preferredLevel, hostOffset, aboveHost)
-    local mm = self.MMFrm
-    if not mm then
-        return preferredLevel or 1
-    end
-
-    local level = type(preferredLevel) == "number" and preferredLevel or 1
-    local offset = type(hostOffset) == "number" and hostOffset or 1
-    local winFrame = self.Win and self.Win.Frm
-    local mapFrame = self.Frm
-
-    if not InCombatLockdown() and mm.SetFrameStrata then
-        local targetStrata = winFrame and winFrame.GetFrameStrata
-            and winFrame:GetFrameStrata()
-        local targetRank = targetStrata
-            and MINIMAP_STRATA_RANK[targetStrata] or -1
-        local mapStrata = mapFrame and mapFrame.GetFrameStrata
-            and mapFrame:GetFrameStrata()
-        local mapRank = mapStrata and MINIMAP_STRATA_RANK[mapStrata] or -1
-
-        if mapStrata and mapRank > targetRank then
-            targetStrata = mapStrata
-        end
-
-        if aboveHost and targetStrata then
-            targetStrata = MINIMAP_STRATA_ABOVE[targetStrata] or targetStrata
-        end
-
-        if targetStrata and mm:GetFrameStrata() ~= targetStrata then
-            mm:SetFrameStrata(targetStrata)
-        end
-    end
-
-    if winFrame then
-        if winFrame.GetFrameLevel then
-            local winLevel = winFrame:GetFrameLevel()
-            if type(winLevel) == "number" then
-                level = max(level, winLevel + offset)
-            end
-        end
-    end
-
-    if mapFrame and mapFrame.GetFrameLevel then
-        local mapLevel = mapFrame:GetFrameLevel()
-        if type(mapLevel) == "number" then
-            level = max(level, mapLevel + offset)
-        end
-    end
-
-    mm:SetFrameLevel(level)
-    return level
-end
-
--- Kept verbatim from Nx.Map:MinimapIsHostVisible (MapEngine.lua:3032).
-function MinimapEngine:MinimapIsHostVisible()
-    return self.Win and self.Win.Frm:IsVisible()
-        and self.Frm and self.Frm:IsVisible() or false
-end
-
--- Kept verbatim from Nx.Map:MinimapSyncVisibility (MapEngine.lua:3037).
-function MinimapEngine:MinimapSyncVisibility()
-    local mm = self.MMFrm
-    if not self.MMOwn or not mm then return true end
-    local visible = self:MinimapIsHostVisible()
-    if visible and not self.MMHiddenByMap then return true end
-
-    self.MMHiddenByMap = true
-    local inCombat = InCombatLockdown()
-    if inCombat and mm.IsProtected and mm:IsProtected() then
-        mm:SetAlpha(0)
-    elseif mm:IsShown() then
-        mm:Hide()
-    end
-    return visible and not inCombat
-end
-
--- Not ported (no-op stub, same reasoning as UI/Window.lua's
--- OpenMenu): the real Nx.Map:MinimapDetachFrms (MapEngine.lua:3803)
--- hands addon buttons/pins parented to the minimap off to Nx.Map.Dock
--- (a non-goal) or a recognized-addon-name table (self.
--- AddonMinimapNames) this project doesn't have either. A blanket
--- "hide every child" in its place was considered and rejected - the
--- real source only ever redirects recognized frames, it never hides
--- arbitrary unrecognized ones, and this widget's own player-arrow
--- rendering is an internal texture layer (SetPlayerTexture, set by
--- MinimapUpdateMask above), not a discoverable child frame, but
--- *other* legitimate Blizzard children (e.g. the click-ping effect)
--- might be, and blanket-hiding risked breaking one of those instead
--- of just leaving addon-pin clutter unaddressed. Revisit once there's
--- a real recognized-names list or dock to redirect to.
-function MinimapEngine:MinimapDetachFrms()
 end
 
 ---------------------------------------------------------------------------------------
@@ -1646,43 +1234,56 @@ function MinimapEngine:UpdateQuestIcons()
 end
 
 ---------------------------------------------------------------------------------------
--- Build-order step 9e (2026-11-10, REWRITTEN same day): gathering
+-- Build-order step 9e (2026-11-10, REWRITTEN AGAIN same day): gathering
 -- nodes (herb/mining/fish/treasure) - direct user request after the
 -- quest/flight-master work above.
 --
--- First version ported a static Wowhead data dump (Carbonite.
--- Gathermate2_Data) into this addon's own files. User then copied
--- their real GatherMate2 install + its own collected data into the
--- dev tree and saw DOUBLED-UP markers at one node - the real cause:
--- two independent data sources (our ported dump vs. their actual
--- GatherMate2 database) disagreeing by a few feet on the same real
--- node. User's explicit call: stop maintaining our own copy, integrate
--- GatherMate2 directly, and use ITS per-species icons ("so we see
--- whats at the node") instead of one generic icon per category.
+-- First version (this one) ported a static Wowhead data dump into this
+-- addon's own files. Rewritten to read GatherMate2's own live database
+-- directly instead, after the user copied their real GatherMate2
+-- install + its own collected data into the dev tree and saw doubled-
+-- up markers at one node (two independent sources disagreeing by a few
+-- feet on the same real spot). That GatherMate2 integration went
+-- through 8 rounds chasing a recurring "GatherMate2 has been blocked
+-- from an action only available to the Blizzard UI" taint popup -
+-- including removing this addon's entire live-Blizzard-widget-blend
+-- mechanism ("Mode: Live") on the strong, evidence-backed suspicion it
+-- was the cause - which did NOT resolve it. Further isolating tests
+-- (stubbing this feature's own GatherMate2 calls entirely; stubbing
+-- NativeMinimapHide; stubbing MinimapDock) each failed to make the
+-- popup go away either, while disabling AlchemyGPS entirely did -
+-- meaning something about this addon's mere presence in the addon list
+-- triggers a pre-existing GatherMate2 bug on this server build, not
+-- anything traced to a specific line of our own code. Rather than keep
+-- chasing an unreproducible-by-isolation bug, user's call: drop the
+-- GatherMate2 integration entirely and go back to this static-data
+-- approach - doubled-up markers are a non-issue once GatherMate2 isn't
+-- also running its own pins at the same time.
 --
--- Reads GatherMate2's own public accessors (confirmed by reading its
--- real source, not guessed):
---   GatherMate:GetNodesForZone(zone, dbType) - stateless iterator of
---     coord,nodeID for a zone (GatherMate2.lua:526). zone is a uiMapID
---     (confirmed via its HereBeDragons dependency - HBD:GetZoneSize
---     takes the same ID this engine's own self.MapId already is).
---   GatherMate:DecodeLoc(coord) -> x, y, both 0-1 fractional
---     (GatherMate2.lua:685) - GatherMate2's OWN decode, called
---     directly rather than reimplemented, so this can never drift
---     from whatever encoding GatherMate2 itself uses.
---   GatherMate.nodeTextures[fullDbName][nodeID] -> real per-species
---     icon path (Constants.lua:1322, `GatherMate.nodeTextures =
---     node_textures` - confirmed public, not the file's local).
--- dbType ("Herb"/"Mine"/"Fish"/"Treasure") is GetNodesForZone's own
--- short key (RegisterDBType's call sites); nodeTextures is keyed by
--- the full profession name instead ("Herb Gathering"/"Mining"/
--- "Fishing"/"Treasure") - GatherMate2 never unifies the two itself, so
--- GM_TYPE_TO_TEXKEY below bridges them.
+-- Data source: GatherMate2_Data's own "Forever"-flavor pack (the
+-- standalone, non-Carbonite data addon already on this server -
+-- confirmed via its own .toc, `## Interface: 16001`, tailored
+-- specifically to this server) for Herb/Mining/Treasure, ported
+-- verbatim into Map/Data/Gather{Herb,Mining,Treasure}.lua with just
+-- the global table renamed (AlchemyGPS* instead of GatherMateData2*,
+-- so it can never collide with GatherMate2's own identically-shaped
+-- globals if that addon is also loaded). The Forever pack's own
+-- FishData.lua is empty, so Map/Data/GatherFish.lua instead ports
+-- Carbonite.Gathermate2_Data's broader "camelot" pack's FishData.lua -
+-- same zone-key convention (uiMapID, already confirmed project-wide),
+-- just not curated specifically for this one server.
 --
--- This addon now has a real soft runtime dependency on GatherMate2
--- (## OptionalDeps in the .toc, for load order only). Every call site
--- guards with `if GatherMate then` - no GatherMate2 installed/enabled
--- just means no gathering icons, never an error.
+-- Coordinate decode is inlined from GatherMate2's own real
+-- `GatherMate:DecodeLoc` (GatherMate2.lua:685, `floor(id/1000000)/10000,
+-- floor(id % 1000000 / 100)/10000`) - not reimplemented from scratch,
+-- since this data was generated in exactly that packed encoding to be
+-- importable into GatherMate2's own database.
+--
+-- Icons are the same guaranteed-present Blizzard profession-spell
+-- textures used throughout this addon's history for this feature
+-- (Trade_Herbalism/Trade_Mining/Trade_Fishing + a generic bag icon for
+-- treasure) - one per category, not per-species, so this carries zero
+-- dependency on GatherMate2 (or anything else) for icons to render.
 --
 -- "Active right now" investigated and NOT solved live, same day:
 -- checked Carbonite's own real GatherPin.lua (Modules/Map/Pins/
@@ -1709,13 +1310,10 @@ end
 -- master icons elsewhere in this file which only ever show confirmed,
 -- API-backed state.
 --
--- Profession gating (user's own call) is independent of GatherMate2's
--- own per-node filterTable (that's about individual toggled/
--- deprecated node subtypes, not profession knowledge, so it doesn't
--- replace this check): herb nodes only show if the player knows
--- Herbalism, mining only if Mining, fishing pools only if the player
--- has any Fishing skill. Treasure is NOT gated - it's a plain world
--- chest/loot spawn, not tied to any profession.
+-- Profession gating (user's own call): herb nodes only show if the
+-- player knows Herbalism, mining only if Mining, fishing pools only if
+-- the player has any Fishing skill. Treasure is NOT gated - it's a
+-- plain world chest/loot spawn, not tied to any profession.
 ---------------------------------------------------------------------------------------
 
 local GATHER_ICON_SIZE = 10
@@ -1726,21 +1324,33 @@ local GATHER_NEARBY_RANGE = 3
 local GATHER_NEARBY_RANGE_SQ = GATHER_NEARBY_RANGE * GATHER_NEARBY_RANGE
 local GATHER_DIM_ALPHA = 0.45
 
-local GM_TYPE_TO_TEXKEY = {
-    Herb     = "Herb Gathering",
-    Mine     = "Mining",
-    Fish     = "Fishing",
-    Treasure = "Treasure",
-}
--- Only used if a specific nodeID has no entry in GatherMate.
--- nodeTextures (new/unmapped node) - same guaranteed-present
--- profession-spell icons the first version used throughout.
-local GATHER_FALLBACK_TEX = {
+-- One guaranteed-present Blizzard icon per category (not per-species -
+-- see this section's header comment).
+local GATHER_ICON_TEX = {
     Herb     = "Interface\\Icons\\Trade_Herbalism",
     Mine     = "Interface\\Icons\\Trade_Mining",
     Fish     = "Interface\\Icons\\Trade_Fishing",
     Treasure = "Interface\\Icons\\INV_Misc_Bag_10",
 }
+
+-- This feature's own static data tables (Map/Data/Gather*.lua),
+-- keyed by this engine's own dbType short names. Each table is
+-- [uiMapID] = { [packedCoord] = nodeID }, GatherMate2's own encoding
+-- (see this section's header) - nodeID itself is unused here (no per-
+-- species icon lookup), kept only because that's the shape the data
+-- ships in.
+local GATHER_DB = {
+    Herb     = _G.AlchemyGPSHerbDB,
+    Mine     = _G.AlchemyGPSMineDB,
+    Fish     = _G.AlchemyGPSFishDB,
+    Treasure = _G.AlchemyGPSTreasureDB,
+}
+
+-- Inlined from GatherMate2's own GatherMate:DecodeLoc (GatherMate2.lua
+-- :685) - see this section's header comment.
+local function DecodeGatherCoord(coord)
+    return math.floor(coord / 1000000) / 10000, math.floor(coord % 1000000 / 100) / 10000
+end
 
 local function GetKnownGatherProfessions()
     local known = {}
@@ -1762,88 +1372,18 @@ function MinimapEngine:HideGatherFrames()
     end
 end
 
--- REWRITTEN again, same day: still no nodes after the AceAddon fix
--- above. Root cause this time: Carbonite.Gathermate2_Data (where the
--- actual node data lives) is `## LoadOnDemand: 1` in its own .toc -
--- its globals (GatherMateData2HerbDB etc.) simply don't exist until
--- SOMETHING calls LoadAddOn on it. Carbonite's own GatherStorage.lua
--- only does that when the user explicitly runs its GatherMate import
--- UI action - nothing guarantees it's happened. Round 1 (the ported
--- local copy) never hit this because it was our own file, always
--- loaded with this addon. User's call: meet in the middle - force-
--- load the data pack ourselves (same technique Carbonite's own
--- GatherImportCarb already uses) and read its raw tables LIVE, no
--- local copy of the data itself, same proven data path round 1 used.
--- GatherMate2 proper's live addon object (GetGatherMate below) is kept
--- as an OPTIONAL upgrade for real per-species icons when that addon
--- also happens to be enabled - falls back to the generic per-category
--- icon otherwise. Node positions no longer depend on GatherMate2
--- proper being enabled at all, only on Carbonite.Gathermate2_Data's
--- data pack, which this forces to load itself.
--- REWRITTEN again, same day (round 3): dropped Carbonite entirely, on
--- explicit direction - this addon exists to phase Carbonite OUT, so
--- depending on Carbonite.Gathermate2_Data (which hard-requires
--- `## Dependencies: Carbonite` in its own .toc) was backwards even
--- setting the taint bug aside, and moot for this user anyway (their
--- whole Carbonite suite is disabled). Back to GatherMate2's own live
--- API as the ONLY data source, no local copy, no Carbonite anywhere in
--- the chain.
---
--- The taint popup is now understood, not just routed around: GatherMate2
--- ships its own "Import GatherMate2Data" button (`/gathermate` -> Import
--- tab -> GatherMate2Data section, see GatherMate2/Config.lua:1175-1199)
--- that calls `C_AddOns.LoadAddOn("GatherMate2_Data")` and
--- `PerformMerge(...)` from GatherMate2's OWN trusted code, fired by a
--- direct hardware click - exactly why that's allowed and this addon's
--- own earlier programmatic LoadAddOn attempt wasn't. This addon never
--- calls LoadAddOn on anything now; the player runs that button ONCE
--- (not per session - it merges Wowhead seed data permanently into
--- GatherMate2's own saved database) and from then on GatherMate2's own
--- GetNodesForZone includes it like any other node, with zero special
--- handling needed here.
---
--- GatherMate2 keeps its own addon object as a FILE-LOCAL variable in
--- its own files (confirmed in two of its own files:
--- GatherMate2.lua:7 and Constants.lua:7, both
--- `local GatherMate = LibStub("AceAddon-3.0"):GetAddon/NewAddon(...)`)
--- - there is no bare _G.GatherMate global. AceAddon-3.0 registers every
--- addon it creates in its own shared registry regardless, so
--- GetAddon(name, silent) is the correct way to reach it.
-local GatherMateAddon
-local function GetGatherMate()
-    if GatherMateAddon then return GatherMateAddon end
-    local ok, AceAddon = pcall(LibStub, "AceAddon-3.0", true)
-    if ok and AceAddon then
-        local ok2, addon = pcall(AceAddon.GetAddon, AceAddon, "GatherMate2", true)
-        if ok2 and addon then
-            GatherMateAddon = addon
-        end
-    end
-    return GatherMateAddon
-end
+-- Pcall-wrapped per dbType so one bad zone/type combo in the static
+-- data can't abort the other three categories.
+local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
+    local db = GATHER_DB[dbType]
+    local zoneNodes = db and db[mapId]
+    if not zoneNodes then return end
 
-local gatherTipShown = false
--- Not a required step - GatherMate2 records nodes as you gather them,
--- with zero action needed, and this addon just reads whatever's
--- already in its live database. This is purely an FYI for a brand-new
--- character/zone with nothing gathered yet, in case the player wants
--- nodes pre-populated instead of waiting to find them naturally.
-local function ShowGatherImportTip()
-    if gatherTipShown then return end
-    gatherTipShown = true
-    print("|cff33ff99AlchemyGPS|r: gathering-node icons read GatherMate2's own data as you gather - no setup needed. If a zone looks empty and you'd rather not wait, GatherMate2's |cffffffff/gathermate|r Import tab can optionally seed it with Wowhead data.")
-end
-
--- Pcall-wrapped per dbType so one bad zone/type combo in GatherMate2's
--- own data can't abort the other three categories.
-local function CollectGatherZoneNodes(engine, gm, mapId, dbType, pts)
-    local texTable = gm.nodeTextures and gm.nodeTextures[GM_TYPE_TO_TEXKEY[dbType]]
-    local fallback = GATHER_FALLBACK_TEX[dbType]
-    for coord, nodeID in gm:GetNodesForZone(mapId, dbType) do
-        local gx, gy = gm:DecodeLoc(coord)
+    local tex = GATHER_ICON_TEX[dbType]
+    for coord in pairs(zoneNodes) do
+        local gx, gy = DecodeGatherCoord(coord)
         local wx, wy = engine:GetWorldPos(mapId, gx * 100, gy * 100)
         if wx then
-            local tex = (texTable and texTable[nodeID]) or fallback
             pts[#pts + 1] = { x = wx, y = wy, tex = tex }
         end
     end
@@ -1851,60 +1391,26 @@ end
 
 -- Rebuilds the full point list for the current zone - only needs to
 -- run on zone change (and once at login via TakeOwnership's first
--- RefreshCurrentZone), not every tick, since GatherMate2's own data
--- only changes as the player gathers/imports, not from AlchemyGPS
--- repainting. A newly learned profession picks up its node type on the
--- next zone change or /reload, not instantly - acceptable, professions
--- aren't learned often.
---
--- Fix, same day (round 7): user confirmed the "GatherMate2 has been
--- blocked" popup ONLY ever appears at initial login/reload, never
--- during normal play (walking, zoning, standing near nodes) - ruling
--- out GatherMate2's own continuous pin-drawing colliding with this
--- addon's native-minimap-hide (that theory predicted it'd happen
--- during play, not specifically at load). The real pattern: this
--- addon's very FIRST RefreshGatherIcons call happens as part of
--- TakeOwnership's initial RefreshCurrentZone, during addon load -
--- before any hardware event (click/keypress) has occurred this
--- session. Every previous attempt deferred a DIFFERENT call (the now-
--- removed LoadAddOn, in round 4) but never this one - GetGatherMate()/
--- gm:GetNodesForZone()/gm:DecodeLoc() have been called eagerly, un-
--- deferred, at this exact early moment through every round since round
--- 3. Fixed by deferring the whole body one frame via C_Timer.After(0),
--- the standard WoW addon-dev workaround for "called before any
--- hardware event this session" - every call site becomes safe once
--- just one real frame has ticked. The MapId re-check inside guards
--- against the (rare) case of zoning again before the deferred call
--- fires.
+-- RefreshCurrentZone), not every tick, since this is static data. A
+-- newly learned profession picks up its node type on the next zone
+-- change or /reload, not instantly - acceptable, professions aren't
+-- learned often.
 function MinimapEngine:RefreshGatherIcons()
     local mapId = self.MapId
-    if not mapId then
-        self.GatherPts = {}
-        return
+    local pts = {}
+    self.GatherPts = pts
+    if not mapId then return end
+
+    local known = GetKnownGatherProfessions()
+    local dbTypes = {}
+    if known.Herb then dbTypes[#dbTypes + 1] = "Herb" end
+    if known.Mine then dbTypes[#dbTypes + 1] = "Mine" end
+    if known.Fish then dbTypes[#dbTypes + 1] = "Fish" end
+    dbTypes[#dbTypes + 1] = "Treasure"
+
+    for _, dbType in ipairs(dbTypes) do
+        pcall(CollectGatherZoneNodes, self, mapId, dbType, pts)
     end
-
-    local engine = self
-    C_Timer.After(0, function()
-        if engine.MapId ~= mapId then return end -- zoned again already; a later call owns this
-
-        local pts = {}
-        engine.GatherPts = pts
-        local gm = GetGatherMate()
-        if not gm or not gm.GetNodesForZone then return end
-
-        ShowGatherImportTip()
-
-        local known = GetKnownGatherProfessions()
-        local dbTypes = {}
-        if known.Herb then dbTypes[#dbTypes + 1] = "Herb" end
-        if known.Mine then dbTypes[#dbTypes + 1] = "Mine" end
-        if known.Fish then dbTypes[#dbTypes + 1] = "Fish" end
-        dbTypes[#dbTypes + 1] = "Treasure"
-
-        for _, dbType in ipairs(dbTypes) do
-            pcall(CollectGatherZoneNodes, engine, gm, mapId, dbType, pts)
-        end
-    end)
 end
 
 -- Repositioned on its own 0.1s throttle from Update() below, not
@@ -2354,53 +1860,28 @@ function MinimapEngine:UpdateDebugOverlay()
     ensureDebugOverlay()
     debugFrm:Show()
 
-    local mm = self.MMFrm
-    if not mm then
-        debugText:SetText("MinimapEngine: no MMFrm yet")
-        return
-    end
-
+    -- MMFrm-specific diagnostics (live-widget parent/mask/zoom state)
+    -- dropped along with the whole live-widget-ownership mechanism this
+    -- addon used to carry - see MinimapWindow.lua's SetMode removal,
+    -- same day. Everything below is tile-mode-only state.
     local lines = {}
-    local parent = mm:GetParent()
-    tinsert(lines, ("parent=%s shown=%s visible=%s alpha=%.2f"):format(
-        tostring(parent and parent.GetName and parent:GetName() or parent),
-        tostring(mm:IsShown()), tostring(mm:IsVisible()), mm:GetAlpha() or -1))
-    tinsert(lines, ("w=%.1f h=%.1f scale=%.2f strata=%s level=%s"):format(
-        mm:GetWidth() or -1, mm:GetHeight() or -1, mm:GetScale() or -1,
-        tostring(mm:GetFrameStrata()), tostring(mm:GetFrameLevel())))
-    tinsert(lines, ("MapW=%s MapH=%s MMFScale=%s zoomType(prev)=%s"):format(
-        tostring(self.MapW), tostring(self.MapH), tostring(self.MMFScale), tostring(self.MMZoomType)))
-    tinsert(lines, ("Scale=%s ScaleDraw=%s StepTime=%s MMScale(lastKick)=%s"):format(
-        tostring(self.Scale), tostring(self.ScaleDraw), tostring(self.StepTime), tostring(self.MMScale)))
+    tinsert(lines, ("MapW=%s MapH=%s"):format(tostring(self.MapW), tostring(self.MapH)))
+    tinsert(lines, ("Scale=%s ScaleDraw=%s StepTime=%s"):format(
+        tostring(self.Scale), tostring(self.ScaleDraw), tostring(self.StepTime)))
     tinsert(lines, ("MapPosX=%s MapPosY=%s MapPosXDraw=%s MapPosYDraw=%s"):format(
         tostring(self.MapPosX), tostring(self.MapPosY), tostring(self.MapPosXDraw), tostring(self.MapPosYDraw)))
     tinsert(lines, ("Scrolling=%s Ttl=%s"):format(tostring(self.Scrolling), tostring(self.Ttl)))
     tinsert(lines, ("MapId=%s Cont=%s Zone=%s CurWorldUpdateMapId=%s tiles=%s"):format(
         tostring(self.MapId), tostring(self.Cont), tostring(self.Zone),
         tostring(self.CurWorldUpdateMapId), tostring(self.CurWorldTileCount)))
-    tinsert(lines, ("PlyrX=%s PlyrY=%s"):format(tostring(self.PlyrX), tostring(self.PlyrY)))
-    tinsert(lines, ("GetZoom=%s MaskName=%s ArrowName=%s"):format(
-        tostring(mm.GetZoom and mm:GetZoom()), tostring(self.MMMaskName), tostring(self.MMArrowName)))
-
-    local regions = { mm:GetRegions() }
-    tinsert(lines, ("regions=%d"):format(#regions))
-    for i, r in ipairs(regions) do
-        local objType = r.GetObjectType and r:GetObjectType() or "?"
-        if objType == "Texture" then
-            local texPath = r.GetTexture and r:GetTexture()
-            tinsert(lines, ("  [%d] Texture tex=%s shown=%s a=%.2f layer=%s"):format(
-                i, tostring(texPath), tostring(r:IsShown()), r:GetAlpha() or -1,
-                tostring(r.GetDrawLayer and r:GetDrawLayer())))
-        else
-            tinsert(lines, ("  [%d] %s shown=%s"):format(i, tostring(objType), tostring(r:IsShown())))
-        end
-    end
+    tinsert(lines, ("PlyrX=%s PlyrY=%s PlyrDir=%s"):format(
+        tostring(self.PlyrX), tostring(self.PlyrY), tostring(self.PlyrDir)))
 
     debugText:SetText(table.concat(lines, "\n"))
 end
 
 function MinimapEngine:Update(elapsed)
-    if not self.MMOwn or not self.Frm then return end
+    if not self.Frm then return end
 
     -- Throttle update rate - ported from Nx.Map.OnUpdate's own ttl
     -- accumulator (MapEngine.lua:5503-5509: "ttl = ttl + elapsed; if
@@ -2418,24 +1899,6 @@ function MinimapEngine:Update(elapsed)
     self.Ttl = (self.Ttl or 0) + (elapsed or 0)
     if self.Ttl < 0.05 then return end
     self.Ttl = 0
-
-    if self.MMApplyPending and not InCombatLockdown() then
-        self:ApplyTakeOwnership(self.MMFrm)
-    end
-    if self.MMApplyPending then return end
-
-    if not self:MinimapSyncVisibility() then
-        self:UpdateDebugOverlay()
-        return
-    end
-
-    -- Resetting this latch was MinimapUpdateEnd's job in the real
-    -- source (not ported - see file header); without it,
-    -- MinimapSyncVisibility would re-hide defensively every single
-    -- tick after the first hide, even once genuinely visible again.
-    -- Harmless (ClipMMW re-shows it moments later in the same call
-    -- when a preset fits) but needless.
-    self.MMHiddenByMap = nil
 
     -- Build-order step 6: apply an active drag. Ported verbatim from
     -- Nx.Map:OnUpdate's own "Scroll map with mouse" block
@@ -2695,8 +2158,8 @@ function MinimapEngine:Update(elapsed)
     end
     self:UpdateMiniFrames()
 
-    -- Build-order step 9a: independent of both tile layers and the
-    -- live-widget blend below - see UpdatePlayerMarker's own header.
+    -- Build-order step 9a: independent of both tile layers - see
+    -- UpdatePlayerMarker's own header.
     self:UpdatePlayerMarker()
 
     -- Build-order step 9b: repositions already-resolved static service
@@ -2727,133 +2190,6 @@ function MinimapEngine:Update(elapsed)
     if not self.GatherUpdateAt or now >= self.GatherUpdateAt then
         self.GatherUpdateAt = now + 0.1
         self:UpdateGatherIcons()
-    end
-
-    local mm = self.MMFrm
-    local zoomType = 0
-
-    -- "Tiles" mode (the window's Mode button, MinimapWindow.lua's
-    -- SetMode) means background-canvas-only - no small live-widget
-    -- accent/ring at all, regardless of zoom level. Gated here (not by
-    -- skipping ApplyTakeOwnership/MinimapUpdateMask outright) so
-    -- switching back to "Live" just resumes the normal per-zoom-level
-    -- ClipMMW candidate search below with no extra reinitialization.
-    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
-    local tilesOnly = MinimapWindow and MinimapWindow.Mode == "Tiles"
-
-    -- Real Carbonite tries its 6 fixed MMScales presets here (largest
-    -- real-world coverage first) and keeps whichever first fits the
-    -- window (MapEngine.lua:3384-3391) - sensible for Carbonite's own
-    -- map, which isn't freely drag-resized the way this window is.
-    -- Confirmed live, 2026-11-10, two ways: (1) zooming in with the
-    -- window's own +/- buttons eventually puts every preset's pixel
-    -- footprint over the window bounds at once, so ClipMMW fails
-    -- every tick and the widget show/resize/hides in a visible
-    -- bounce; (2) dragging the window bigger jumps the live patch
-    -- between presets in steps - "zooms in or gets bigger every
-    -- time" - while the background world-art (MoveCurZoneTiles, a
-    -- few lines up) scales continuously against the exact same
-    -- self.MapW/MapH/ScaleDraw and never has this problem, because it
-    -- was never built around a fixed preset list in the first place.
-    -- Deliberate divergence: solve directly for the one square size
-    -- that fills the window's shorter side at the current scale (same
-    -- self.MapW/self.MapH/self.ScaleDraw the background already
-    -- uses), instead of searching presets, so growing the window
-    -- grows the patch smoothly in lockstep with the background
-    -- instead of snapping between 6 steps. The widget stays square on
-    -- purpose even on a non-square window (AlchemyNavigation/Modules/
-    -- Map/Minimap.lua:304-309's own finding: a non-square resize left
-    -- Blizzard's rendered content a fixed size, repositioned instead
-    -- of filling the new bounds) - letterboxed on the longer side
-    -- rather than stretched.
-    --
-    -- FIT_MARGIN: sized to exactly fill only passes ClipMMW's own fit
-    -- check (vx1<0/vx2>clipW, MinimapEngine.lua:338-391) when the
-    -- player is EXACTLY window-centered - true most of the time
-    -- (ZoomController:Move's continuous auto-follow, a few lines up),
-    -- but confirmed live, 2026-11-10: the live patch disappeared
-    -- entirely while inside Orgrimmar and came back on leaving the
-    -- city. Real Carbonite uses an entirely different, much smaller
-    -- preset scale set for cities (MMScalesC, MapEngine.lua:3356-3358,
-    -- `if info.City ... then scales = self.MMScalesC end`) - a sign
-    -- city sub-zone coordinates don't track the same world-unit
-    -- convention this engine's PlyrX/PlyrY assumes for open zones,
-    -- which plausibly left the player a little off-center relative to
-    -- MapPosXDraw/Y there. An exact-fill target has zero slack for
-    -- that: any drift at all pushes the one candidate size past the
-    -- window edge and ClipMMW fails outright, hiding the widget
-    -- rather than just looking slightly off-center. Porting
-    -- Carbonite's real city-coordinate handling is its own project;
-    -- this margin is the cheap, general fix - a few percent of give
-    -- so small drift (city or otherwise) still fits instead of
-    -- failing all-or-nothing.
-    local FIT_MARGIN = 0.9
-
-    if not tilesOnly and not InCombatLockdown() then
-        local scale = self.ScaleDraw
-        local fit = scale and scale > 0
-            and FIT_MARGIN * min(self.MapW or 0, self.MapH or 0) / scale
-        if fit and fit > 0 and self:ClipMMW(mm, self.PlyrX, self.PlyrY, fit, fit) then
-            zoomType = 1
-        end
-    end
-
-    if zoomType > 0 then
-        local al = 0.65
-        if IsControlKeyDown() then
-            al = IsAltKeyDown() and 1 or .8
-        end
-        mm:SetAlpha(al)
-
-        self:MinimapUpdateMask()
-        self:MinimapSyncLayer(self.Win.Frm:GetFrameLevel() or 1, 1)
-        self:MinimapDetachFrms()
-
-        -- MinimapUpdateEnd's "force icon update" (MapEngine.lua:3669-
-        -- 3671), ported here since it turned out load-bearing on its
-        -- own: without a SetZoom nudge after a resize/reparent,
-        -- Blizzard's Minimap widget keeps its round mask and position
-        -- but never redraws its terrain tiles - confirmed live (the
-        -- mask ring showed, the map inside it stayed blank) before
-        -- this was added.
-        --
-        -- Build-order step 5 bug fix: this used to re-kick only when
-        -- zoomType (originally which of 6 discrete MMScales
-        -- candidates, before that preset search was replaced with a
-        -- direct fill-the-window calculation above) changed. Real
-        -- Carbonite's own trigger (MapEngine.lua:3480) is "zoomType
-        -- changed OR (zoomType > 0 AND self.MMScale ~= self.ScaleDraw)"
-        -- - it ALSO re-kicks on every continuous scale change, via a
-        -- second field (self.MMScale, distinct from self.Scale/
-        -- ScaleDraw - it's just "the ScaleDraw value as of the last
-        -- kick"). Without that half, confirmed live: once a zoom
-        -- animation settled, further continuous zoom widened the
-        -- widget's own bounds but never re-kicked, so Blizzard's
-        -- terrain stayed rendered at its last-kicked size - same
-        -- stale-render bug as the original fill-lag, just gated on
-        -- the wrong variable now that zoom is continuous. Still load-
-        -- bearing with the fill-the-window math: zoomType itself is
-        -- now just 1 (shown) or 0 (hidden), so the ScaleDraw half is
-        -- the only thing that still re-kicks a continuous resize.
-        if self.MMZoomType ~= zoomType or self.MMScale ~= self.ScaleDraw then
-            self.MMZoomType = zoomType
-            self.MMScale = self.ScaleDraw
-            local ok, err = pcall(function()
-                local zoom = mm:GetZoom() or 0
-                local altZoom = zoom == 0 and 1 or 0
-                mm:SetZoom(altZoom)
-                mm:SetZoom(zoom)
-            end)
-            if not ok then
-                AlchemyGPS.Core.Logger:warn("zoom-kick failed: %s", tostring(err))
-            end
-        end
-    else
-        -- Window too small for even the smallest preset. The real
-        -- dock-to-corner fallback isn't ported (tied to dock-position
-        -- options this project doesn't have) - just hide until the
-        -- window is large enough again.
-        mm:Hide()
     end
 
     self:UpdateDebugOverlay()

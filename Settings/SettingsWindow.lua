@@ -41,9 +41,8 @@ end
 local win
 local nextCBID = 0
 -- Tracked so Refresh() can re-sync checked-state against the DB -
--- needed because MinimapWindow:ForceNativeHidden() can flip
--- NativeMinimapHidden from outside this window (opening/closing the
--- Live-mode minimap window), and a checkbox only reads get() once, at
+-- needed because `/gps minimap hide|show` can flip NativeMinimapHidden
+-- from outside this window, and a checkbox only reads get() once, at
 -- creation, otherwise.
 local checkboxes = {}
 

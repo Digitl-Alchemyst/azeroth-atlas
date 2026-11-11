@@ -22,9 +22,18 @@
          innkeeper), pure data, no dependencies. -->
     <Script file="Data\GuideMailbox.lua" />
     <Script file="Data\GuideInnkeeper.lua" />
-    <!-- Build-order step 9e: gathering-node data is read live from
-         GatherMate2 (see MinimapEngine.lua's own header comment on
-         that section) - no local data file needed or wanted here. -->
+    <!-- Build-order step 9e: static Wowhead gathering-node data (herb/
+         mining/fish/treasure), pure data, no dependencies. Herb/Mining/
+         Treasure ported from the standalone GatherMate2_Data addon's
+         own "Forever"-flavor pack (tailored to this exact server);
+         Fish ported from Carbonite.Gathermate2_Data's "camelot" pack
+         instead, since the Forever pack's own FishData.lua is empty -
+         see MinimapEngine.lua's own header comment for the full
+         reasoning. -->
+    <Script file="Data\GatherHerb.lua" />
+    <Script file="Data\GatherMining.lua" />
+    <Script file="Data\GatherFish.lua" />
+    <Script file="Data\GatherTreasure.lua" />
     <Script file="MinimapWindow.lua" />
     <Script file="NativeMinimapHide.lua" />
     <Script file="ScrollScale.lua" />

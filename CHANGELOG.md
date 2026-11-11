@@ -255,6 +255,152 @@ readable.
     the rare case of zoning again before the deferred call fires.
   - Still untested in-game as of this writing - this is the seventh
     pass on this feature.
+- **Round 7 confirmed NOT fixed - user re-tested, taint still fired.**
+  User connected the dots himself: this addon has a "Mode: Live" vs
+  "Mode: Tiles" toggle, and "mode live uses parts of the blizzard
+  minimap so we cant even fully reassemble it" — directed removing
+  "Mode: Live" entirely, returning all of it to Blizzard's own control,
+  deleting the dead code, and fixing the "Hide Blizzard minimap"
+  checkbox to remember its own state. Checkpoint commit `c8b8a84` made
+  first per explicit request, before any of the work below.
+  - **Root cause, finally pinned down**: `MinimapEngine.lua`'s
+    `TakeOwnership` → `ApplyTakeOwnership` called `mm:SetParent(UIParent)`
+    on the real global `Minimap` widget — reparenting it out of
+    `MinimapCluster` into this addon's own window — automatically at
+    login whenever the map window had been left open last session
+    (`MinimapWindow.lua`'s `applyNativeHiddenOnceReady`), before any
+    hardware event that session. That reparent call was already flagged
+    in its own prior comment as "touches protected frame state." Every
+    addon that parents pins/buttons directly to `Minimap` (GatherMate2's
+    `Display.lua` confirmed to do exactly this) inherits taint from that
+    reparent the next time it touches those pins — matching the user's
+    own observation that the error only ever appeared at login/reload,
+    never during play. Rounds 1-7 all chased the gathering-node call
+    chain itself, which was never the actual cause.
+  - **Removed entirely** (`MinimapEngine.lua`): `ApplyTakeOwnership`,
+    `ReleaseOwnership`, `ClipMMW`, `PositionOwnedMinimap`,
+    `MinimapSetScale`, `MinimapUpdateMask`,
+    `MinimapShouldUseBlizzardPlayerArrow`, `MinimapSyncLayer`,
+    `MinimapIsHostVisible`, `MinimapSyncVisibility`,
+    `MinimapDetachFrms` — the whole live-widget-reparenting mechanism,
+    ~500 lines. `TakeOwnership` trimmed to just its tile/marker/icon
+    pool setup and mouse wheel/drag wiring; `Update()`'s live-widget
+    blend tail and `MMOwn`/`MMApplyPending` guards removed;
+    `UpdateDebugOverlay` simplified to drop the now-dead `MMFrm`
+    diagnostics.
+  - **Removed** (`MinimapWindow.lua`): `SetMode`/`self.Mode`/the
+    "Mode: Live"/"Mode: Tiles" title-bar button; `ForceNativeHidden` and
+    the `Open()`/close-handler dance that force-hid the native minimap
+    while the window was open and restored `PrevNativeHidden` after —
+    this was the actual cause of the "checkbox resets on reload"
+    complaint, since it overrode the saved preference independently of
+    the checkbox. Also removed the `/gps mapdebug` slash command (built
+    entirely around the now-deleted `MMFrm`/`MMOwn` fields).
+  - **Removed** (`ZoomController.lua`): the `MMFrm:SetZoom()` nudge in
+    `ScrollSteps` that kept the real widget's zoom level in sync with
+    the window's +/- buttons — nothing to sync now that the widget is
+    never blended in.
+  - **"Hide Blizzard minimap" now actually remembers its state**: with
+    `Open()`/`Close()` no longer touching `NativeMinimapHidden`, the
+    only writers left are the Settings checkbox and `/gps minimap
+    hide|show`, both of which set the saved value directly — and the
+    pre-existing login-time `applyNativeHiddenOnceReady` poll applies
+    whatever was last saved, with nothing to override it anymore.
+  - **MinimapDock.lua needed no functional changes** — confirmed its
+    button-collection (`Scan()`) reads the global `_G["Minimap"]`
+    directly rather than through `MinimapEngine`'s (now-removed)
+    borrowed reference, so it keeps working unchanged. Its header
+    comment was updated to explain why, and to note it's now the only
+    way to reach those buttons at all while "Hide Blizzard minimap" is
+    on.
+  - Deployed and verified byte-identical against the live client path;
+    not yet live-tested — pending the user's next `/reload`, both for
+    whether this finally resolves the GatherMate2 taint popup and for a
+    general regression check (zoom, pan, dock, icons) now that the live
+    widget is out of the picture entirely.
+- **"Mode: Live" removal confirmed NOT the fix either - user re-tested,
+  popup still fires.** Both with the native minimap shown and hidden at
+  reload (the "remember state" fix from the same round DID work
+  correctly, confirmed separately).
+- **Round 9 - systematic isolation, each test disproving the leading
+  theory, culminating in dropping GatherMate2 entirely.**
+  - `/console scriptErrors 1` and `/console taintLog 2`: neither
+    surfaced a detailed stack trace or taint-propagation message on
+    this server's client build - the generic one-line popup is all
+    this client exposes, so no further diagnosis was possible that way.
+  - User's own clean A/B test turned up a genuinely strange data point:
+    enabling the (otherwise-unused) Carbonite suite alongside
+    AlchemyGPS **suppressed** the popup, while AlchemyGPS alone (no
+    Carbonite) still triggered it. More addons running reducing an
+    error, rather than adding more addons increasing risk of one, broke
+    every reparenting/taint theory tried so far.
+  - Checked whether GatherMate2's LibDataBroker launcher object was
+    being displayed as a minimap icon by Titan Panel (also installed)
+    and swept up by `MinimapDock.lua`'s button-collector - ruled out by
+    reading `Titan/TitanLDB.lua`: Titan's broker bridge parents its
+    buttons to Titan's own bar, never to the real `Minimap`, so
+    `MinimapDock` can't touch it either way.
+  - **Decisive test**: temporarily stubbed `RefreshGatherIcons` to do
+    nothing at all (zero calls into GatherMate2's code) - popup still
+    fired. This conclusively exonerated the gathering-node feature's
+    own code; all 8 prior rounds of fixes had been chasing the wrong
+    subsystem the entire time.
+  - **Second decisive test**: with the gathering code restored, instead
+    temporarily stubbed out `NativeMinimapHide`'s login-time call AND
+    `MinimapDock:Create()` together (the only two other places this
+    addon touches the real `Minimap`/`MinimapCluster` at login) - popup
+    still fired. This means literally every mechanism in this addon
+    that touches the real minimap, the gathering-node feature, and the
+    live-widget-reparenting mechanism (removed earlier this same day)
+    had now each been individually ruled out, while disabling
+    AlchemyGPS entirely still reliably fixed it - a real paradox that
+    pointed at something structural (load order, addon count/timing)
+    rather than any one line of this addon's own runtime code.
+  - **User's call, given the above**: stop chasing an unreproducible-
+    by-isolation bug and drop the GatherMate2 integration entirely,
+    going back to this feature's own original static-Wowhead-data
+    design (what build-order step 9e shipped with before the very
+    first GatherMate2-related rewrite) - "before trying to copy
+    carbonites gathermate 2 node system we had nodes showing on our own
+    using our wow head data just get us back to that state." User is
+    disabling GatherMate2 on their end as well.
+  - **Reverted to static data, cleanly, not just restoring old files**:
+    ported `GatherMate2_Data`'s own "Forever"-flavor pack (the
+    standalone, non-Carbonite data addon already on this server,
+    tailored specifically to this one server build) for herb/mining/
+    treasure into `Map/Data/Gather{Herb,Mining,Treasure}.lua`, with the
+    global table renamed (`AlchemyGPS*` instead of `GatherMateData2*`)
+    so it can never collide with GatherMate2's own identically-shaped
+    globals if that addon happens to be loaded anyway. The Forever
+    pack's own `FishData.lua` is empty, so `Map/Data/GatherFish.lua`
+    instead ports `Carbonite.Gathermate2_Data`'s broader "camelot" pack
+    for fish only - same uiMapID zone-key convention, just not curated
+    specifically for this one server. Coordinate decode is inlined from
+    GatherMate2's own real `DecodeLoc` formula (confirmed via source
+    read, not guessed) rather than reimplemented from scratch, since
+    the data was generated in exactly that packed encoding. Icons are
+    back to one guaranteed-present Blizzard profession-spell texture
+    per category (`Trade_Herbalism`/`Trade_Mining`/`Trade_Fishing` +a
+    generic bag icon for treasure), not per-species - this feature now
+    carries zero runtime dependency on GatherMate2 or Carbonite at all.
+  - Removed `## OptionalDeps: GatherMate2` from the `.toc` and all of
+    `MinimapEngine.lua`'s now-dead GatherMate2-reading code
+    (`GetGatherMate`/`ShowGatherImportTip`/the GatherMate2-calling
+    version of `CollectGatherZoneNodes`/the `C_Timer.After` deferral in
+    `RefreshGatherIcons`, which is no longer needed at all - reading
+    this addon's own static Lua tables has no addon-interaction/taint
+    concern to defer around).
+  - Deployed and verified byte-identical. Not yet live-tested as of
+    this writing.
+  - **Open question, explicitly not resolved**: the actual root cause
+    of the taint popup was never conclusively identified - every
+    specific mechanism tested was ruled out, yet the popup was 100%
+    reproducible whenever AlchemyGPS was enabled (with GatherMate2
+    enabled) and 100% absent whenever AlchemyGPS was disabled. If this
+    addon ever adds another GatherMate2 integration in the future,
+    don't assume the cause is understood just because this round's
+    specific theories were disproven - re-derive from scratch or re-
+    read this entry's full isolation-test history first.
 
 ## Unreleased — 2026-11-10
 

@@ -44,10 +44,7 @@ local MinimapWindow = Module:New("MinimapWindow", {
 })
 
 -- Self-register alongside the rest of the Map module family (same
--- pattern as ZoomController.lua/NativeMinimapHide.lua/etc.) - needed
--- so MinimapEngine.lua's Update() can read the current Mode
--- (AlchemyGPS.Modules.Map.MinimapWindow.Mode) to decide whether to
--- show the small live-widget accent.
+-- pattern as ZoomController.lua/NativeMinimapHide.lua/etc.).
 AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
 AlchemyGPS.Modules.Map.MinimapWindow = MinimapWindow
 
@@ -106,58 +103,18 @@ function MinimapWindow:OnEnable()
             NativeMinimapHide_:SetNativeHidden(false)
         else
             self.log:info("usage: /gps minimap hide|show")
+            return
         end
+        -- Keep the Settings window's checkbox in sync if it's open -
+        -- it only reads get() once, at creation, otherwise (see that
+        -- file's own `checkboxes` comment).
+        local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+        if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
     end, "hide|show the native Blizzard minimap")
 
     AlchemyGPS.Core.SlashCommands:Register("showmap", function()
         self:Open()
     end, "open the (placeholder) minimap window")
-
-    -- Temporary diagnostic for the live-widget blend (build-order
-    -- step 4) not showing up visually in testing. Remove once that's
-    -- confirmed working.
-    AlchemyGPS.Core.SlashCommands:Register("mapdebug", function()
-        local E = AlchemyGPS.Modules.Map.MinimapEngine
-        local log = AlchemyGPS.Core.Logger
-        local mm = E and E.MMFrm
-        if not mm then
-            log:info("MinimapEngine not initialized - open the minimap window first")
-            return
-        end
-        local parent = mm:GetParent()
-        log:info("MMFrm parent=%s shown=%s alpha=%.2f w=%.1f h=%.1f scale=%.2f strata=%s level=%d",
-            tostring(parent and parent.GetName and parent:GetName() or parent),
-            tostring(mm:IsShown()), mm:GetAlpha() or -1, mm:GetWidth() or -1, mm:GetHeight() or -1,
-            mm:GetScale() or -1, tostring(mm:GetFrameStrata()), mm:GetFrameLevel() or -1)
-        log:info("content Frm w=%.1f h=%.1f shown=%s | win strata=%s level=%d",
-            E.Frm and E.Frm:GetWidth() or -1, E.Frm and E.Frm:GetHeight() or -1,
-            tostring(E.Frm and E.Frm:IsShown()),
-            tostring(E.Win and E.Win.Frm:GetFrameStrata()), E.Win and E.Win.Frm:GetFrameLevel() or -1)
-        log:info("MMFScale=%s MapW=%s MapH=%s MMOwn=%s",
-            tostring(E.MMFScale), tostring(E.MapW), tostring(E.MapH), tostring(E.MMOwn))
-        local pt, rel, relpt, x, y = mm:GetPoint()
-        log:info("MMFrm point=%s relPt=%s x=%s y=%s",
-            tostring(pt), tostring(relpt), tostring(x), tostring(y))
-        log:info("IsVisible=%s GetZoom=%s MMZoomType=%s",
-            tostring(mm:IsVisible()), tostring(mm.GetZoom and mm:GetZoom()), tostring(E.MMZoomType))
-
-        -- Dump every visual region Minimap itself owns, so we can see
-        -- directly whether a terrain texture region exists at all,
-        -- and if so, what file it points at / whether it's shown.
-        local regions = { mm:GetRegions() }
-        log:info("MMFrm region count=%d", #regions)
-        for i, r in ipairs(regions) do
-            local objType = r.GetObjectType and r:GetObjectType() or "?"
-            if objType == "Texture" then
-                local texPath = r.GetTexture and r:GetTexture()
-                log:info("  [%d] Texture tex=%s shown=%s alpha=%.2f layer=%s",
-                    i, tostring(texPath), tostring(r:IsShown()), r:GetAlpha() or -1,
-                    tostring(r.GetDrawLayer and r:GetDrawLayer()))
-            else
-                log:info("  [%d] %s shown=%s", i, tostring(objType), tostring(r:IsShown()))
-            end
-        end
-    end, "dump minimap-blend diagnostic info")
 end
 
 -- Build-order step 4: the window content is now the real live-widget
@@ -166,60 +123,26 @@ end
 -- middle-click maximize) is unchanged from step 3. A one-way open,
 -- same as the plan's "Show Minimap" button: the window only closes
 -- via its own X.
--- The live Blizzard Minimap widget is a single client-provided
--- resource - it can only have one parent/location at a time, so our
--- window and the native minimap can never both show real terrain from
--- it simultaneously (confirmed live, 2026-11-08: opening our window
--- while the native one was also visible left the native minimap an
--- empty shell, since the widget had moved into ours). This is why
--- Open() always force-hides the native minimap regardless of Mode -
--- the window always owns the one live widget while open, it just
--- doesn't always draw it (see below).
---
--- Build-order step 8 added the real background canvas (the static
--- zone-art tiles, Map/MinimapEngine.lua's UpdateWorldArt/
--- MoveCurZoneTiles), matching real Carbonite's own split: a static
--- zone-tile canvas with the live widget blended in as a small accent
--- on top (MapEngine.lua's Nx.Map:GetMap(1)). "Mode" picks whether that
--- accent shows: "Live" shows it (auto-hidden by MinimapEngine.lua's
--- Update() when zoomed too far out for any of its size presets to
--- fit), "Tiles" hides it unconditionally so only the background canvas
--- + its drawn player-position marker show.
-function MinimapWindow:SetMode(mode)
-    self.Mode = (mode == "Tiles") and "Tiles" or "Live"
-end
-
-function MinimapWindow:ForceNativeHidden(hidden)
-    local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
-    if not NativeMinimapHide then return end
-    self:DB().profile.NativeMinimapHidden = hidden
-    NativeMinimapHide:SetNativeHidden(hidden)
-    local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
-    if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
-end
+-- REMOVED same day (2026-11-10, "Mode: Live" removal): this window
+-- used to reparent the real Blizzard Minimap widget into itself
+-- (Map/MinimapEngine.lua's TakeOwnership/ApplyTakeOwnership) and blend
+-- it in as a small accent on top of the tile canvas - Open() force-hid
+-- the native minimap for the duration, regardless of the user's own
+-- "Hide Blizzard minimap" preference, and restored it on close. That
+-- reparenting turned out to be the real cause of a recurring
+-- GatherMate2 taint popup (see MinimapEngine.lua's own header comment)
+-- - removed entirely, along with the "Mode: Live"/"Mode: Tiles" toggle
+-- this comment used to explain (there's only ever one render mode
+-- now, the tile canvas). The native minimap's visibility is now driven
+-- ONLY by the user's own saved preference, applied once at login and
+-- on toggle - this window's own open/close state no longer touches it
+-- at all.
 
 function MinimapWindow:Open()
 
     local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    self.Mode = self.Mode or "Live"
-
-    -- Capture whatever the user's own native-hide preference was
-    -- before WE force it on below, once per open/close cycle, so
-    -- closing can hand it back instead of permanently overwriting a
-    -- preference the user set for reasons unrelated to our window.
-    if self.PrevNativeHidden == nil then
-        self.PrevNativeHidden = self:DB().profile.NativeMinimapHidden == true
-    end
-    self:ForceNativeHidden(true)
 
     if self.Win then
-        -- Close fires MinimapEngine:ReleaseOwnership() (below), handing
-        -- the live widget back to Blizzard. Without re-taking it here,
-        -- reopening just re-shows the window with its empty dark
-        -- backdrop and no live widget in it - confirmed live: Update()
-        -- was bailing out every tick on MMOwn being false, frozen since
-        -- the moment the window had first closed.
-        MinimapEngine:TakeOwnership(self.Win, self.Content)
         self.Win:Show(true)
         return
     end
@@ -310,18 +233,6 @@ function MinimapWindow:Open()
     followCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
     self.FollowCB = followCB
 
-    -- Mode toggle, same idea as Carbonite's own 2D/3D map-mode button.
-    -- See SetMode above for what "Live" vs "Tiles" actually changes.
-    local modeBut = CreateFrame("Button", nil, win.Frm, "UIPanelButtonTemplate")
-    modeBut:SetSize(90, 20)
-    modeBut:SetPoint("BOTTOMLEFT", win.Frm, "BOTTOMLEFT", 6, 4)
-    modeBut:SetText("Mode: " .. self.Mode)
-    modeBut:SetScript("OnClick", function()
-        self:SetMode(self.Mode == "Live" and "Tiles" or "Live")
-        modeBut:SetText("Mode: " .. self.Mode)
-    end)
-    self.ModeBut = modeBut
-
     -- Zoom buttons, build-order step 5. Carbonite's own +/- zoom
     -- buttons are Blizzard's native MinimapZoomIn/MinimapZoomOut,
     -- which only make sense for a docked (small, native-replacing)
@@ -358,10 +269,9 @@ function MinimapWindow:Open()
     self.Content = content
 
     -- content (just attached) fills the whole window 0-1 fractionally
-    -- and would otherwise draw over modeBut/zoomIn/zoomOut/settingsBut
-    -- at the same sibling frame level, since it was created after -
-    -- keep them clickable.
-    modeBut:SetFrameLevel(content:GetFrameLevel() + 1)
+    -- and would otherwise draw over zoomIn/zoomOut/settingsBut at the
+    -- same sibling frame level, since it was created after - keep them
+    -- clickable.
     zoomIn:SetFrameLevel(content:GetFrameLevel() + 1)
     zoomOut:SetFrameLevel(content:GetFrameLevel() + 1)
     settingsBut:SetFrameLevel(content:GetFrameLevel() + 1)
@@ -374,24 +284,6 @@ function MinimapWindow:Open()
     -- :456-457, `self.Maps[1] = self:Create(1); self.Dock:Create()`).
     local MinimapDock = AlchemyGPS.Modules.Map.MinimapDock
     if MinimapDock then MinimapDock:Create() end
-
-    -- Give the live widget back to Blizzard when this window closes,
-    -- so a still-visible native MinimapCluster doesn't end up an
-    -- empty shell missing its Minimap child. See MinimapEngine.lua's
-    -- ReleaseOwnership header comment.
-    win:SetUser(self, function(_, event)
-        if event == "Close" then
-            MinimapEngine:ReleaseOwnership()
-            -- Hand the native-hide preference back to whatever it was
-            -- before Open() forced it on, instead of permanently
-            -- leaving the native minimap hidden just because our
-            -- window happened to have been open once this session.
-            if self.PrevNativeHidden ~= nil then
-                self:ForceNativeHidden(self.PrevNativeHidden)
-                self.PrevNativeHidden = nil
-            end
-        end
-    end)
 
     -- Build-order step 6/7 smoothness fix: drive Update() from a real
     -- per-frame OnUpdate script on the content frame instead of a
