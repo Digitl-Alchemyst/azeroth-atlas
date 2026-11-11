@@ -165,6 +165,20 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.GatherFrms = self.GatherFrms or {}
     self.GatherPts = self.GatherPts or {}
 
+    -- Build-order step 10 (2026-11-11): right-click goto waypoint +
+    -- ant-trail pool (see SetGotoAtClick/UpdateGoto). Only the pool
+    -- array persists here, same treatment as the pools above - the
+    -- single dot frame is lazily created inside UpdateGoto instead
+    -- (its texture constant is declared further down the file, after
+    -- this function, so it isn't in scope yet here). GotoWX/GotoWY/
+    -- GotoCont are deliberately NOT initialized/persisted anywhere -
+    -- matches real Carbonite's own Nx.Map.Targets, a plain in-memory
+    -- table never written to Nx.db (confirmed by reading its real
+    -- source - SetTargetAtClick/ClearTargets, MapEngine.lua) - a goto
+    -- is session-only, cleared on /reload, same as upstream.
+    self.GotoTrailFrms = self.GotoTrailFrms or {}
+    self.ArrowScroll = self.ArrowScroll or 0
+
     -- PlyrX/Y are overwritten every tick once Update() resolves a real
     -- zone (build-order step 8's RefreshCurrentZone/live-position
     -- block) - this is just a safe fallback for the handful of ticks
@@ -2014,6 +2028,27 @@ function MinimapEngine:OnMouseUp(button)
         -- that opened it) is the natural way to close it, same as
         -- the left-click/outside-click close MapContextMenu's own
         -- OnUpdate handles.
+
+        -- Build-order step 10 (2026-11-11): capture the click's frame-
+        -- local position now, before the menu opens, so "Set Goto
+        -- Here" can use it later without resampling the cursor (which
+        -- would read the menu's own position instead) - ported from
+        -- Nx.Map:CalcClick (MapEngine.lua:5089-5098), called the same
+        -- way (right on mouse-up, before dispatching the button
+        -- action). Reuses MouseWheel's own already-working cursor-to-
+        -- frame-local-pixels math just above in this file rather than
+        -- re-deriving it.
+        local frm = self.Frm
+        if frm and self.MapW and self.MapH then
+            local cx, cy = GetCursorPosition()
+            local effScale = frm:GetEffectiveScale()
+            cx, cy = cx / effScale, cy / effScale
+            local left, top = frm:GetLeft(), frm:GetTop()
+            if left and top then
+                self.ClickFrmX, self.ClickFrmY = cx - left, top - cy
+            end
+        end
+
         local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
         if MapContextMenu then
             if MapContextMenu:IsShown() then
@@ -2026,13 +2061,240 @@ function MinimapEngine:OnMouseUp(button)
 end
 
 ---------------------------------------------------------------------------------------
--- New, much-trimmed replacement for Nx.Map:MinimapUpdate +
--- MinimapUpdateEnd combined. Keeps only: try each preset size
--- (biggest first), blend the widget if one fits, otherwise hide it.
--- No dock-position/instance/BG/garrison/indoor-auto-toggle/menu-
--- checkbox logic - none of that is part of this project's feature
--- list, and none of it is approximated here, just not ported.
+-- Build-order step 10 (2026-11-11): right-click goto waypoint + ant-
+-- trail. User request: "carbonite has a feature where you can right
+-- click set a goto at that spot then get ant trails from you to the
+-- location... a little number above #yd that is the yards away...
+-- updates as you move... use the flowing arrows like carbonite snag
+-- their art if need be." Investigated Carbonite's real implementation
+-- before writing any of this (MapEngine.lua) rather than guessing:
+--
+-- - Right-click dispatch: real Carbonite's default right-click action
+--   IS a menu (Nx.db.profile.Map.ButR defaults to "Menu", MapEngine.lua
+--   :614-624 / Defaults.lua:371), with "Goto"/"Clear Goto" as two of
+--   that menu's items (Menu_OnGoto/Menu_OnClearGoto, :3968-3975) -
+--   matches this addon's own MapContextMenu.lua exactly, confirmed
+--   against real source rather than assumed. The click position is
+--   sampled once, at mouse-down/up time (CalcClick, :5089-5098),
+--   *before* the menu even opens - "Goto" just consumes the already-
+--   captured position, it doesn't resample the cursor. See OnMouseUp's
+--   RightButton branch above for this addon's equivalent capture.
+-- - Reverse screen-to-world conversion: real Carbonite's own
+--   FramePosToWorldPos (:15159-15167) is the algebraic inverse of
+--   ClipFrameW's forward formula, using the LOGICAL (non-animated)
+--   Scale/MapPosX/Y fields, not the ScaleDraw/MapPosXDraw/Y ones -
+--   this addon's own MouseWheel function (above) already does the
+--   exact same inversion for zoom-at-cursor, so FramePosToWorldPos
+--   below just reuses that proven formula rather than deriving a new
+--   one.
+-- - Storage: a single in-memory point (self.GotoWX/WY/GotoCont), not
+--   saved to AlchemyGPS.db - matches real Carbonite's own Nx.Map.
+--   Targets, a plain runtime table (SetTarget/ClearTargets, :15183-
+--   15394) never written to Nx.db either. Dropped real Carbonite's
+--   multi-point Shift+click route queue (Pathing.lua) - out of scope,
+--   the user asked for one goto, not a route planner.
+-- - Ant trail: real Carbonite's own DrawTracking (:9007-9205) spaces
+--   pooled arrow frames every 15 world-units (capped at 40) along a
+--   STRAIGHT line from player to target, each stamped with Carbonite's
+--   own art (IconArrowGrad.tga, confirmed to exist on disk at
+--   Carbonite\Gfx\Map\IconArrowGrad.tga - "snag their art" per the
+--   user's own request) and rotated to point along that line. The
+--   "flowing" look is mostly just the player's own live position
+--   advancing every tick (the trail's source end moves); a small
+--   extra creep (self.ArrowScroll, 0->1 in .01 steps) keeps the ants
+--   flowing even while standing still, but ONLY then (gated on
+--   self.PlyrSpeed == 0, :9145 vs. this engine's own already-existing
+--   PlyrSpeed field - see Update()'s own player-speed block) - ported
+--   verbatim rather than left always-on, which would double up with
+--   real movement and look too fast.
+-- - Rotation: real Carbonite computes degrees (atan2+90) for its own
+--   legacy UV-corner rotation system - NOT reusable here, since this
+--   engine's ClipFrameW instead calls the texture's native
+--   :SetRotation(radians) (see ClipFrameW's own header comment on why,
+--   and its own "unverified, may need a sign flip" caveat for the
+--   player marker). This section's own rotation formula is derived
+--   fresh for that same :SetRotation convention (see UpdateGoto's own
+--   comment at the atan2 call) under the same two assumptions the
+--   player marker already relies on - texture points "up" unrotated,
+--   SetRotation is counterclockwise-positive - rather than porting
+--   Carbonite's degree formula, which answers a question (which way
+--   does ITS OWN UV-rotation turn) this engine doesn't ask.
+--   **UNCONFIRMED, same as the player marker**: if the arrows point
+--   backwards/sideways rather than along the trail, that's this one
+--   atan2 call to fix, not a rewrite.
+-- - Yardage: dist * 4.575, the exact same constant and formula this
+--   engine's own Update() already uses for PlyrSpeed (see that
+--   block's own header comment) - confirmed against real Carbonite's
+--   canonical formula (Coords.lua's own comment, DrawTracking :9013,
+--   UpdateTargets :8854) and NOT Coords:YardsBetween's dead-code
+--   variant, which re-multiplies by zone Scale a second time and
+--   would double-apply it (confirmed zero callers anywhere in real
+--   Carbonite - don't copy that one).
+-- - Arrival: real Carbonite auto-clears + announces once within its
+--   own default Radius (7 yards, UpdateTargets :8841-8897) - ported
+--   the same way (UIErrorsFrame message + PlaySoundFile(567455), both
+--   confirmed real calls in that same function) since a goto you can
+--   never complete isn't really this feature, just a crippled piece
+--   of it.
 ---------------------------------------------------------------------------------------
+
+local GOTO_ICON_SIZE = 16
+-- Confirmed present on disk, R:\addons\Carbonite\Gfx\Map\*.tga - the
+-- user's own "snag their art if need be" - this addon has none of its
+-- own goto/trail art, and these are the exact paths real Carbonite's
+-- DrawTracking uses (MapEngine.lua:9071,9183). Same dependency shape
+-- already accepted for the gathering-icon textures earlier this
+-- project (works with Carbonite installed-but-disabled, breaks only if
+-- it's removed from the AddOns folder entirely).
+local GOTO_DOT_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconWayTarget"
+local GOTO_ARROW_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconArrowGrad"
+-- World-units per arrow and the arrow-count cap - real Carbonite's own
+-- /15/self.IconNavScale and min(,40) (MapEngine.lua:9134/9138). This
+-- addon has no IconNavScale slider, so that factor is just dropped
+-- (equivalent to it always being 1), same as other absent sliders
+-- elsewhere in this file.
+local GOTO_ARROW_SPACING = 15
+local GOTO_ARROW_MAX = 40
+-- Real Carbonite's own default Target.Radius (MapEngine.lua:8866).
+local GOTO_ARRIVAL_YARDS = 7
+-- Same constant as Update()'s own PlyrSpeed block above - see this
+-- section's header comment for why it's a fresh local here rather
+-- than touching that already-working line.
+local GOTO_YARDS_PER_WORLDUNIT = 4.575
+
+function MinimapEngine:FramePosToWorldPos(fx, fy)
+    local wx = self.MapPosX + (fx - self.MapW / 2) / self.Scale
+    local wy = self.MapPosY + (fy - self.TitleH - self.MapH / 2) / self.Scale
+    return wx, wy
+end
+
+-- Wired from MapContextMenu.lua's "Set Goto Here" row - consumes the
+-- position OnMouseUp's RightButton branch already captured into
+-- self.ClickFrmX/Y at right-click time (see that branch's own
+-- comment), exactly matching real Carbonite's own deferred-use pattern
+-- (SetTargetAtClick, MapEngine.lua:15379-15394) rather than resampling
+-- the cursor now, which would read wherever the mouse is when the menu
+-- item is clicked instead.
+function MinimapEngine:SetGotoAtClick()
+    if not self.ClickFrmX or not self.ClickFrmY then return end
+    local wx, wy = self:FramePosToWorldPos(self.ClickFrmX, self.ClickFrmY)
+    self.GotoWX, self.GotoWY = wx, wy
+    self.GotoCont = self.Cont
+    self.ArrowScroll = 0
+end
+
+-- Wired from MapContextMenu.lua's "Clear Goto" row, and called
+-- automatically on arrival by UpdateGoto below.
+function MinimapEngine:ClearGoto()
+    self.GotoWX, self.GotoWY, self.GotoCont = nil, nil, nil
+end
+
+function MinimapEngine:HideGotoFrames()
+    if self.GotoFrm then self.GotoFrm:Hide() end
+    if self.GotoYdLabel then self.GotoYdLabel:Hide() end
+    for i = 1, #self.GotoTrailFrms do
+        self.GotoTrailFrms[i]:Hide()
+    end
+end
+
+-- Called every tick from Update() (see that function's own call site)
+-- - repositions the dot/label/trail for the current pan/zoom/player
+-- position, same "every tick, cheap" treatment as UpdatePlayerMarker/
+-- UpdateServiceIcons above. Gated on self.Cont == self.GotoCont so a
+-- goto set before crossing a zone border (but staying on the SAME
+-- continent - this engine's world-coordinate space is shared across
+-- an entire continent, same as real Carbonite's) keeps working
+-- correctly, but one left behind on a continent change (or an
+-- instance, where Cont is nil) just hides rather than pointing
+-- somewhere meaningless.
+function MinimapEngine:UpdateGoto()
+    if not self.GotoWX or self.Cont ~= self.GotoCont then
+        self:HideGotoFrames()
+        return
+    end
+
+    local dx = self.GotoWX - self.PlyrX
+    local dy = self.GotoWY - self.PlyrY
+    local dist = (dx * dx + dy * dy) ^ .5
+    local yards = dist * GOTO_YARDS_PER_WORLDUNIT
+
+    -- Arrived - see this section's header comment for why this auto-
+    -- clears rather than leaving the dot/trail sitting on the player.
+    if yards < GOTO_ARRIVAL_YARDS then
+        self:ClearGoto()
+        self:HideGotoFrames()
+        UIErrorsFrame:AddMessage("Goto reached", 1, 1, 1, 1)
+        PlaySoundFile(567455)
+        return
+    end
+
+    -- Destination dot + yardage label. Lazily created here (not in
+    -- TakeOwnership, unlike PlyrFrm - see TakeOwnership's own comment
+    -- for why) - the label is a child of the dot frame so it rides
+    -- along with ClipFrameW's own repositioning below for free.
+    if not self.GotoFrm then
+        self.GotoFrm = self:CreateMiniFrame()
+        self.GotoFrm.texture:SetTexture(GOTO_DOT_TEX)
+        local lbl = self.GotoFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        lbl:SetPoint("BOTTOM", self.GotoFrm, "TOP", 0, 2)
+        self.GotoYdLabel = lbl
+    end
+    local dotShown = self:ClipFrameW(self.GotoFrm, self.GotoWX, self.GotoWY, GOTO_ICON_SIZE, GOTO_ICON_SIZE, 0)
+    if dotShown then
+        self.GotoFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 9)
+        self.GotoYdLabel:SetText(("%dyd"):format(math.ceil(yards)))
+        self.GotoYdLabel:Show()
+    else
+        self.GotoYdLabel:Hide()
+    end
+
+    -- Ant trail - see this section's header comment for the spacing/
+    -- cap/scroll formulas' real-source citations.
+    local cnt = dist / GOTO_ARROW_SPACING
+    if cnt < 5 then cnt = cnt + .5 end
+    cnt = math.min(math.floor(cnt), GOTO_ARROW_MAX)
+
+    if not self.PlyrSpeed or self.PlyrSpeed == 0 then
+        local scroll = (self.ArrowScroll or 0) + .01
+        self.ArrowScroll = scroll > 1 and 0 or scroll
+    end
+
+    if cnt >= 1 then
+        if #self.GotoTrailFrms < cnt then
+            for n = #self.GotoTrailFrms + 1, cnt do
+                local f = self:CreateMiniFrame()
+                f.texture:SetTexture(GOTO_ARROW_TEX)
+                self.GotoTrailFrms[n] = f
+            end
+        end
+
+        -- Derived for this engine's own ClipFrameW/:SetRotation
+        -- convention, not ported from Carbonite's degree formula - see
+        -- this section's header comment for the full reasoning and the
+        -- "unconfirmed, may need a sign flip" caveat.
+        local dir = math.atan2(-dx, -dy)
+
+        local stepX, stepY = dx / cnt, dy / cnt
+        local scroll = self.ArrowScroll or 0
+        local ox, oy = stepX * scroll, stepY * scroll
+        local level = (self.Frm:GetFrameLevel() or 1) + 7
+        for n = 1, cnt do
+            local f = self.GotoTrailFrms[n]
+            local wx, wy = self.PlyrX + ox, self.PlyrY + oy
+            if self:ClipFrameW(f, wx, wy, GOTO_ICON_SIZE, GOTO_ICON_SIZE, dir) then
+                f:SetFrameLevel(level)
+            end
+            ox, oy = ox + stepX, oy + stepY
+        end
+        for n = cnt + 1, #self.GotoTrailFrms do
+            self.GotoTrailFrms[n]:Hide()
+        end
+    else
+        for n = 1, #self.GotoTrailFrms do
+            self.GotoTrailFrms[n]:Hide()
+        end
+    end
+end
 
 ---------------------------------------------------------------------------------------
 -- Diagnostic overlay, originally built for the build-order step 4
@@ -2170,6 +2432,18 @@ function MinimapEngine:UpdateDebugOverlay()
         tostring(self.CurWorldUpdateMapId), tostring(self.CurWorldTileCount)))
     tinsert(lines, ("PlyrX: %s   PlyrY: %s   PlyrDir: %s"):format(
         fmtNum(self.PlyrX, "%.1f"), fmtNum(self.PlyrY, "%.1f"), fmtNum(self.PlyrDir, "%.2f")))
+
+    tinsert(lines, "")
+    tinsert(lines, DEBUG_HEADER_COLOR:format("Goto  (Build-order step 10)"))
+    if self.GotoWX then
+        local dx = self.GotoWX - (self.PlyrX or 0)
+        local dy = self.GotoWY - (self.PlyrY or 0)
+        local yd = ((dx * dx + dy * dy) ^ .5) * 4.575
+        tinsert(lines, ("GotoWX: %s   GotoWY: %s   Dist: %dyd"):format(
+            fmtNum(self.GotoWX, "%.1f"), fmtNum(self.GotoWY, "%.1f"), math.ceil(yd)))
+    else
+        tinsert(lines, "GotoWX: nil   (no goto set)")
+    end
 
     debugText:SetText(table.concat(lines, "\n"))
 end
@@ -2455,6 +2729,10 @@ function MinimapEngine:Update(elapsed)
     -- Build-order step 9a: independent of both tile layers - see
     -- UpdatePlayerMarker's own header.
     self:UpdatePlayerMarker()
+
+    -- Build-order step 10: independent of the tile/icon layers above -
+    -- see UpdateGoto's own header for why this runs every tick.
+    self:UpdateGoto()
 
     -- Build-order step 9b: repositions already-resolved static service
     -- icons for the current pan/zoom - see UpdateServiceIcons' own

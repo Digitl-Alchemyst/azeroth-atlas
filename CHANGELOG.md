@@ -1163,3 +1163,95 @@ readable.
   menu open on screen; cause not yet confirmed. Deferred at the time —
   revisit with `/console scriptErrors 1` set and the exact error text
   next time it reproduces.
+
+- **Build-order step 10, 2026-11-11: right-click goto waypoint + ant-
+  trail.** User's request: "carbonite has a feature where you can
+  right click set a goto at that spot then get ant trails from you to
+  the location... a little number above [the dot] that is the yards
+  away... updates as you move... use the flowing arrows like
+  carbonite, snag their art if need be." Confirmed the UX against real
+  Carbonite's own source (`Carbonite\Modules\Map\MapEngine.lua`) rather
+  than guessing: right-click opens a menu (matches this addon's own
+  `MapContextMenu.lua` exactly), with "Set Goto"/"Clear Goto" as two of
+  that menu's real items.
+  - `MapContextMenu.lua`: two new button rows, "Set Goto Here" and
+    "Clear Goto" (menu resized 220×260 → 220×320 to fit them), wired to
+    two new `MinimapEngine` methods of the same name/intent.
+  - `MinimapEngine.lua`'s `OnMouseUp` RightButton branch now also
+    captures the click's frame-local pixel position (`ClickFrmX/Y`)
+    *before* the menu opens — ported from real Carbonite's own
+    `CalcClick` (sampled once, at click time, not resampled when the
+    menu item is later clicked). New `FramePosToWorldPos(fx, fy)`
+    converts that back into this engine's own world-coordinate space —
+    the algebraic inverse of `ClipFrameW`'s forward formula, reusing
+    the exact same inversion `MouseWheel`'s zoom-at-cursor code already
+    proven working, rather than deriving a new one.
+  - Goto storage is a single in-memory point (`GotoWX/GotoWY/GotoCont`)
+    — not saved to `AlchemyGPS.db`, matching real Carbonite's own
+    `Nx.Map.Targets` (a plain runtime table, confirmed never written to
+    its SavedVariables either). Cleared on arrival (within 7 yards —
+    real Carbonite's own default `Target.Radius`) with a
+    `UIErrorsFrame` message and `PlaySoundFile(567455)`, both real
+    calls confirmed in Carbonite's own arrival-check code.
+  - Ant trail: pooled arrow frames spaced every 15 world-units (capped
+    at 40), straight line from player to goto, textured with real
+    Carbonite's own art (`Carbonite\Gfx\Map\IconArrowGrad.tga` for the
+    arrows, `IconWayTarget.tga` for the destination dot — both
+    confirmed present on disk, per the user's own "snag their art if
+    need be"). The "flowing" look is mostly the player's own live
+    position advancing every tick; a small extra creep
+    (`self.ArrowScroll`) keeps the ants moving while standing still,
+    gated on `self.PlyrSpeed == 0` exactly like real Carbonite's own
+    `DrawTracking`, reusing this engine's own already-existing
+    `PlyrSpeed` field rather than adding a new speed check.
+  - Yardage label: a new `#yd` `FontString` anchored above the dot,
+    text = `ceil(dist * 4.575)` — the same constant/formula this
+    engine's own `PlyrSpeed` calc already uses, confirmed against real
+    Carbonite's canonical formula and NOT its dead-code `YardsBetween`
+    variant (zero callers anywhere in real Carbonite; it re-multiplies
+    by zone `Scale` a second time and would double-apply it). This
+    specific `#yd`-above-the-dot display does not exist in real
+    Carbonite at all (confirmed — its only live distance readouts are
+    a hover tooltip and a separate HUD arrow window, neither anchored
+    to the map canvas) — built fresh for this addon, not ported.
+  - **Unconfirmed, flagged the same way as the player marker's own
+    rotation**: the ant-trail arrows' pointing direction
+    (`math.atan2(-dx, -dy)`, feeding this engine's own
+    `ClipFrameW`/`:SetRotation`) is derived fresh rather than ported —
+    real Carbonite's own rotation formula answers a different question
+    (its own legacy degree-based UV-rotation system, which this addon
+    doesn't use). If the arrows render pointing backwards or sideways
+    rather than along the trail, that one `atan2` call is the fix, not
+    a rewrite. Everything else in this entry is either a direct port
+    of confirmed-real Carbonite logic or a small, clearly-marked new
+    addition — not yet live-tested as a whole.
+
+### Build-order step 10 follow-up, 2026-11-11: live-tested working + menu restyle.
+
+- **Live-tested, confirmed correct** — the goto/ant-trail feature above
+  works as built: trail arrows point the right way (the unconfirmed
+  `atan2(-dx, -dy)` guess turned out correct, no fix needed), the addon
+  detects arrival and clears the goto, the chat message and sound both
+  fire.
+- **"Set Goto Here"/"Clear Goto" moved to the top of the menu and
+  restyled**, per explicit user request to render first and look like
+  "a small line like the carbonite addon" rather than full buttons.
+  Read real Carbonite's own menu-rendering code
+  (`Nx.Menu:AddItem`/`Nx.Menu:Update`, `Modules/UI/UIEngine.lua:5483-
+  5871`) rather than guessing at the look: each of its rows is a plain
+  frame spanning the menu width minus margins, ~12px tall, no button
+  border/texture at all, with a tinted highlight that fades in on
+  hover (manual alpha animation in `Item_OnEnter`/`Item_OnUpdate`) and
+  a left-justified `FontString`. `MapContextMenu.lua`'s new
+  `createMenuRow` helper reproduces that same look — same borderless,
+  width-spanning, left-justified-text shape — but as a plain `Button`
+  frame using a WoW `HIGHLIGHT`-layer texture (`SetHighlightTexture`)
+  instead of hand-rolling Carbonite's own `OnEnter`/`OnLeave`/`OnUpdate`
+  alpha-fade trio, since Blizzard's highlight layer already does the
+  identical show-on-hover/hide-on-leave job for free — same visual
+  result, no new animation code needed. The two rows now sit at the
+  very top of the menu (`-10` and `-10 - (16+2)` from the menu's own
+  `TOP`), with every slider/label below them shifted down by a flat 40
+  so none of their existing relative spacing needed touching; menu
+  height grew from 220×320 to 220×310 to re-fit (shorter overall once
+  the old 22px-tall buttons were replaced by 16px-tall rows).

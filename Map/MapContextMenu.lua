@@ -40,6 +40,28 @@
 -- as row 2. Persisted as AlchemyGPS.db.profile.GatherBackdropOpacity,
 -- applied live to MinimapEngine.GatherBackdropOpacity on every slider
 -- move.
+--
+-- Rows 5/6 (build-order step 10, 2026-11-11): "Set Goto Here" and
+-- "Clear Goto" - real Carbonite's own right-click menu has these same
+-- two items (Menu_OnGoto/Menu_OnClearGoto, MapEngine.lua:3968-3975),
+-- confirmed by reading its source rather than assumed, so this isn't a
+-- new idea bolted onto an unrelated menu - it's the same feature's own
+-- real UI. See MinimapEngine.lua's own "Build-order step 10" section
+-- header for the position-capture/world-math/ant-trail details behind
+-- what these two rows actually do.
+--
+-- Live-tested working 2026-11-11 (goto, ant-trail direction, arrival
+-- detection/sound all confirmed correct) - then moved to the TOP of
+-- the menu and restyled as thin highlight rows (createMenuRow, below)
+-- instead of UIPanelButtonTemplate buttons, per explicit user request
+-- to match Carbonite's own menu look. Real Carbonite's row style
+-- (Nx.Menu:Update, UIEngine.lua:5740-5862) is a plain Button-ish
+-- frame spanning the menu width, ~12px tall, no border/button
+-- texture, with a tinted highlight that fades in on hover and a
+-- left-justified label - createMenuRow below is that same look (a
+-- WoW HIGHLIGHT-layer texture standing in for Carbonite's own manual
+-- alpha-fade-on-OnUpdate, since Blizzard's highlight layer already
+-- does the show/hide-on-hover part for free).
 
 local AlchemyGPS = _G.AlchemyGPS
 AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
@@ -63,6 +85,34 @@ local DEFAULT_GATHER_BACKDROP_OPACITY = 0.7
 local MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY = 0, 1
 
 local menu
+
+local GOTO_ROW_H = 16
+local GOTO_ROW_GAP = 2
+
+-- Thin, borderless highlight row matching real Carbonite's own menu
+-- item look (see header comment above) - a Button (for OnClick/hover)
+-- rather than UIPanelButtonTemplate, spanning the menu width minus
+-- margins, with a HIGHLIGHT-layer texture WoW already shows/hides on
+-- hover for free instead of Carbonite's own manual alpha-fade.
+local function createMenuRow(parent, text, yOffset, onClick)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(GOTO_ROW_H)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, yOffset)
+    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -14, yOffset)
+
+    local hl = row:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints(row)
+    hl:SetColorTexture(0.4, 0.4, 0.8, 0.35)
+    row:SetHighlightTexture(hl)
+
+    local fs = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    fs:SetPoint("LEFT", row, "LEFT", 4, 0)
+    fs:SetJustifyH("LEFT")
+    fs:SetText(text)
+
+    row:SetScript("OnClick", onClick)
+    return row
+end
 
 local function applyBrightness(value)
     if AlchemyGPS.db and AlchemyGPS.db.profile then
@@ -108,7 +158,7 @@ local function create()
     if menu then return menu end
 
     menu = CreateFrame("Frame", "AlchemyGPSMapContextMenu", UIParent, "BackdropTemplate")
-    menu:SetSize(220, 260)
+    menu:SetSize(220, 310)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -119,17 +169,31 @@ local function create()
     menu:SetBackdropColor(0, 0, 0, 0.9)
     menu:Hide()
 
+    local gotoRow = createMenuRow(menu, "Set Goto Here", -10, function()
+        local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+        if MinimapEngine then MinimapEngine:SetGotoAtClick() end
+        MapContextMenu:Close()
+    end)
+    menu.gotoRow = gotoRow
+
+    local clearGotoRow = createMenuRow(menu, "Clear Goto", -10 - (GOTO_ROW_H + GOTO_ROW_GAP), function()
+        local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+        if MinimapEngine then MinimapEngine:ClearGoto() end
+        MapContextMenu:Close()
+    end)
+    menu.clearGotoRow = clearGotoRow
+
     local label = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     -- Anchored to the menu's own top-center, not the slider below it -
     -- a left-anchored label's "BOTTOM" point sits at the horizontal
     -- center of its own rendered text width, not the menu's center,
     -- which is what was actually dragging the slider left (it was
     -- anchored off this label, not off the menu).
-    label:SetPoint("TOP", menu, "TOP", 0, -12)
+    label:SetPoint("TOP", menu, "TOP", 0, -52)
     label:SetText("Tile Map Brightness")
 
     local slider = CreateFrame("Slider", "AlchemyGPSMapBrightnessSlider", menu, "OptionsSliderTemplate")
-    slider:SetPoint("TOP", menu, "TOP", 0, -36)
+    slider:SetPoint("TOP", menu, "TOP", 0, -76)
     slider:SetWidth(180)
     slider:SetMinMaxValues(MIN_BRIGHTNESS, MAX_BRIGHTNESS)
     slider:SetValueStep(0.05)
@@ -143,11 +207,11 @@ local function create()
     menu.slider = slider
 
     local gatherLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    gatherLabel:SetPoint("TOP", menu, "TOP", 0, -74)
+    gatherLabel:SetPoint("TOP", menu, "TOP", 0, -114)
     gatherLabel:SetText("Gathering Icon Opacity")
 
     local gatherSlider = CreateFrame("Slider", "AlchemyGPSGatherOpacitySlider", menu, "OptionsSliderTemplate")
-    gatherSlider:SetPoint("TOP", menu, "TOP", 0, -98)
+    gatherSlider:SetPoint("TOP", menu, "TOP", 0, -138)
     gatherSlider:SetWidth(180)
     gatherSlider:SetMinMaxValues(MIN_GATHER_OPACITY, MAX_GATHER_OPACITY)
     gatherSlider:SetValueStep(0.05)
@@ -161,11 +225,11 @@ local function create()
     menu.gatherSlider = gatherSlider
 
     local sizeLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sizeLabel:SetPoint("TOP", menu, "TOP", 0, -136)
+    sizeLabel:SetPoint("TOP", menu, "TOP", 0, -176)
     sizeLabel:SetText("Gathering Icon Size")
 
     local sizeSlider = CreateFrame("Slider", "AlchemyGPSGatherSizeSlider", menu, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOP", menu, "TOP", 0, -160)
+    sizeSlider:SetPoint("TOP", menu, "TOP", 0, -200)
     sizeSlider:SetWidth(180)
     sizeSlider:SetMinMaxValues(MIN_GATHER_SCALE, MAX_GATHER_SCALE)
     sizeSlider:SetValueStep(0.1)
@@ -179,11 +243,11 @@ local function create()
     menu.sizeSlider = sizeSlider
 
     local backdropLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    backdropLabel:SetPoint("TOP", menu, "TOP", 0, -198)
+    backdropLabel:SetPoint("TOP", menu, "TOP", 0, -238)
     backdropLabel:SetText("Gathering Icon Backdrop Opacity")
 
     local backdropSlider = CreateFrame("Slider", "AlchemyGPSGatherBackdropOpacitySlider", menu, "OptionsSliderTemplate")
-    backdropSlider:SetPoint("TOP", menu, "TOP", 0, -222)
+    backdropSlider:SetPoint("TOP", menu, "TOP", 0, -262)
     backdropSlider:SetWidth(180)
     backdropSlider:SetMinMaxValues(MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY)
     backdropSlider:SetValueStep(0.05)

@@ -36,6 +36,11 @@ all; bottom items are tuning/feel questions on things known to render.
 - [ ] **NOT YET FORMALLY WALKED** — Auto-follow checkbox (root cause of
       the original "fights manual panning" bug is fixed, but no recorded
       pass since)
+- [ ] **NOT YET LIVE-TESTED** — Goto menu rows restyled, 2026-11-11 (moved
+      "Set Goto Here"/"Clear Goto" to the top of the right-click menu as
+      thin Carbonite-style highlight rows instead of full buttons — the
+      underlying goto/ant-trail/arrival behavior itself is already
+      confirmed working, see below, this is just the new row look/order).
 
 ## Confirmed (icon rendering only — exact tuning above may still be off)
 
@@ -52,6 +57,9 @@ all; bottom items are tuning/feel questions on things known to render.
       working icon and click-through
 - [x] **2026-11-10** — Right-click menu's taint-popup bug fixed
       (`:IsMouseOver()` switch)
+- [x] **2026-11-11** — Right-click goto waypoint + ant-trail: confirmed
+      live — trail arrows point the correct way, arrival detection fires
+      (chat message + sound) when reaching the goto
 
 ## What to report back
 
