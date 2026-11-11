@@ -31,6 +31,9 @@
          data, same "static service icon" shape as Mailbox/Innkeeper
          above, pure data, no dependencies. -->
     <Script file="Data\GuideBanker.lua" />
+    <!-- 2026-11-11: auctioneer data, same "static service icon" shape,
+         explicit user request after noticing it missing from the map. -->
+    <Script file="Data\GuideAuctioneer.lua" />
     <Script file="Data\GuideDungeonEntrance.lua" />
     <Script file="Data\GuideZoneTransition.lua" />
     <!-- Build-order step 11: spirit healer data, same "static service

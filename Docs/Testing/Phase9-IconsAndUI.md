@@ -101,10 +101,33 @@ all; bottom items are tuning/feel questions on things known to render.
       `info.name` then `info.description`) - if it ever shows and says
       something wrong/blank, report exactly what it says.
 
+- [ ] **NOT YET LIVE-TESTED** — Mailbox icon switched, 2026-11-11, from
+      the flat `Interface\Icons\INV_Letter_15` item icon (user reported
+      it rendered as "a black box and background with a border" - a
+      real property of raw Blizzard inventory art, which has no alpha
+      transparency at all) to `Interface\Minimap\TRACKING\Mailbox`, the
+      same confirmed-working tracking-pin family Innkeeper/Banker
+      already use. Check: mailbox pins now look like a proper
+      free-floating pin icon, not a solid square with a dark
+      background - if it's STILL boxy/wrong, something about this
+      specific icon name in the TRACKING family may differ from
+      Innkeeper/Banker, report exactly what it looks like.
+- [ ] **NOT YET LIVE-TESTED** — Auctioneer icons, 2026-11-11, brand new
+      (there was never a SERVICE_ICON_TEX/GuideData entry for this kind
+      before - user noticed they were missing from the map entirely).
+      Ported from `Carbonite/Data/camelot/Guides/Auctioneer.lua`
+      (`Map/Data/GuideAuctioneer.lua`), same shape/texture family as
+      Banker. Toggle via the Filter menu's new "Auctioneers" row.
+      Check: icons appear at real auction-house locations in a few
+      different zones, icon isn't blank/boxy, hover tooltip says
+      "Auctioneer", toggling the filter row instantly hides/shows them.
+
 ## Confirmed (icon rendering only — exact tuning above may still be off)
 
 - [x] **2026-11-10** — Mailbox/Innkeeper icons render, correct per-faction
-      filtering (`ServiceIconFactionOk`)
+      filtering (`ServiceIconFactionOk`) — position/filtering only;
+      Mailbox's own ICON ART was wrong until the 2026-11-11 fix above,
+      see that entry.
 - [x] **2026-11-10** — Per-species gathering-node icons render with
       correct species texture; hover tooltip shows name + skill-colored
       level

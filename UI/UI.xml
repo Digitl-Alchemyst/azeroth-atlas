@@ -13,4 +13,9 @@
     <Script file="Mixins\Draggable.lua" />
     <Script file="Mixins\Resizable.lua" />
     <Script file="SmallWindow.lua" />
+
+    <!-- Build-order step 13: Style tab support. TabBar/StyleOptions
+         need AlchemyGPS.UI (created by Widget.lua) but not SmallWindow. -->
+    <Script file="TabBar.lua" />
+    <Script file="StyleOptions.lua" />
 </Ui>

@@ -1,11 +1,15 @@
 -- Alchemy GPS | UI / Widget
 -- Base "create a skinned frame" factory. Trimmed port of
 -- Carbonite/UI/Widget.lua: only the Frame factory + backdrop helper
--- Window.lua actually uses. Carbonite's Button/ScrollFrame/EditBox/
--- Slider/CheckButton factories are dropped - nothing in this addon
+-- Window.lua actually uses. Carbonite's Button/EditBox/Slider/
+-- CheckButton factories are still dropped - nothing in this addon
 -- needs them yet, and Carbonite's generic Mixin.Apply composition
 -- helper is dropped too, in favor of the plain direct-assignment
 -- style the existing UI/Mixins files already use.
+--
+-- Build-order step 13, 2026-11-11: CreateScrollFrame added back
+-- (Carbonite/UI/Widget.lua:62) - the Style tab's category list is
+-- the first thing in this addon that actually needs one.
 --
 -- Ported verbatim (namespace rename only) from AlchemyNavigation's
 -- own already-proven UI/Widget.lua, per the build plan's porting
@@ -39,4 +43,16 @@ function Widget.CreateFrame(parent, name)
     local f = CreateFrame("Frame", name, parent or UIParent, template)
     f.SetCarbBackdrop = setCarbBackdrop
     return f
+end
+
+-- Stock Blizzard scroll chrome (scrollbar + up/down buttons) wrapping
+-- a single child frame (`sf.ScrollChild`) that holds the actual
+-- content and must be sized explicitly by the caller (its height is
+-- what determines how far the frame can scroll).
+function Widget.CreateScrollFrame(parent, name)
+    local sf = CreateFrame("ScrollFrame", name, parent or UIParent, "UIPanelScrollFrameTemplate")
+    local child = CreateFrame("Frame", nil, sf)
+    sf:SetScrollChild(child)
+    sf.ScrollChild = child
+    return sf
 end

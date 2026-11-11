@@ -33,6 +33,24 @@ function Methods:GetContent()
     return self.content
 end
 
+-- Build-order step 13, 2026-11-11: re-reads the active Skin and
+-- re-applies it - was a one-time `f:SetCarbBackdrop()` call with no
+-- args at all (Widget.lua's own hardcoded default, not this addon's
+-- Skin system), so the Settings window never matched the minimap
+-- window's own theme and couldn't be re-themed live either. This
+-- window doesn't join Nx.Window.Wins (a different, heavier chrome
+-- system - see this file's own header), so Skin:ResetWindows()'s
+-- sweep can't reach it; SettingsWindow.lua calls this directly
+-- instead when the user picks a different skin.
+function Methods:ApplySkin()
+    local bk = AlchemyGPS.Skin:GetBackdrop()
+    self:SetCarbBackdrop(bk.bgFile, bk.edgeFile, bk.tile, bk.tileSize, bk.edgeSize, bk.insets)
+    local bd = AlchemyGPS.Skin:GetBorderCol()
+    self:SetBackdropBorderColor(bd[1], bd[2], bd[3], bd[4])
+    local bg = AlchemyGPS.Skin:GetBGCol()
+    self:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
+end
+
 -- Builds a new window. `spec` keys:
 --   name      string  Global frame name (optional but recommended -
 --                      required for ESC-to-close via UISpecialFrames).
@@ -53,10 +71,10 @@ function Window:Create(spec)
 
     f:SetSize(spec.width or 400, spec.height or 300)
     f:SetFrameStrata(spec.strata or "MEDIUM")
-    f:SetCarbBackdrop()
     f:EnableMouse(true)
     f:SetClampedToScreen(true)
     f:Hide()
+    f:ApplySkin()
 
     -- Title bar
     local titleBar = f:CreateTexture(nil, "ARTWORK")

@@ -1560,3 +1560,419 @@ as Mailbox/Banker/SpiritHealer. Only FlightMaster carries a location
 name now (`node.name`, unchanged throughout this whole stretch).
 `Map/Data/ZoneNames.lua` is untouched - still needed by
 `GuideZoneTransition.lua`'s own destination-name resolution.
+
+### Build-order step 13, 2026-11-11: Style settings tab - swappable art from Leatrix_Maps + Carbonite.
+
+Explicit user request: "comb leatrix for art assets like its icons,
+add them to our addon, give me a tab in the settings menu and the
+ability to control what icons and art assets are used for what...
+just make the tab in settings called style and put as much stuff i
+swap in and out to get the look i want, also look through carbonite
+for art assets, we can load up here and strip out what we don't use
+later."
+
+- **Window Skin - `UI/Skin.lua` grown from one hardcoded theme into
+  the real 12-skin switchable registry.** Was a trimmed, single-entry
+  ("Modern Dark" equivalent) port of Carbonite's `Nx.Skin`. The other
+  11 real skins' data (Blackout, Blackout Blues, Dialog Blue, Dialog
+  Gold, Simple Blue, Stone, Tool Blue, Modern Light, Glass, Class
+  Color, Faction) are now ported verbatim from Carbonite's own
+  `Modules/UI/UIEngine.lua:1210-1436`, keyed in a new `Skin.Skins`
+  table. Confirmed first that this addon's own window chrome
+  (`UI/Window.lua`'s `CreateBorders`/`SetBordersFade`) only ever reads
+  `GetBackdrop`/`GetBorderCol`/`GetBGCol`/`GetFixedSizeBGCol` - never
+  the extra `WinBrH`/`WinBrV`/`TabOff`/`TabOn` border-bar/tab-art
+  fields every Carbonite skin entry also carries - so those were left
+  out entirely rather than ported for nothing. 10 of the 12 skins use
+  only stock Blizzard border paths (zero new assets); Blackout and
+  Simple Blue's `edgeFile` pointed at Carbonite's own live install
+  path (`Interface\Addons\Carbonite\Gfx\Skin\EdgeSquare`) - rewritten
+  to a real local copy (`Gfx/Skin/EdgeSquare.tga`, copied in this same
+  step) so the skin system no longer needs Carbonite installed at all
+  for its own defaults. Class Color/Faction keep their real
+  `BdColResolve` live-state override (reads `UnitClass`/
+  `UnitFactionGroup` at apply time) over the saved border color.
+  `Skin:Set(name)` persists the choice (`AlchemyGPS.db.profile.Skin.
+  Name`/`WinBdColor`/`WinSizedBgColor`), recomputes
+  `BdCol`/`BgCol`/`FixedBgCol`, then calls the new `Skin:ResetWindows()`
+  - a trimmed version of Carbonite's real `ResetBackdrops` sweep (this
+  file's own header previously noted it was deleted "since this addon
+  has no skin-switcher UI to trigger a live re-skin" - no longer
+  true), walking `Nx.Window.Wins` and re-calling each window's own
+  already-idempotent `CreateBorders()`/`SetBordersFade(win.BackgndFade)`.
+- **The Settings window now actually participates in the skin
+  system.** `UI/SmallWindow.lua` (the Settings window's own chrome,
+  separate from the big `Nx.Window` class, so `Skin:ResetWindows()`
+  can't reach it) previously called `f:SetCarbBackdrop()` with no
+  arguments at all - `UI/Widget.lua`'s own hardcoded default, not this
+  addon's Skin system - so it never matched the minimap window's own
+  theme. New `Methods:ApplySkin()` reads the active Skin's backdrop +
+  border/background color and applies all three; called once at
+  window creation and again directly from the Style tab's Window Skin
+  swatch handler (`SettingsWindow.lua`) on every change.
+- **Three more swappable single-texture categories - new
+  `UI/StyleOptions.lua` registry** (`Categories` table +
+  `GetTex`/`GetChoice`/`SetChoice`), persisted at
+  `AlchemyGPS.db.profile.Style`, defaults matching the exact prior
+  look so nothing changes for existing users until the tab is opened:
+  - *Trail Arrow* (the Goto/Corpse ant-trail arrow): Carbonite
+    Gradient (prior default) plus Carbonite's unused `HUDArrow`/
+    `HUDArrowChip`/`HUDArrowGloss`/`HUDArrowGlow`/`HUDArrowNeon` - 6
+    options.
+  - *Goto Marker* (the "set goto here" dot): Carbonite Way Target
+    (prior default) plus `IconCircle`/`IconCircleFade`/
+    `IconCirclePlus`/`IconRing`/`IconQTarget` - 6 options.
+  - *Quest Turn-In Icon*: Blizzard's own `ActiveQuestIcon` (prior
+    default, unchanged) plus Carbonite's `IconExclaim`/`IconExclaimB`/
+    `IconQuestion` - 4 options.
+  - `Map/MinimapEngine.lua`'s `GOTO_DOT_TEX`/`TRAIL_ARROW_TEX`/
+    `QUEST_TURNIN_TEX` fixed locals are gone - the first two used to
+    be a **live cross-addon reference into Carbonite's own install
+    path** (`Interface\AddOns\Carbonite\Gfx\Map\...`), a real
+    fragility (breaks if Carbonite is ever disabled/removed) the
+    Style tab's "add them to our addon" request was the natural moment
+    to fix - all three categories' default option now points at this
+    addon's own local `Gfx/Map/` copy. All three `SetTexture` call
+    sites now resolve `StyleOptions:GetTex(key)` fresh. QuestIcon
+    needed no further plumbing (`RefreshQuestIcons`/`UpdateQuestIcons`
+    already re-checks the texture value every throttled update via its
+    existing `svcTex` diff); Trail Arrow and Goto Marker's `SetTexture`
+    calls only ever fire once per pooled frame, so a new
+    `MinimapEngine:ApplyStyleChange(key)` force-updates every
+    already-existing pooled frame (`GotoTrailFrms`/`CorpseTrailFrms`/
+    `GotoFrm`) so a change while trails are already on-screen takes
+    effect immediately.
+- **New Style tab in the Settings window.** Ported Carbonite's real
+  `UI/TabBar.lua` near-verbatim (already small, built on stock
+  `PanelTabButtonTemplate`, nothing to trim) into `UI/TabBar.lua`.
+  `Settings/SettingsWindow.lua` rebuilt around it - "General" (the
+  three existing checkboxes + Show Minimap button, unchanged) and
+  "Style" (new): a scrollable list (`Widget.CreateScrollFrame`, added
+  back to `UI/Widget.lua` - the first thing in this addon that
+  actually needed one), one row per category (Window Skin, Trail
+  Arrow, Goto Marker, Quest Turn-In Icon), each a strip of clickable
+  preview swatches - texture categories show the real icon, Window
+  Skin shows a two-tone square (`BgCol` fill, `BdCol`/`BdColResolve`
+  inset accent). Clicking a swatch persists + applies live and
+  highlights gold; every other swatch in view re-syncs so only one per
+  category stays highlighted. Window grew from 270x180 to 380x440 to
+  fit it - there was no content at the old size that needed keeping.
+- **New local asset copies** (`Gfx/Map/`: `IconArrowGrad`,
+  `IconWayTarget`, `HUDArrow`/`HUDArrowChip`/`HUDArrowGloss`/
+  `HUDArrowGlow`/`HUDArrowNeon`, `IconCircle`/`IconCircleFade`/
+  `IconCirclePlus`/`IconRing`/`IconQTarget`, `IconExclaim`/
+  `IconExclaimB`/`IconQuestion`; `Gfx/Skin/EdgeSquare`), all copied
+  from real, confirmed-on-disk Carbonite files, not guessed.
+- **Explicitly staged, not wired**: Leatrix_Maps' `Leatrix_Maps.blp`
+  sprite sheet (its Dungeon/Raid/boat/zeppelin/tram pin art) copied
+  into a new `Gfx/Staged/` folder per the user's own "load up here, we
+  can strip out what we don't use later" instruction - using it needs
+  texcoord carving, the same risk class as the corpse-icon texcoord
+  saga earlier this project (three wrong guesses before the real
+  Blizzard source settled it), not worth that risk for pins already
+  rendered a different way here. Carbonite's button-chrome variants
+  (`But.tga`/`ButC.tga`/etc.) were left uncopied entirely - they back
+  Carbonite's own watch-window/checkbox UI, which this addon has no
+  feature consuming at all, so there'd be no picker to attach them to.
+  `MapContextMenu.lua`/`FilterMenu.lua`'s own popup-menu look is left
+  untouched too - a deliberately different, simpler style from the
+  main window chrome, not conflated with "Window Skin" in this pass.
+
+Not yet live-tested - deployed to the live mirror, brace-balance
+checked on every edited file, no in-game verification yet (switching
+all 12 skins, all three texture categories, confirming persistence
+across `/reload`).
+
+### Build-order step 13, same-day fix, 2026-11-11: Window Skin change left the minimap window a stuck opaque white box.
+
+Reported live, with a screenshot: after this build step shipped, the
+minimap window's map content disappeared, replaced by a plain white
+rectangle sitting at the window's last position, not reacting to
+movement. Root cause: `Window:CreateBorders()` calls
+`self.Frm:SetBackdrop(bk)` - and `:SetBackdrop()` is a real WoW API
+behavior that resets a frame's backdrop COLOR to opaque white,
+discarding whatever tint was previously applied via
+`:SetBackdropColor`. `Window:SetBordersFade()` only re-applies the
+BORDER color afterward, never the background - in normal play the
+background tint only ever gets reapplied by `Window:OnUpdate`'s own
+per-tick fade branch, and only while `win.BackgndFade` is actively
+changing value that exact tick (a window sitting at a settled fade
+level, the common case once the mouse isn't actively hovering in/out,
+never re-enters that branch on its own). `Skin:ResetWindows()` (new
+this build step, called from `Skin:Set()` on every Style-tab skin
+pick) calls `CreateBorders()` + `SetBordersFade()` but never
+re-applied the background tint - leaving the window's backdrop
+permanently reset to its undertinted default (opaque white) the
+moment any skin was picked, until the user happened to mouse over/off
+the window again (which nudges `BackgndFade` and self-heals it, by
+accident, via that same per-tick branch). Fixed by having
+`Skin:ResetWindows()` explicitly re-apply the background color too,
+replicating `Window:OnUpdate`'s own color/alpha formula (
+`GetBGCol()`/`GetFixedSizeBGCol()`, scaled by the window's current
+`BackgndFade`/`BackgndAlphaMin`/`BackgndAlphaDiff`) right after
+`CreateBorders()`, instead of depending on that per-tick branch firing
+on its own. `UI/SmallWindow.lua`'s own `ApplySkin()` (the Settings
+window's equivalent) was already correct - it explicitly calls both
+`SetBackdropBorderColor` and `SetBackdropColor` itself, so it was
+never affected by this bug.
+
+**How to apply**: any future code that calls `:SetBackdrop()` on an
+already-visible, already-tinted frame must re-apply both
+`SetBackdropColor` AND `SetBackdropBorderColor` immediately after, in
+the same call - don't assume an existing nearby helper (here,
+`SetBordersFade`) covers both colors just because it sounds like it
+should; it only covered one. Deployed and verified byte-identical -
+turned out NOT to be the actual cause of the reported bug (see
+immediately below) but is a real fix in its own right, left in place.
+
+### Build-order step 13, second same-day fix, 2026-11-11: the ACTUAL cause of the stuck white box - `AlchemyGPS.db` didn't exist yet when `Skin:Init()` ran.
+
+The first fix above didn't resolve it - user reported the white box
+still appeared after a plain `/reload`, never having touched the Style
+tab at all, which is the real tell: `Skin:ResetWindows()` (what the
+first fix touched) only ever runs from an explicit Style-tab pick, not
+on login. Re-diagnosed with a live `/run` check
+(`AlchemyGPS.Modules.Map.MinimapWindow.Win`) rather than guessing a
+third theory - it printed "no window," meaning the minimap window
+object itself was never successfully created that session at all.
+
+Root cause: `Skin:Init()` (runs unconditionally at this file's own
+load time, well before `PLAYER_LOGIN`) called `Skin:Set(..., true)`,
+and `Set()` unconditionally wrote
+`AlchemyGPS.db.profile.Skin.Name = ...` - but `AlchemyGPS.db` is not
+created at file-load time at all; `Core/SavedVariables.lua`'s own
+`ensureDB()`/`bind()` only run later, on the `ALCHEMYGPS_INITIALIZE`
+event (`PLAYER_LOGIN`) - the exact same timing gap
+`MinimapWindow.lua`'s own `OnEnable` comment already documents and
+works around, for the exact same reason, one file over. This threw
+"attempt to index a nil value (field 'db')" on every single addon
+load, unconditionally - not something that could depend on whether the
+Style tab was ever opened. The crash happened AFTER `self.Data` was
+already assigned (so `GetBackdrop()` kept working) but BEFORE
+`Update()` ran (so `self.BdCol`/`self.BgCol` stayed nil). Window
+creation (`UI/Window.lua`'s `Window:Create`) calls `CreateBorders()`
+(succeeds, shape+default-white backdrop applied, frame shown) then
+`SetBordersFade()` (`GetBorderCol()` returns nil → indexing
+`col[1]` on nil throws a SECOND error) - this second crash aborted
+`Window:Create()` before it returned, so
+`MinimapWindow:Open()`'s `self.Win = win` assignment never ran. Net
+effect: a bare, half-built frame left on screen (created + shown
+before the crash, backdrop shape applied but never colored, title bar/
+content/borders/resize never added since the rest of `Create()` never
+ran) - exactly a flat white box, frozen, because nothing ever finishes
+constructing or updating it, while the module's own `.Win` reference
+needed to even find/reposition it stayed nil.
+
+Fixed in `UI/Skin.lua`: `Init()` now always sets the hardcoded
+"Modern Dark" default directly (no `AlchemyGPS.db` read attempt at
+all), and separately subscribes to `ALCHEMYGPS_INITIALIZE`
+(`AlchemyGPS.Core.EventBus`, the same event/mechanism
+`SavedVariables.lua` itself uses for this exact timing problem) to
+re-apply the user's real saved skin choice once `AlchemyGPS.db`
+actually exists. `Set()`/`Update()` also made defensive against
+`AlchemyGPS.db` being nil generally, as a second line of defense.
+
+**How to apply**: [[project_alchemy_gps]] - `AlchemyGPS.db` is NOT
+available at plain file-load time anywhere in this addon - it's only
+safe to read/write starting from the `ALCHEMYGPS_INITIALIZE` event
+(fired at `PLAYER_LOGIN`, well after every `.xml`'s `<Script>` tags
+have already executed) or later. Any future top-level file-load-time
+code (an `:Init()` called unconditionally at the bottom of a file, the
+same pattern `UI/Skin.lua` already used before this bug) that touches
+`AlchemyGPS.db` needs the same guard-or-defer treatment
+`MinimapWindow.lua`'s own `OnEnable` and now `UI/Skin.lua` both use -
+this is now the SECOND time this exact timing gap has bitten a feature
+in this addon (first documented in `MinimapWindow.lua`'s own header
+comment), so a third occurrence should be caught by remembering this
+note rather than rediscovering it from scratch. Separately: when a fix
+doesn't resolve a reported bug, the next step is a live diagnostic
+(here, one `/run` one-liner) to re-anchor on fact rather than guessing
+a second theory blind - this project's own established pattern from
+the GatherMate2 taint-popup saga, applied successfully again here.
+Deployed; awaiting live re-confirmation.
+
+### Build-order step 14, 2026-11-11: Leatrix_Maps' full icon set + a Player Marker category.
+
+Same-day follow-up to step 13's Style tab. User's request: "scrape all
+of the leatrix icons... and be able to swap those out, lets get some
+alt icons for our player cursor too." Step 13 only ever wired up ONE
+Leatrix asset (the `Leatrix_Maps.blp` sprite sheet, staged but never
+consumed, over texcoord-carving caution left from the corpse-icon
+saga). This step catalogued Leatrix_Maps' real, much larger icon table
+(`POIIcons`, `Leatrix_Maps.lua:4055-4070`, consumed at `:4112-4126`) -
+mostly zero-asset Blizzard ATLAS strings, plus 4 confirmed texcoord
+rectangles into that same sheet - and made all of it swappable.
+Several of this addon's own existing icons (`DungeonEntrance`,
+`ZoneTransition`, `FlightMaster`, `SpiritHealer`) had explicit "not yet
+confirmed live, tell me if it renders blank" comments from their own
+build steps - this gives the user a one-click, confirmed-working
+alternative for each without needing to guess-and-replace a default
+blind.
+
+**`UI/StyleOptions.lua`'s option shape generalized** from "always a
+plain texture path" to one of three kinds: `{tex=path}` (unchanged),
+`{atlas=name}` (new - a Blizzard atlas string), or `{tex=path,
+coords={l,r,t,b}}` (new - a texcoord-cropped sub-region of a sheet).
+`GetTex` (returned only a plain string) is gone, replaced by
+`GetOption(key)` (resolves to the full option table, usable as a
+reference-identity diff-cache key since each category's option tables
+are static/reused) and `ApplyIconSpec(tex, spec)` - the one place that
+knows how to realize any of the three kinds onto a Texture object
+(`SetAtlas(atlas, false)`, or `SetTexture(tex)`+`SetTexCoord(coords)`,
+or plain `SetTexture(tex)`+a `SetTexCoord(0,1,0,1)` reset so a texture
+object last used for a cropped icon doesn't keep stale coordinates).
+`ApplyIcon(tex, key)` wraps both for simple single-value call sites.
+Every `MinimapEngine.lua` call site - including the three pre-existing
+categories (Trail Arrow, Goto Marker, Quest Turn-In Icon) - now goes
+through this instead of the old `GetTex`+`SetTexture` pair, for one
+consistent pattern addon-wide.
+
+**Five new Style categories**, every default kept IDENTICAL to the
+addon's existing hardcoded icon (nothing changes for anyone who never
+opens the Style tab):
+- **Dungeon Entrance Icon** (4 options): current key icon, Leatrix's
+  `Dungeon`/`Raid` atlases, Leatrix's combined Dungeon/Raid texcoord
+  crop (`(0.375,0.5,0.375,0.5)` of the sheet).
+- **Zone Transition Icon** (7 options): current map icon, Leatrix's
+  `Garr_LevelUpgradeArrow` exit-arrow atlas, Leatrix's Boat-Alliance/
+  Boat-Horde/Travel texcoord crops (`(0,0.125,...)`/`(0.125,0.25,...)`/
+  `(0.25,0.375,...)`, all at `0.375,0.5` vertically), Leatrix's
+  `MagePortalAlliance`/`MagePortalHorde` portal atlases. One swappable
+  look applies uniformly to every zone-transition pin regardless of
+  real sub-type (border/boat/zeppelin/tram/portal) - differentiating
+  per sub-type would need `GuideZoneTransition.lua`'s data to carry a
+  sub-type tag through to render time, a real scope step up for a
+  purely aesthetic payoff; deliberately not built.
+- **Flight Master Icon** (4 options): current tracking icon, Leatrix's
+  `TaxiNode_Alliance`/`TaxiNode_Horde`/`TaxiNode_Neutral` atlases.
+- **Spirit Healer Icon** (2 options): current resurrection icon,
+  Leatrix's `Vehicle-TempleofKotmogu-GreenBall` atlas.
+- **Player Marker** (5 options, brand new - the "player cursor"
+  request): current `Interface\Minimap\MinimapArrow`, plus 4 new local
+  copies of Carbonite's `Gfx/Map/IconPlyr{P,F,G,Z}.tga`. Disclosed to
+  the user in-plan: these were built for Carbonite's OTHER-player
+  social/Spy-tracking feature (P=plain, F=marked-foe, G=marked-pal,
+  Z=generic zone-presence), not originally for the local player's own
+  marker - reused here purely as alternate dot shapes, labeled by
+  their Carbonite origin rather than a claimed color since the swatch
+  preview itself shows the real look. Their combat-tinted "C" siblings
+  were deliberately left out - that's a dynamic combat-state tint, not
+  a static style pick, and would be confusing relabeled as one. No
+  hearthstone/home icon exists anywhere in Leatrix_Maps (checked both
+  its files) and no Mailbox/Innkeeper/Banker/GuardFlag alternative
+  exists either - those stay exactly as they were.
+
+**`Map/MinimapEngine.lua`**: `RefreshServiceIcons`'s loop now resolves
+`DungeonEntrance`/`ZoneTransition`/`SpiritHealer` (a new
+`STYLE_BACKED_KINDS` set) and the separate `FlightMaster`/`GuardFlag`
+branches through `StyleOptions:GetOption`, caching the resolved option
+table itself onto each point (`pt.iconSpec`, replacing the old flat
+`pt.tex` string) so `UpdateServiceIcons`'/`UpdateQuestIcons`' existing
+diff-cache can keep comparing by simple `~=`, just against a table
+reference instead of a string. `UpdatePlayerMarker`'s one-time-set
+guard (`if not frm.texture:GetTexture()`) now resolves through
+`ApplyIcon(frm.texture, "PlayerMarker")` - confirmed
+`:GetTexture()` still correctly reports "already set" even when the
+live choice is an atlas, since `SetAtlas` populates the same underlying
+texture field. `ApplyStyleChange(key)` gained a `PlayerMarker` branch
+(re-applies directly to `self.PlyrFrm.texture`, same immediate-force
+treatment as TrailArrow/GotoMarker already had) and a shared branch for
+`DungeonEntrance`/`ZoneTransition`/`FlightMaster`/`SpiritHealer` (just
+re-runs `RefreshServiceIcons()`+`UpdateServiceIcons()`, the same cheap
+treatment `QuestIcon` already used).
+
+**`Settings/SettingsWindow.lua`**: the per-category row loop was
+already fully generic over `StyleOptions.Categories` - the 5 new
+categories needed zero new loop code, they just appear as new rows.
+Only `buildCategoryRow`'s swatch-preview rendering changed: instead of
+re-deriving the atlas-vs-texcoord-vs-plain branching a second time, it
+now calls the exact same `StyleOptions:ApplyIconSpec` the live icons
+use, since `buildTextureItems` already passes an option's `tex`/
+`atlas`/`coords` straight through into the `item` it builds - one
+rendering path for both the live icon and its settings-panel preview.
+
+**Assets**: `Gfx/Staged/Leatrix_Maps.blp` promoted to `Gfx/Map/
+Leatrix_Maps.blp` (it has a real consumer now, no longer idle) plus
+4 new local copies, `Gfx/Map/IconPlyr{P,F,G,Z}.tga` (from
+`Carbonite/Gfx/Map/`). No other new binary assets - every other new
+option is a zero-copy atlas string.
+
+Deployed to the live mirror, brace/bracket-balance checked on every
+edited file (no Lua interpreter available in this environment, so
+checked with a purpose-built Python block/bracket balancer instead of
+`luac`). Not yet live-tested - see `Docs/Testing/Phase10-StyleTab.md`'s
+extended checklist.
+
+**How to apply**: a `StyleOptions` option/consumer pattern like this
+generalizes cleanly to "any swappable icon with more than one real
+asset kind" - the win here was centralizing the atlas/texcoord/texture
+branching in exactly one function (`ApplyIconSpec`) and having every
+consumer, including a totally different file's preview rendering, call
+through it rather than re-deriving the same three-way branch per call
+site.
+
+### Build-order step 15, 2026-11-11: Mailbox's "black box" icon, and missing Auctioneer icons.
+
+Same-day follow-up. User: "on the actual [map] the mail icon has a
+black box and background with a border can we get rid of that and
+just have the free icon, also we are missing icons on the map for
+auctioneers."
+
+**Mailbox fix**: re-examined the original 2026-11-10 diagnosis that
+led to Mailbox using `Interface\Icons\INV_Letter_15` (a flat Blizzard
+inventory-item icon). That family has NO alpha transparency at all -
+it's always a painted opaque square - so on the map it reads exactly
+as described: a solid box with a dark background and a visible edge,
+not a free-floating pin, unlike every other category rendered through
+the real `Interface\Minimap\TRACKING\...` pin family (Innkeeper/Banker,
+both already confirmed working). Re-reading that original diagnosis:
+the path actually tried and found broken was
+`Interface\Minimap\TrackingIcons\Mailbox` (an older/different
+"TrackingIcons" folder, not "TRACKING"), and the broken asset cited
+alongside it - `MiniMap-MailIcon` - is a completely unrelated Blizzard
+asset (the "you have new mail" minimap-border notification icon, not a
+map-tracking pin), which just happened to share the word "mail." The
+real modern tracking-pin path, `Interface\Minimap\TRACKING\Mailbox`,
+was never actually tried, despite Innkeeper/Banker already proving
+that exact family works fine here. Switched to it.
+
+**Auctioneer icons, entirely new**: there had never been a
+`SERVICE_ICON_TEX`/`GuideData` entry for this kind at all - confirmed
+by grep, not an oversight in an existing branch. `Carbonite/Data/
+camelot/Guides/Auctioneer.lua` exists and is the identical shape to
+the already-ported Mailbox/Innkeeper/Banker guide files (`Nx.GuideData[
+...]`, packed `fac,x,y` strings keyed by zone mapID) - a pure drop-in
+port, same as Banker's own step-9l port. New `Map/Data/
+GuideAuctioneer.lua`, registered in `Map/Map.xml` alongside the other
+Guide data files; `SERVICE_ICON_TEX`/`SERVICE_ICON_LABEL` gained an
+`Auctioneer` entry using the same `Interface\Minimap\TRACKING\
+Auctioneer` family; `Map/FilterMenu.lua`'s `FILTERS` list gained an
+"Auctioneers" row. No new code needed in `RefreshServiceIcons`/
+`UpdateServiceIcons`/`SetFilterOn` - `MinimapEngine` and `AlchemyGPS.
+Map` are literally the same table (`local MinimapEngine = AlchemyGPS.
+Map or {}`), so a new `Map.GuideData["Auctioneer"]` key is immediately
+visible as `self.GuideData["Auctioneer"]` with zero extra wiring, and
+every other involved function is already fully generic over whatever
+keys exist in `SERVICE_ICON_TEX`/`FILTERS`.
+
+Deployed to the live mirror, brace/bracket-balance checked, `Map.xml`
+confirmed well-formed. Not yet live-tested - see `Docs/Testing/
+Phase9-IconsAndUI.md`'s two new entries.
+
+**How to apply**: [[project_alchemy_gps]] - when re-diagnosing an old
+"texture X is broken" conclusion, check whether the ORIGINAL broken
+path and the asset actually confirmed-broken in that session's own
+evidence are really the same thing - this project has now hit two
+unrelated Blizzard assets sharing a word ("mail") getting conflated
+into one wrong conclusion that shipped a worse fallback than the real
+fix (a confirmed-working sibling family, Innkeeper/Banker's own
+`Interface\Minimap\TRACKING\...`, that nobody had actually tried for
+Mailbox itself). Separately: a flat `Interface\Icons\...` item-icon
+path is a reasonable LAST-RESORT fallback when nothing else is
+confirmed to exist (as DungeonEntrance/ZoneTransition/SpiritHealer
+still are), but it always looks visibly boxy/opaque against pin-style
+art - worth remembering as a known cosmetic tradeoff of that fallback
+family, not a new surprise if another one of those three gets the same
+complaint later (all three already have real Leatrix_Maps atlas
+alternatives in the Style tab from build-order step 14, so that's the
+immediate next step if so, not another guess).

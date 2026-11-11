@@ -36,6 +36,12 @@
 -- RefreshServiceIcons/UpdateServiceIcons branch below with no new
 -- code there.
 --
+-- 2026-11-11, same-day follow-up: Auctioneers - user noticed they
+-- were missing from the map entirely (there had never been a
+-- SERVICE_ICON_TEX/GuideData entry for this kind at all, unlike every
+-- other row here). Same shape as Banker, same "no new code needed
+-- below" situation as Spirit Healer above.
+--
 -- Persisted as AlchemyGPS.db.profile.MapFilters[key] (true/false/nil -
 -- nil/missing means "on", same "absent means default" convention
 -- MinimapWindow.lua's AutoFollow checkbox already uses, so a brand
@@ -59,6 +65,7 @@ local FILTERS = {
     { key = "FlightMaster",    label = "Flight Masters" },
     { key = "Innkeeper",       label = "Innkeepers" },
     { key = "Mailbox",         label = "Mailboxes" },
+    { key = "Auctioneer",      label = "Auctioneers" },
     { key = "Banker",          label = "Bankers" },
     { key = "DungeonEntrance", label = "Dungeon/Raid Entrances" },
     { key = "ZoneTransition",  label = "Zone Transitions" },

@@ -948,8 +948,17 @@ end
 function MinimapEngine:UpdatePlayerMarker()
     local frm = self.PlyrFrm
     if not frm then return end
+    -- Build-order step 14, 2026-11-11: now Style-tab swappable (see
+    -- UI/StyleOptions.lua's PlayerMarker category) - same one-time-set
+    -- pattern as before ("Arrow" is still the default), just resolved
+    -- through the registry instead of a hardcoded path. GetTexture()
+    -- still correctly detects "already set" even if the live choice is
+    -- an atlas (SetAtlas populates the same underlying texture file,
+    -- so GetTexture() returns non-nil either way) - no change needed
+    -- to this guard itself. ApplyStyleChange("PlayerMarker") handles
+    -- forcing a live-picked change onto this same frame.texture.
     if not frm.texture:GetTexture() then
-        frm.texture:SetTexture("Interface\\Minimap\\MinimapArrow")
+        AlchemyGPS.UI.StyleOptions:ApplyIcon(frm.texture, "PlayerMarker")
     end
     frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
     self:ClipFrameW(frm, self.PlyrX, self.PlyrY,
@@ -1004,15 +1013,36 @@ local SERVICE_ICON_SIZE = 16
 -- Innkeeper confirmed rendering live, 2026-11-10 (visible once the
 -- faction-filter bug above was found and fixed). Mailbox switched the
 -- same day to Interface\Icons\INV_Letter_15 - the user reported no
--- mail icon at all, and Interface\Minimap\TrackingIcons\Mailbox is in
--- the exact same Interface\Minimap\... texture family already
--- confirmed BROKEN on this server build (MinimapDock.lua's native
--- mail-icon fix, same session - MiniMap-MailIcon renders nothing
--- here). Reusing that fix's own already-verified-visible replacement
--- rather than guessing a third path blind.
+-- mail icon at all, and Interface\Minimap\TrackingIcons\Mailbox was
+-- diagnosed (wrongly, see below) as being in the exact same
+-- Interface\Minimap\... texture family confirmed BROKEN on this
+-- server build (MinimapDock.lua's native mail-icon fix, same session -
+-- MiniMap-MailIcon renders nothing here).
+--
+-- 2026-11-11 follow-up, user reported the live result directly: a flat
+-- item icon like INV_Letter_15 has no transparency at all (Blizzard
+-- inventory art is always a painted opaque square, no alpha) - raw on
+-- the map it reads as "a black box and background with a border," not
+-- a free-floating pin. Re-examined the original diagnosis: the path
+-- actually tried was Interface\Minimap\TrackingIcons\Mailbox (the
+-- "TrackingIcons" folder - an older/different asset family), which got
+-- conflated with the separately-broken MiniMap-MailIcon (Blizzard's
+-- unrelated "you have new mail" notification icon, not a map-tracking
+-- pin at all, just sharing the word "mail"). The real, modern tracking-
+-- pin family - Interface\Minimap\TRACKING\<Name> - was never actually
+-- tried for Mailbox, even though Innkeeper/Banker below already
+-- confirm it works fine on this server for sibling categories. Fixed
+-- by switching to that same family. Not yet live-confirmed for Mailbox
+-- specifically - tell me if it still looks wrong.
 local SERVICE_ICON_TEX = {
-    Mailbox         = "Interface\\Icons\\INV_Letter_15",
+    Mailbox         = "Interface\\MINIMAP\\TRACKING\\Mailbox",
     Innkeeper       = "Interface\\MINIMAP\\TRACKING\\Innkeeper",
+    -- 2026-11-11: explicit user request after noticing auctioneers
+    -- missing from the map entirely - no SERVICE_ICON_TEX entry had
+    -- ever existed for this kind. Same confirmed-working TRACKING
+    -- family as Innkeeper/Banker; data ported the same way (see
+    -- Map/Data/GuideAuctioneer.lua).
+    Auctioneer      = "Interface\\MINIMAP\\TRACKING\\Auctioneer",
     -- Build-order step 9l, 2026-11-10: bank/dungeon/zone-transition
     -- icons, explicit user request. Banker is the same confirmed-
     -- working Interface\MINIMAP\TRACKING\... family as Innkeeper above
@@ -1023,7 +1053,10 @@ local SERVICE_ICON_TEX = {
     -- than Mailbox's own fix needed, but the same "pick something
     -- guaranteed to exist since vanilla" reasoning. Not yet confirmed
     -- live for any of these three - same caveat FlightMaster/Banker
-    -- itself carries below, tell me if any renders blank.
+    -- itself carries below, tell me if any renders blank. (Both now
+    -- have real Leatrix_Maps atlas alternatives in the Style tab if
+    -- they turn out to have the same "flat black box" look Mailbox
+    -- just did - see UI/StyleOptions.lua's build-order step 14.)
     Banker          = "Interface\\MINIMAP\\TRACKING\\Banker",
     DungeonEntrance = "Interface\\Icons\\INV_Misc_Key_03",
     ZoneTransition  = "Interface\\Icons\\INV_Misc_Map_01",
@@ -1038,6 +1071,17 @@ local SERVICE_ICON_TEX = {
     SpiritHealer    = "Interface\\Icons\\Spell_Holy_Resurrection",
 }
 
+-- Build-order step 14, 2026-11-11: these three (plus FlightMaster's
+-- own separate branch below) now also have real Leatrix_Maps atlas/
+-- texcoord alternatives, swappable from the Style tab - everything
+-- else in SERVICE_ICON_TEX above has no Leatrix equivalent and keeps
+-- reading that fixed table unchanged.
+local STYLE_BACKED_KINDS = {
+    DungeonEntrance = true,
+    ZoneTransition  = true,
+    SpiritHealer    = true,
+}
+
 -- Build-order step 12, 2026-11-11: hover tooltips on every service
 -- icon, explicit user request ("hovering the icon to tell what it
 -- is, same as how the gather points work"). Gather icons identify
@@ -1050,6 +1094,7 @@ local SERVICE_ICON_TEX = {
 local SERVICE_ICON_LABEL = {
     Mailbox         = "Mailbox",
     Innkeeper       = "Innkeeper",
+    Auctioneer      = "Auctioneer",
     Banker          = "Banker",
     DungeonEntrance = "Dungeon/Raid Entrance",
     ZoneTransition  = "Zone Transition",
@@ -1073,7 +1118,11 @@ end
 -- master's own absence in the user's 2026-11-10 report is more likely
 -- a C_TaxiMap data/mapID question than a texture one. See
 -- RefreshServiceIcons' own header comment for the open question.
-local FLIGHTMASTER_TEX = "Interface\\MINIMAP\\TRACKING\\FlightMaster"
+--
+-- Build-order step 14, 2026-11-11: this is now style-backed (see
+-- STYLE_BACKED_KINDS/RefreshServiceIcons below) - its default value
+-- moved to UI/StyleOptions.lua's FlightMaster category ("Tracking"
+-- option) instead of living here as a lone constant.
 
 -- Build-order step 9l, 2026-11-10: "the flag to mark locations given
 -- by guards" - a real Blizzard mechanic (talk to a guard, pick the
@@ -1088,6 +1137,11 @@ local FLIGHTMASTER_TEX = "Interface\\MINIMAP\\TRACKING\\FlightMaster"
 -- shows anything after asking a guard for directions and it needs a
 -- live round the way flight masters did.
 local GUARDFLAG_TEX = "Interface\\Icons\\INV_BannerPVP_01"
+-- No Leatrix alternative exists for this one (not style-backed) - a
+-- single static spec table, same shape StyleOptions:GetOption returns,
+-- so UpdateServiceIcons' reference-identity diff-cache treats every
+-- point uniformly regardless of which branch produced it.
+local GUARDFLAG_SPEC = { tex = GUARDFLAG_TEX }
 
 -- Carbonite's real faction filter (GuideLocations.lua's hideFaction),
 -- ported inline since this addon doesn't have that whole module.
@@ -1154,11 +1208,21 @@ function MinimapEngine:RefreshServiceIcons()
     self.SvcPts = pts
     if not self.MapId then return end
 
+    local StyleOptions = AlchemyGPS.UI.StyleOptions
     for kind, tex in pairs(SERVICE_ICON_TEX) do
         -- FilterMenu.lua's "Innkeepers"/"Mailboxes" rows - kind here
         -- is literally "Mailbox"/"Innkeeper", the same keys those rows
         -- use, so no translation table needed.
         if IsMapFilterOn(kind) then
+            -- Build-order step 14: style-backed kinds resolve through
+            -- the Style tab's current choice instead of the fixed
+            -- table above; the option TABLE itself (not just its
+            -- texture/atlas string) is what gets cached onto each
+            -- point, so UpdateServiceIcons below can diff-cache by
+            -- reference the same way for every kind.
+            local iconSpec = STYLE_BACKED_KINDS[kind]
+                and StyleOptions:GetOption(kind)
+                or { tex = tex }
             local data = self.GuideData and self.GuideData[kind]
             local entry = data and data[self.MapId]
             if entry then
@@ -1184,7 +1248,7 @@ function MinimapEngine:RefreshServiceIcons()
                             -- /Banker/SpiritHealer; only FlightMaster's
                             -- own node.name carries a location now.
                             local label = (name ~= "" and name) or SERVICE_ICON_LABEL[kind]
-                            pts[#pts + 1] = { x = wx, y = wy, tex = tex, label = label }
+                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = iconSpec, label = label }
                         end
                     end
                 end
@@ -1247,7 +1311,9 @@ function MinimapEngine:RefreshServiceIcons()
                             -- it's ever missing/blank.
                             local label = (node.name and node.name ~= "" and node.name)
                                 or SERVICE_ICON_LABEL.FlightMaster
-                            pts[#pts + 1] = { x = wx, y = wy, tex = FLIGHTMASTER_TEX, label = label }
+                            -- Build-order step 14: style-backed, same as
+                            -- DungeonEntrance/ZoneTransition/SpiritHealer above.
+                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = StyleOptions:GetOption("FlightMaster"), label = label }
                         end
                     end
                 end
@@ -1280,7 +1346,7 @@ function MinimapEngine:RefreshServiceIcons()
                         local label = (info.name and info.name ~= "" and info.name)
                             or (info.description and info.description ~= "" and info.description)
                             or SERVICE_ICON_LABEL.GuardFlag
-                        pts[#pts + 1] = { x = wx, y = wy, tex = GUARDFLAG_TEX, label = label }
+                        pts[#pts + 1] = { x = wx, y = wy, iconSpec = GUARDFLAG_SPEC, label = label }
                     end
                 end
             end
@@ -1329,12 +1395,13 @@ function MinimapEngine:UpdateServiceIcons()
         end
     end
 
+    local StyleOptions = AlchemyGPS.UI.StyleOptions
     local level = (self.Frm:GetFrameLevel() or 1) + 5
     for i, pt in ipairs(pts) do
         local frm = self.SvcFrms[i]
-        if frm.svcTex ~= pt.tex then
-            frm.texture:SetTexture(pt.tex)
-            frm.svcTex = pt.tex
+        if frm.svcIconSpec ~= pt.iconSpec then
+            StyleOptions:ApplyIconSpec(frm.texture, pt.iconSpec)
+            frm.svcIconSpec = pt.iconSpec
         end
         frm.svcLabel = pt.label
         if self:ClipFrameW(frm, pt.x, pt.y, SERVICE_ICON_SIZE, SERVICE_ICON_SIZE) then
@@ -1381,10 +1448,14 @@ end
 ---------------------------------------------------------------------------------------
 
 local QUEST_ICON_SIZE = 16
--- Same texture Carbonite's own QuestPin.lua (ICONS.turnin) uses for a
--- quest ready to hand in - a real, long-standing Blizzard path (the
--- GossipFrame's own quest-icon art), not guessed.
-local QUEST_TURNIN_TEX = "Interface\\GossipFrame\\ActiveQuestIcon"
+-- Build-order step 13, 2026-11-11: was a fixed local
+-- ("Interface\GossipFrame\ActiveQuestIcon", Carbonite's own
+-- QuestPin.lua ICONS.turnin value) - now one of three Style-tab
+-- swappable categories (see UI/StyleOptions.lua). Resolved fresh each
+-- RefreshQuestIcons() call (not hot-loop - that only runs on zone
+-- change + a time throttle), so a changed choice reaches QuestPts
+-- without any extra plumbing; UpdateQuestIcons' own existing
+-- svcIconSpec-diff check then naturally re-applies it to each live frame.
 
 function MinimapEngine:HideQuestFrames()
     for i = 1, #self.QuestFrms do
@@ -1407,6 +1478,7 @@ function MinimapEngine:RefreshQuestIcons()
     local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, mapId)
     if not ok or type(quests) ~= "table" then return end
 
+    local iconSpec = AlchemyGPS.UI.StyleOptions:GetOption("QuestIcon")
     for _, info in ipairs(quests) do
         local questID = info and info.questID
         if questID and type(info.x) == "number" and type(info.y) == "number" then
@@ -1414,7 +1486,7 @@ function MinimapEngine:RefreshQuestIcons()
             if completeOk and complete then
                 local wx, wy = self:GetWorldPos(mapId, info.x * 100, info.y * 100)
                 if wx then
-                    pts[#pts + 1] = { x = wx, y = wy, tex = QUEST_TURNIN_TEX }
+                    pts[#pts + 1] = { x = wx, y = wy, iconSpec = iconSpec }
                 end
             end
         end
@@ -1437,9 +1509,9 @@ function MinimapEngine:UpdateQuestIcons()
     local level = (self.Frm:GetFrameLevel() or 1) + 6
     for i, pt in ipairs(pts) do
         local frm = self.QuestFrms[i]
-        if frm.svcTex ~= pt.tex then
-            frm.texture:SetTexture(pt.tex)
-            frm.svcTex = pt.tex
+        if frm.svcIconSpec ~= pt.iconSpec then
+            AlchemyGPS.UI.StyleOptions:ApplyIconSpec(frm.texture, pt.iconSpec)
+            frm.svcIconSpec = pt.iconSpec
         end
         if self:ClipFrameW(frm, pt.x, pt.y, QUEST_ICON_SIZE, QUEST_ICON_SIZE) then
             frm:SetFrameLevel(level)
@@ -1447,6 +1519,49 @@ function MinimapEngine:UpdateQuestIcons()
     end
     for n = #pts + 1, #self.QuestFrms do
         self.QuestFrms[n]:Hide()
+    end
+end
+
+-- Build-order step 13, 2026-11-11: called by UI/StyleOptions.lua's
+-- SetChoice when the user picks a different option in the Style tab.
+-- QuestIcon/DungeonEntrance/ZoneTransition/FlightMaster/SpiritHealer
+-- need no per-frame handling here - each one's Refresh*() resolves
+-- GetOption() fresh every call, and the matching Update*()'s own
+-- svcIconSpec-diff check already re-applies a changed value to every
+-- live frame on its own next tick, so a cheap Refresh+Update re-run is
+-- all that's needed to force it immediately rather than waiting on
+-- that tick. TrailArrow, GotoMarker, and PlayerMarker have no such
+-- per-tick re-check (their SetTexture/SetAtlas calls only fire once,
+-- when a pooled frame - or the one player marker frame - is first
+-- created - see each one's own call site comment) so already-existing
+-- frames need to be force-updated directly here instead.
+function MinimapEngine:ApplyStyleChange(key)
+    local StyleOptions = AlchemyGPS.UI.StyleOptions
+
+    if key == "TrailArrow" then
+        local spec = StyleOptions:GetOption("TrailArrow")
+        for _, pool in ipairs({ self.GotoTrailFrms, self.CorpseTrailFrms }) do
+            if pool then
+                for _, f in ipairs(pool) do
+                    StyleOptions:ApplyIconSpec(f.texture, spec)
+                end
+            end
+        end
+    elseif key == "GotoMarker" then
+        if self.GotoFrm then
+            StyleOptions:ApplyIcon(self.GotoFrm.texture, "GotoMarker")
+        end
+    elseif key == "PlayerMarker" then
+        if self.PlyrFrm then
+            StyleOptions:ApplyIcon(self.PlyrFrm.texture, "PlayerMarker")
+        end
+    elseif key == "QuestIcon" then
+        self:RefreshQuestIcons()
+        self:UpdateQuestIcons()
+    elseif key == "DungeonEntrance" or key == "ZoneTransition"
+        or key == "FlightMaster" or key == "SpiritHealer" then
+        self:RefreshServiceIcons()
+        self:UpdateServiceIcons()
     end
 end
 
@@ -2232,22 +2347,20 @@ end
 ---------------------------------------------------------------------------------------
 
 local GOTO_ICON_SIZE = 16
--- Confirmed present on disk, R:\addons\Carbonite\Gfx\Map\*.tga - the
--- user's own "snag their art if need be" - this addon has none of its
--- own goto/trail art, and these are the exact paths real Carbonite's
--- DrawTracking uses (MapEngine.lua:9071,9183). Same dependency shape
--- already accepted for the gathering-icon textures earlier this
--- project (works with Carbonite installed-but-disabled, breaks only if
--- it's removed from the AddOns folder entirely).
-local GOTO_DOT_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconWayTarget"
--- Shared by DrawAntTrail below - NOT goto-specific despite living in
--- this section, since real Carbonite's own trail renderer
--- (DrawTracking) is itself a single shared primitive used by every
--- tracking type (goto targets, corpse recovery, taxi, battleground
--- flags - MapEngine.lua:9007-9205), just tinted differently per
--- caller. Named TRAIL_ rather than GOTO_ for that reason.
+-- Build-order step 13, 2026-11-11: both GOTO_DOT_TEX and
+-- TRAIL_ARROW_TEX used to be fixed locals pointing at Carbonite's own
+-- LIVE install path (Interface\AddOns\Carbonite\Gfx\Map\...) - that
+-- dependency was accepted at the time (same shape as the gathering-
+-- icon textures), but the Style tab's "add them to our addon" request
+-- was the natural moment to fix it: both are now Style-tab swappable
+-- categories (UI/StyleOptions.lua) backed by this addon's own local
+-- copies under Gfx/Map/, so neither needs Carbonite installed at all
+-- any more, default-swapped or not. Resolved via GetTex() at each
+-- SetTexture call site below (DrawAntTrail/UpdateGoto) rather than a
+-- fixed constant, so a freshly-created pooled frame always gets
+-- whatever's currently chosen; MinimapEngine:ApplyStyleChange (below)
+-- handles the already-existing-frame case for a live change.
 local TRAIL_ARROW_SIZE = 16
-local TRAIL_ARROW_TEX = "Interface\\AddOns\\Carbonite\\Gfx\\Map\\IconArrowGrad"
 -- World-units per arrow and the arrow-count cap - real Carbonite's own
 -- /15/self.IconNavScale and min(,40) (MapEngine.lua:9134/9138). This
 -- addon has no IconNavScale slider, so that factor is just dropped
@@ -2296,7 +2409,7 @@ function MinimapEngine:DrawAntTrail(pool, dx, dy, dist, r, g, b, a)
     if #pool < cnt then
         for n = #pool + 1, cnt do
             local f = self:CreateMiniFrame()
-            f.texture:SetTexture(TRAIL_ARROW_TEX)
+            AlchemyGPS.UI.StyleOptions:ApplyIcon(f.texture, "TrailArrow")
             pool[n] = f
         end
     end
@@ -2398,7 +2511,7 @@ function MinimapEngine:UpdateGoto()
     -- along with ClipFrameW's own repositioning below for free.
     if not self.GotoFrm then
         self.GotoFrm = self:CreateMiniFrame()
-        self.GotoFrm.texture:SetTexture(GOTO_DOT_TEX)
+        AlchemyGPS.UI.StyleOptions:ApplyIcon(self.GotoFrm.texture, "GotoMarker")
         local lbl = self.GotoFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         lbl:SetPoint("BOTTOM", self.GotoFrm, "TOP", 0, 2)
         self.GotoYdLabel = lbl
