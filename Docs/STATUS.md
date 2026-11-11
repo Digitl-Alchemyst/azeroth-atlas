@@ -99,7 +99,12 @@ permanent scope, not as scope creep to be walked back.
   brightness menu above, explicitly not Blizzard's own dropdown
   system (user's own direction) - with one checkbox per icon category:
   Gathering Nodes (Herb/Mine/Fish combined), Treasure (separate,
-  not profession-gated), Flight Masters, Innkeepers, Mailboxes.
+  not profession-gated), Flight Masters, Innkeepers, Mailboxes, and
+  (added same day, step 9l) Bankers, Dungeon/Raid Entrances (combined,
+  not split), Zone Transitions (boats/zeppelins/trams/portals/plain
+  borders, also combined), and Guard Directions (the live
+  `C_GossipInfo` "ask a guard for directions" flag - **not yet
+  confirmed to render anything at all**, unlike every other row here).
   Persisted per-key (`AlchemyGPS.db.profile.MapFilters`), missing key
   means visible. Toggling calls straight into `MinimapEngine.lua`'s own
   `RefreshGatherIcons`/`RefreshServiceIcons` for instant effect, not
@@ -330,6 +335,8 @@ Map/      MinimapEngine.lua, MinimapWindow.lua,
           ZoomController.lua, ScrollScale.lua, NativeMinimapHide.lua,
           Data/NxMapData.lua,
           Data/GuideMailbox.lua, Data/GuideInnkeeper.lua,
+          Data/GuideBanker.lua, Data/GuideDungeonEntrance.lua,
+          Data/GuideZoneTransition.lua,
           Data/Gather{Herb,Mining,Fish,Treasure}.lua (static node
           position data), Data/GatherNodeInfo.lua (per-species name/
           icon/skill-level data - see STATUS item 10)

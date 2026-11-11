@@ -21,6 +21,15 @@
 -- Mailboxes) each as their own toggle. Quest-giver icons are NOT in
 -- this list - not asked for, future scope if wanted later.
 --
+-- Build-order step 9l (2026-11-10): four more rows, explicit user
+-- request - Bankers (same shape as Innkeeper/Mailbox), Dungeon/Raid
+-- Entrances (one combined toggle, user asked for them as a single
+-- line item, not two), Zone Transitions (boats/zeppelins/trams/
+-- portals/plain borders, also one combined toggle), and Guard
+-- Directions (the live C_GossipInfo flag - see MinimapEngine.lua's own
+-- header comment on GUARDFLAG_TEX for why this one specifically isn't
+-- confirmed to render anything yet).
+--
 -- Persisted as AlchemyGPS.db.profile.MapFilters[key] (true/false/nil -
 -- nil/missing means "on", same "absent means default" convention
 -- MinimapWindow.lua's AutoFollow checkbox already uses, so a brand
@@ -39,15 +48,21 @@ AlchemyGPS.Modules.Map.FilterMenu = FilterMenu
 
 -- Order matches the user's own request order.
 local FILTERS = {
-    { key = "Gathering",    label = "Gathering Nodes" },
-    { key = "Treasure",     label = "Treasure" },
-    { key = "FlightMaster", label = "Flight Masters" },
-    { key = "Innkeeper",    label = "Innkeepers" },
-    { key = "Mailbox",      label = "Mailboxes" },
+    { key = "Gathering",       label = "Gathering Nodes" },
+    { key = "Treasure",        label = "Treasure" },
+    { key = "FlightMaster",    label = "Flight Masters" },
+    { key = "Innkeeper",       label = "Innkeepers" },
+    { key = "Mailbox",         label = "Mailboxes" },
+    { key = "Banker",          label = "Bankers" },
+    { key = "DungeonEntrance", label = "Dungeon/Raid Entrances" },
+    { key = "ZoneTransition",  label = "Zone Transitions" },
+    { key = "GuardFlag",       label = "Guard Directions" },
 }
 
 local ROW_HEIGHT = 22
-local MENU_WIDTH = 170
+-- Widened from 170 (build-order step 9l) - "Dungeon/Raid Entrances" is
+-- longer than any of the first five labels and was getting clipped.
+local MENU_WIDTH = 190
 
 local menu
 

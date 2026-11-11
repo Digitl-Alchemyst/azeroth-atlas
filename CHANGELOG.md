@@ -620,6 +620,94 @@ readable.
     with GatherMate2 disabled).
   - Deployed and verified byte-identical. Not yet live-tested.
 
+- **Build-order step 9l, 2026-11-10: bankers, dungeon/raid entrances,
+  zone transitions, and guard-direction flags.** User's request,
+  verbatim: "the flag to mark locations given by guards," "bank
+  icons," "dungeon and raid entrances," "zone transitions or bridges
+  or w/entrances" - all four to show on the map AND get their own
+  `FilterMenu.lua` row. Investigated data sourcing for all four before
+  writing any code (same discipline as step 9b's Mailbox/Innkeeper and
+  9e's gathering data), via a research subagent reading Carbonite's own
+  source tree:
+  - **Bankers**: `Carbonite/Data/camelot/Guides/Banker.lua` exists,
+    same exact `Nx.GuideData[L["Banker"]]` shape (packed `fac,x,y`
+    strings keyed by zone mapID) as the already-ported Mailbox/
+    Innkeeper files. Ported verbatim as `Map/Data/GuideBanker.lua`,
+    keyed by the plain string `"Banker"` - zero new parsing code, it's
+    just another `SERVICE_ICON_TEX` entry and `RefreshServiceIcons`
+    loop iteration. Icon: `Interface\MINIMAP\TRACKING\Banker`, same
+    confirmed-working `TRACKING` family as Innkeeper.
+  - **Dungeon/Raid Entrances**: no dedicated Carbonite Guides file for
+    this - the real data lives in `Carbonite/Data/camelot/Zones.lua`'s
+    `Nx.Zones`, keyed by INSTANCE mapID (not owner zone), one row per
+    zone/instance as `name|minLvl|maxLvl|faction|typ|entryId|ex|ey|
+    numPlayers` - `entryId/ex/ey` (the owner zone's mapID and the
+    entrance's position in it) only populated for the 34 real
+    dungeon/raid rows; plain zone and battleground rows leave them
+    blank. Ported the 34 real rows as a local table in the new
+    `Map/Data/GuideDungeonEntrance.lua`, which re-buckets them by owner
+    zone into the same shared `fac,x,y` string shape at load time (one
+    small loop, not exposed as a new global) under the single combined
+    key `"DungeonEntrance"` - user asked for dungeons and raids as ONE
+    filter, not two. Icon: `Interface\Icons\INV_Misc_Key_03` (no
+    matching `TRACKING` category exists for this - that filter list
+    has never had a "dungeon" entry - so this uses a plain, vanilla-
+    safe item icon instead, not yet live-confirmed).
+  - **Zone Transitions**: `Carbonite/Data/camelot/ZoneConnections.lua`'s
+    `Nx.ZoneConnections`, a flat array of 76 pipe-delimited strings
+    (`flags|contType|name1|mapId1|x1|y1|name2|mapId2|x2|y2`, confirmed
+    against that file's own `Nx.Map:ConnectionUnpack`) covering plain
+    walk-through zone borders plus named boats/zeppelins/trams/portals.
+    Copied verbatim (byte-for-byte on every numeric field, to rule out
+    a transcription mistake silently shifting a coordinate) into the
+    new `Map/Data/GuideZoneTransition.lua`, which parses each string
+    and writes BOTH endpoints into the shared `fac,x,y` shape under one
+    combined key `"ZoneTransition"` (also one filter, not per-type, to
+    match the user's own single line-item phrasing). Names are kept in
+    the raw copied strings for faithfulness but not used (no tooltip
+    for this category). `C_Map.GetMapLinksForMap` (the live Blizzard
+    equivalent) was searched for across every installed addon and
+    found nowhere - no evidence it works on this server build, so the
+    static data above was used instead of guessing at a live API with
+    zero precedent here. Icon: `Interface\Icons\INV_Misc_Map_01`, also
+    not yet live-confirmed.
+  - **Guard-given direction flags**: a real Blizzard mechanic (ask a
+    guard for directions, get a temporary flag pointing at a city
+    service) published through `C_GossipInfo.GetPoiForUiMapID`/
+    `GetPoiInfo` - found by reading Carbonite's own `MapEngine.lua`,
+    which defensively checks for `GetPoiForUiMapID`'s existence before
+    using it (unlike `C_GossipInfo` itself, used unconditionally
+    elsewhere in Carbonite, confirming the base table exists) rather
+    than assuming every client build has it. No static data source
+    makes sense here - it's inherently a live, temporary, one-per-zone
+    state, not a fixed location list. New `RefreshServiceIcons` branch
+    (existence-checked, `pcall`-wrapped, same defensive shape as the
+    `C_TaxiMap` flight-master branch) under filter key `"GuardFlag"`,
+    plus a small dedicated frame registering
+    `DYNAMIC_GOSSIP_POI_UPDATED` so the flag can appear/change without
+    needing a zone change to pick it up (registering an event name a
+    client build doesn't have is a harmless no-op, not an error).
+    Icon: `Interface\Icons\INV_BannerPVP_01` as a generic flag
+    placeholder - **explicitly NOT confirmed to work at all**, unlike
+    every other branch in `RefreshServiceIcons`. Carbonite's own code
+    doesn't assert this API fires real data on this server build
+    either; needs an in-game "ask a guard for directions" test before
+    treating it as done, the same way flight masters needed a live
+    round of debugging after the first pass.
+  - `FilterMenu.lua`: four new rows ("Bankers," "Dungeon/Raid
+    Entrances," "Zone Transitions," "Guard Directions"), menu widened
+    170→190px (the longest new label was getting clipped). All four
+    dispatch through the existing non-gather branch of `SetFilterOn`
+    (`RefreshServiceIcons`/`UpdateServiceIcons`) with zero new dispatch
+    logic needed - every one of these four keys already matches a
+    `SERVICE_ICON_TEX`/filter key used inside that function.
+  - Deployed and verified byte-identical. Bankers are high-confidence
+    (reuses a confirmed-working icon family and identical data shape);
+    dungeon entrances and zone transitions are new data shapes, built
+    carefully but not yet live-tested; the guard-flag feature
+    specifically is the least certain of the four and may need a
+    follow-up round once tested in-game.
+
 ## Unreleased — 2026-11-10
 
 ### Map window

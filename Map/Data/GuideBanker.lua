@@ -1,0 +1,32 @@
+---------------------------------------------------------------------------------------
+-- Carbonite - Guide data: Banker locations (camelot flavor)
+-- Copyright 2007-2012 Carbon Based Creations, LLC
+-- Distributed under the GNU General Public License, version 3 or later.
+---------------------------------------------------------------------------------------
+
+-- Alchemy GPS port note (build-order step 9l, 2026-11-10): copied
+-- verbatim from Carbonite/Data/camelot/Guides/Banker.lua - same exact
+-- format/port convention as GuideMailbox.lua/GuideInnkeeper.lua (see
+-- that file's own header comment for the full field-format writeup).
+-- Keyed by the plain string "Banker", the same key RefreshServiceIcons
+-- reads via SERVICE_ICON_TEX's own keys.
+local AlchemyGPS = _G.AlchemyGPS
+local Map = AlchemyGPS.Map
+
+Map.GuideData = Map.GuideData or {}
+Map.GuideData["Banker"] = {
+    ["Mode"] = 32,
+    [1413] = "0,62.64,37.43|0,62.68,37.4",
+    [1416] = "1,10.22,69.05|1,10.22,68.33|1,23.1,65.1|1,22.9,64.3|1,10.22,68.66|1,14.42,63.67",
+    [1434] = "0,26.51,76.47|0,26.54,76.57",
+    [1446] = "0,52.38,28.95|0,52.3,28.91",
+    [1452] = "0,61.45,36.97",
+    [1453] = "1,64.22,80.55|1,63.37,81.24|1,63.8,80.89",
+    [1454] = "2,49.58,69.15|2,50,68.6|2,49.08,69.62",
+    [1455] = "1,35.92,60.2|1,34.96,58.47|1,36.82,61.93",
+    [1456] = "2,47.63,58.58|2,47.13,57.89|2,47.2,59.32",
+    [1457] = "1,39.68,41.55|1,39.6,41.99|1,39.39,42.45",
+    [1458] = "2,66.41,44.1|2,65.97,44.79|2,65.56,44.11|2,65.93,43.46",
+    [2521] = "0,57.6,77.2",
+    [2548] = "0,76.7,54.4",
+}

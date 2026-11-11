@@ -988,8 +988,22 @@ local SERVICE_ICON_SIZE = 16
 -- here). Reusing that fix's own already-verified-visible replacement
 -- rather than guessing a third path blind.
 local SERVICE_ICON_TEX = {
-    Mailbox   = "Interface\\Icons\\INV_Letter_15",
-    Innkeeper = "Interface\\MINIMAP\\TRACKING\\Innkeeper",
+    Mailbox         = "Interface\\Icons\\INV_Letter_15",
+    Innkeeper       = "Interface\\MINIMAP\\TRACKING\\Innkeeper",
+    -- Build-order step 9l, 2026-11-10: bank/dungeon/zone-transition
+    -- icons, explicit user request. Banker is the same confirmed-
+    -- working Interface\MINIMAP\TRACKING\... family as Innkeeper above
+    -- (high confidence); DungeonEntrance/ZoneTransition have no
+    -- matching TRACKING icon at all (that filter list has never had a
+    -- "dungeon" or "zone border" category), so these use plain
+    -- Interface\Icons\... item-icon paths instead - a different family
+    -- than Mailbox's own fix needed, but the same "pick something
+    -- guaranteed to exist since vanilla" reasoning. Not yet confirmed
+    -- live for any of these three - same caveat FlightMaster/Banker
+    -- itself carries below, tell me if any renders blank.
+    Banker          = "Interface\\MINIMAP\\TRACKING\\Banker",
+    DungeonEntrance = "Interface\\Icons\\INV_Misc_Key_03",
+    ZoneTransition  = "Interface\\Icons\\INV_Misc_Map_01",
 }
 -- Not yet confirmed either way - same TRACKING family as the now-
 -- confirmed-working Innkeeper path above, so likely fine; flight-
@@ -997,6 +1011,20 @@ local SERVICE_ICON_TEX = {
 -- a C_TaxiMap data/mapID question than a texture one. See
 -- RefreshServiceIcons' own header comment for the open question.
 local FLIGHTMASTER_TEX = "Interface\\MINIMAP\\TRACKING\\FlightMaster"
+
+-- Build-order step 9l, 2026-11-10: "the flag to mark locations given
+-- by guards" - a real Blizzard mechanic (talk to a guard, pick the
+-- "directions" gossip option, get a temporary flag pointing at a city
+-- service) published through C_GossipInfo.GetPoiForUiMapID/GetPoiInfo.
+-- Found by reading Carbonite's own MapEngine.lua (it defensively
+-- checks for GetPoiForUiMapID's existence before using it rather than
+-- assuming every client has it) - NOT yet confirmed to actually return
+-- data on this server build, unlike FlightMaster's C_TaxiMap branch
+-- which was live-verified. Built the same defensive way regardless
+-- (existence-checked, pcall-wrapped); tell me if this one simply never
+-- shows anything after asking a guard for directions and it needs a
+-- live round the way flight masters did.
+local GUARDFLAG_TEX = "Interface\\Icons\\INV_BannerPVP_01"
 
 -- Carbonite's real faction filter (GuideLocations.lua's hideFaction),
 -- ported inline since this addon doesn't have that whole module.
@@ -1138,7 +1166,45 @@ function MinimapEngine:RefreshServiceIcons()
             end
         end
     end
+
+    -- FilterMenu.lua's "Guard Directions" row. Only one active flag
+    -- per map at a time (that's the real mechanic - asking a second
+    -- guard replaces the first), so at most one point gets added here.
+    if IsMapFilterOn("GuardFlag") and C_GossipInfo and C_GossipInfo.GetPoiForUiMapID and C_GossipInfo.GetPoiInfo then
+        local ok, poiID = pcall(C_GossipInfo.GetPoiForUiMapID, self.MapId)
+        if ok and poiID then
+            local infoOk, info = pcall(C_GossipInfo.GetPoiInfo, self.MapId, poiID)
+            if infoOk and type(info) == "table" and info.position then
+                local pos = info.position
+                local nx, ny = pos.x, pos.y
+                if (nx == nil or ny == nil) and pos.GetXY then
+                    nx, ny = pos:GetXY()
+                end
+                if nx and ny then
+                    local wx, wy = self:GetWorldPos(self.MapId, nx * 100, ny * 100)
+                    if wx then
+                        pts[#pts + 1] = { x = wx, y = wy, tex = GUARDFLAG_TEX }
+                    end
+                end
+            end
+        end
+    end
 end
+
+-- DYNAMIC_GOSSIP_POI_UPDATED fires the moment a guard's directions
+-- flag appears/changes - without this, the guard-flag branch above
+-- would only ever refresh on the next zone change, missing the common
+-- case of asking a guard while already standing in the zone the flag
+-- belongs to. Registering an event name that doesn't exist on this
+-- client is harmless (RegisterEvent silently no-ops), so this is safe
+-- to leave in even if the event itself turns out not to fire here.
+local guardFlagWatcher = CreateFrame("Frame")
+guardFlagWatcher:RegisterEvent("DYNAMIC_GOSSIP_POI_UPDATED")
+guardFlagWatcher:SetScript("OnEvent", function()
+    if MinimapEngine.RefreshServiceIcons then
+        MinimapEngine:RefreshServiceIcons()
+    end
+end)
 
 -- Repositions every resolved service-icon point every tick - world
 -- positions are static (see RefreshServiceIcons above), but screen
