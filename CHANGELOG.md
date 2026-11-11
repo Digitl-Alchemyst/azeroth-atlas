@@ -1976,3 +1976,216 @@ family, not a new surprise if another one of those three gets the same
 complaint later (all three already have real Leatrix_Maps atlas
 alternatives in the Style tab from build-order step 14, so that's the
 immediate next step if so, not another guess).
+
+## Build-order step 16, 2026-11-11: gathering-node duplicates fixed, active-node detection research started
+
+User's request (verbatim): "some nodes are rendering twice so can you
+do a check like maybe check for a node of the same type within 5-10
+yards and decide which one to keep I am guessing there are 2 node
+entries from wowhead that are slightly off of each other, maybe
+compare it to gathermadte2 data if we have a hard table we can just
+figure out which ones to exclude from our table, then issue 2... we
+need to be able to show on the map if a harvest node is actually
+active... take a look at farm hud."
+
+**Issue 1 - duplicate nodes, fixed.** The user's guess was right in
+substance, slightly off in detail: there's no separate GatherMate2
+table to diff against any more - `Map/Data/Gather{Herb,Mining,Fish,
+Treasure}.lua` already ARE the hard GatherMate2-sourced table (a
+static port of Carbonite's own `Gathermate2_Data` "camelot" pack, see
+this file's own build-order step 9e entry above). That pack is itself
+built from crowd-sourced Wowhead spawn reports, which don't always
+land on the exact same coordinate for what's physically one node - so
+the duplication the user saw is most likely baked into the shipped
+data itself, not an addon-side merge bug.
+
+Fixed at render time, not by hand-editing/deleting rows from the
+static tables (`MinimapEngine.lua`'s `CollectGatherZoneNodes`, inside
+`RefreshGatherIcons`'s per-zone rebuild): every node is now bucketed by
+species (`nodeID`) first, then within each species bucket, any point
+landing within `GATHER_DEDUPE_YARDS` (7, the middle of the user's own
+suggested 5-10 yard range) of one already kept is dropped. Bucketing by
+species first keeps this cheap even in a zone with 800+ total entries
+(Barrens herb data alone is 857) - two different species can never be
+"the same node," so there's no reason to ever compare across species.
+Which of a close pair survives isn't deterministic (`pairs()` iteration
+order isn't guaranteed stable) - accepted, since anything this close
+together is visually indistinguishable on the map anyway; the actual
+bug is "two icons where there should be one," not which exact
+coordinate wins. Render-time fix (not editing the data) means it stays
+correct automatically if this data is ever re-ported/updated, and the
+threshold is trivially tunable in one place if 7 yards turns out wrong
+in practice.
+
+**Issue 2 - active-node detection, NOT implemented yet, research
+groundwork only.** Read FarmHud's real source (`R:\addons\FarmHud\`,
+also installed live) before guessing anything: it does **not** do any
+independent live-node detection. Per its own `.toc` description
+("Turns your minimap into a hud for gathering resources!") and
+confirmed in `FarmHud.lua`, it's a minimap-reskin addon - it reparents
+and enlarges the REAL native Blizzard `Minimap` frame to fill its own
+HUD (plus reparents GatherMate2's pins onto it). Its "active node"
+accuracy is a free side effect of still being the literal native
+Minimap: Blizzard itself only ever draws a resource blip there when a
+node is actually present and in range - FarmHud isn't adding any
+detection logic on top of that, it's just making the native blips
+bigger and easier to see.
+
+This doesn't transfer directly - AlchemyGPS draws its own separate
+custom map window from a static database, it isn't the native Minimap.
+But this *is* useful: it confirms the only real ground-truth "is a node
+here right now" signal available is the native Minimap's own blip
+rendering - the exact same thing this project's own earlier research
+(cited in `MinimapEngine.lua`'s gathering-icon header, build-order step
+9e/9f era) already went looking for and gave up on, after
+`C_VignetteInfo.GetVignettes()` returned 0 and a raw dump of
+`Minimap:GetRegions()` returned ~290 entries called "too noisy to
+isolate" - but that dump was never actually filtered or grouped by
+anything, just eyeballed and abandoned.
+
+Added one read-only diagnostic, not the feature itself:
+`/gps scanblips` (new slash command, registered from
+`MinimapEngine.lua` via `Core/SlashCommands.lua`'s existing `/gps`
+registry) dumps every distinct texture/atlas path currently present on
+the real `Minimap`, grouped with a count, loudest first - a genuinely
+different look than the old one-by-one dump. Classic/Wrath-era clients
+(this server's interface version matches that family per
+`GatherMate2_Data`'s own `## Interface: 16001`) draw minimap blips as
+plain Texture regions cropped from one shared sheet
+(`Interface\Minimap\ObjectIconsAtlas`) via `SetTexCoord` rather than
+individual files - if that path shows up with a small, stable count,
+that's the likely real signal, but this is a hypothesis to check live,
+not a confirmed fact. See `Docs/Testing/Phase9-IconsAndUI.md`'s new
+entry for the exact before/after comparison the user needs to run (on
+top of a visibly-active node vs. well away from any node) and report
+back before any further implementation.
+
+**How to apply**: [[project_alchemy_gps]] - this project's "live data
+source comparison" ideas (user's own instinct here) are usually a
+signal something upstream already did the merge; check whether a
+proposed second data source has already been folded into the first one
+before assuming a diff is needed. For "is X actually present right
+now" questions specifically, this project has now twice independently
+concluded the native client doesn't expose a clean API for it
+(`C_VignetteInfo`, and now confirmed FarmHud doesn't either) - the only
+way in is reading the real Minimap's own blip rendering, which needs a
+live, in-game, grouped-dump comparison before writing any detection
+code, not another blind guess.
+
+### Step 16 follow-up, same day: `scanblips` result explained, pivoted to a diff-based child-frame scan
+
+First live run of `/gps scanblips` came back `regions=0, children=493`
+(then `499` moments later), `Minimap:IsShown()=true IsVisible()=false`,
+identical both standing on a node and away from one. Rather than
+chasing the `IsVisible()=false` angle (this addon's "Hide Blizzard
+minimap" default hiding `MinimapCluster`, a `Minimap` ancestor) that
+result has a simpler, complete explanation: `scanblips` only ever
+looked at `Minimap:GetRegions()` (direct Texture/FontString/Line
+children), and on this client, minimap blips plainly aren't raw
+Texture regions at all - if they were, they'd have shown up as
+`regions > 0` regardless of visibility. They're child **Frames**,
+which is exactly what the large `children` count is. This also fully
+vindicates this file's own much-older "~290 children, too noisy"
+finding (cited just above) - that WAS the right place to look, it was
+just abandoned one step too early, before trying to filter or diff it.
+
+A flat dump of ~500 children would still mostly be noise (quest POIs,
+group member dots, any other installed addon's own minimap
+decoration) that doesn't change based on where the player is standing.
+Added `/gps diffblips` instead: `/gps diffblips start` (run once, away
+from any node) snapshots the current child-frame set by object
+identity (the frame itself as a table key, since most of these are
+anonymous pooled frames with no `GetName()`); `/gps diffblips` (no
+argument) compares the live set against that snapshot and reports
+exactly which frames were added/removed, each described by name (if
+any) plus any texture/atlas found one level inside it (a blip frame's
+actual icon is typically a nested texture, not on the frame itself).
+This cancels out all the "always there" noise automatically - only
+whatever appears/disappears because the player walked to a specific
+spot should show up in the diff. See `Docs/Testing/Phase9-IconsAndUI.md`'s
+updated entry for the exact run order to give the user.
+
+**How to apply**: [[project_alchemy_gps]] - `IsVisible()=false` with a
+large nonzero `GetChildren()` count on the same frame is itself useful
+evidence that child/pin creation on this client does NOT depend on the
+frame's own visibility chain - worth remembering if a future "does X
+still update while hidden" question comes up elsewhere in this addon
+(e.g. the native-hide feature generally). Also: when a diagnostic
+command returns a surprising flat number (zero, or suspiciously
+round), explain THAT result fully before reaching for an unrelated
+theory (hide state) that happened to also be plausible - the real
+cause here was simpler (wrong API for this client's blip
+implementation) and sitting in this same file's own prior comment the
+whole time.
+
+### Step 16, final round same day: live-tested, confirmed dead end for Minimap-scanning
+
+Two more live rounds, each ruling out a specific confound before
+reaching a real conclusion:
+
+**Round 1 (everything enabled)**: `/gps diffblips` came back 19 added
+(all later 16, re-tested), 2 removed. The 2 removed were plainly the
+Minimap's own zoom in/out buttons churning (named by their own atlas
+strings - unrelated noise). The 16-19 added all shared the exact same
+20x20 size and the exact same numeric texture ID, and their offsets
+from Minimap's center traced a near-continuous line ending at exactly
+`(0,0)` (Minimap's center is always the player's own position). That
+shape - identical small icons strung out along a line ending at the
+player - is the signature of a movement **trail/breadcrumb path**, not
+a static marker sitting on one node. The user had Questie and
+Platynator both installed and active, either of which commonly draws
+exactly this kind of route trail on the minimap; the player was
+actively moving ("running to node") during capture, so this was almost
+certainly that, not a node signal.
+
+**Round 2 (controlled test - every addon disabled except AlchemyGPS
+itself, confirmed via screenshot)**: `/gps diffblips start` taken
+standing still reported only **4 total Minimap children** (down from
+~500 with everything enabled - confirming the ~500 figure really was
+nearly all OTHER addons' own reparented buttons/decoration, not
+anything native). Walking to and standing directly on top of a
+visibly-present node (confirmed in the same screenshot, player
+standing on a visible flowering plant) and running `/gps diffblips`
+again: **0 added, 0 removed**, even right on top of it.
+
+**Conclusion: this is a confirmed dead end, not an inconclusive
+result.** With every other addon's influence eliminated and the
+trail-confound eliminated, there is still no Lua-reachable object on
+`Minimap` corresponding to a resource node - no region, no child frame,
+nothing, standing right on top of one. Combined with this project's
+two earlier negative findings (`C_VignetteInfo.GetVignettes()` returns
+0; FarmHud/GatherMate2/Carbonite all confirmed to do zero independent
+detection of their own), the most likely explanation is that this
+client renders resource-node blips as part of the native minimap's own
+internal compositing (the same way terrain and fog-of-war render) -
+genuinely invisible and unreachable to addon Lua code, not merely hard
+to filter. **Do not re-attempt a Minimap-scanning approach to this
+problem in a future session** without new evidence changing this
+conclusion - three independent angles (vignettes, regions, children)
+have now all come back empty under a controlled test.
+
+**What IS still available, not yet pursued**: a different framing of
+"activity" - not "is a node here right now" (confirmed unreachable) but
+"was this specific known node just harvested" (a node the player
+interacts with always disappears from the 3D world and respawns later
+- a real, addon-detectable EVENT, via `UNIT_SPELLCAST_SUCCEEDED` for
+the Herbalism/Mining gather spell or `CHAT_MSG_LOOT`, the same kind of
+signal GatherMate2 itself uses to log new node positions). That would
+let this addon mark the nearest known DB point as "recently depleted"
+and dim/hide it for an estimated respawn window - a materially
+different, achievable feature, not the one originally asked for.
+**User declined this substitute** when offered (asked directly, same
+day) - the existing proximity-dimming approximation stays as the final
+word on "activity" for gathering nodes. Issue 2 is CLOSED, not merely
+paused - don't re-propose depletion-tracking unprompted in a future
+session.
+
+**How to apply**: [[project_alchemy_gps]] - when ALL independent
+investigation angles into a single client-side question come back
+empty under a controlled test (not just "didn't find it" but "found
+nothing even in the simplest, cleanest, most favorable condition"),
+treat that as a real answer, not a prompt to keep inventing new
+angles. The honest next move is reporting the dead end plainly and
+asking whether a genuinely different, adjacent feature (here: depletion-
+tracking instead of live-presence) is worth pursuing instead - not
+silently downgrading scope or quietly letting the request drop.

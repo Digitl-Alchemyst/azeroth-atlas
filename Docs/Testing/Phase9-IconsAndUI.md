@@ -8,6 +8,42 @@ history in `CHANGELOG.md` — this doc is the checklist only.
 Roughly in priority order — top items are things that may not render at
 all; bottom items are tuning/feel questions on things known to render.
 
+- [x] **CONCLUDED - confirmed dead end, 2026-11-11.** "Is this
+      gathering node actually active right now" - user cited FarmHud as
+      an example; its source was read and it does no independent
+      detection of its own (see `CHANGELOG.md`'s build-order step 16).
+      Live-tested from three independent angles, all empty:
+      `C_VignetteInfo.GetVignettes()` (earlier research) returned 0;
+      `/gps scanblips` found 0 Texture regions on the real Minimap;
+      `/gps diffblips`, run as a controlled test with every other addon
+      disabled, standing directly on a confirmed-visible node, found 0
+      added/0 removed (only 4 total Minimap children exist at all with
+      nothing else enabled - pure zoom/tracking button chrome). An
+      earlier non-zero diffblips result (16-19 "added" frames) turned
+      out to be a Questie/Platynator movement trail, not a node signal
+      - all same size/texture, offsets tracing a line to the player's
+      own position, captured while the player was mid-movement.
+      **Conclusion**: this client renders resource-node blips as part
+      of the native minimap's own internal compositing, unreachable to
+      addon Lua code - not a scanning failure, a real architectural
+      limit. Do not re-attempt a Minimap-scanning approach to this in a
+      future session. A different, adjacent feature (detecting "was
+      this specific node just harvested" via a gather event, then
+      dimming it for an estimated respawn window) was offered and the
+      user declined it - keeping the existing proximity-dimming
+      approximation as-is. Closed, not paused.
+- [ ] **NOT YET LIVE-TESTED** — Duplicate gathering-node dedup,
+      2026-11-11. User reported some nodes rendering twice -
+      `MinimapEngine.lua`'s `CollectGatherZoneNodes` now collapses any
+      two same-species nodes within 7 yards of each other down to one
+      (the static data is a port of Carbonite's own crowd-sourced
+      Wowhead spawn dump, which occasionally has two slightly-offset
+      entries for what's physically one node). Check: previously-
+      doubled nodes now show as a single icon; un-doubled/normal nodes
+      are unaffected; nothing that used to render is now missing
+      entirely (if two icons more than ~7 yards apart both vanish, or
+      more than one of three+ clustered icons survives oddly, report
+      the species/zone so the 7-yard threshold can be adjusted).
 - [ ] **UNCONFIRMED GUESS, may render nothing** — Guard Directions flag
       (`C_GossipInfo` API; ask a guard for directions, watch for a flag
       icon). Not just untested — the API itself isn't confirmed to return

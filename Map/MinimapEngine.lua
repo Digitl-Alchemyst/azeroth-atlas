@@ -1805,6 +1805,43 @@ function MinimapEngine:HideGatherFrames()
     end
 end
 
+-- Build-order step 16 (2026-11-11): user-reported duplicate nodes -
+-- "some nodes are rendering twice... I am guessing there are 2 node
+-- entries from wowhead that are slightly off of each other." Plausible
+-- and confirmed by this file's own earlier header (see the "Data
+-- source" comment above `GATHER_DB`): this static data is a port of
+-- Carbonite's own Gathermate2_Data "camelot" pack, itself built from
+-- crowd-sourced Wowhead spawn reports that don't always land on the
+-- exact same coordinate for what's physically one node. Fixed here at
+-- render time (not by hand-editing/removing rows from the static
+-- Gather*.lua tables) so it stays correct automatically if that data
+-- is ever re-ported/updated later, and so it's trivially reversible if
+-- the threshold needs tuning.
+--
+-- Any two points of the SAME SPECIES (nodeID) within
+-- GATHER_DEDUPE_YARDS of each other collapse to just one. User's own
+-- suggested range was "5-10 yards" - 7 picked as the middle (also
+-- happens to match GOTO_ARRIVAL_YARDS elsewhere in this file, a
+-- coincidence, not derived from it). Grouped by nodeID first (not a
+-- flat O(n^2) scan over the whole zone) since a zone can carry 800+
+-- entries total but any one species' own count within it is far
+-- smaller - two different species can never be "the same node", so
+-- there's no reason to ever compare across groups.
+--
+-- Which of a close pair survives is whichever pairs() visits first -
+-- NOT guaranteed stable across sessions/reloads. Accepted: anything
+-- this close is visually indistinguishable on the map anyway: the bug
+-- being fixed is "two icons where there should be one", not which
+-- exact one of two near-identical coordinates wins.
+local GATHER_DEDUPE_YARDS = 7
+-- Fresh local, same 4.575 constant/formula as Update()'s own PlyrSpeed
+-- block and UpdateGoto's own YARDS_PER_WORLDUNIT local further down -
+-- see that section's header comment for the citation. Not shared
+-- across sections by design, same reasoning as TRAIL_ARROW_TEX/
+-- YARDS_PER_WORLDUNIT elsewhere in this file (a fresh local per
+-- section beats threading one constant through unrelated code).
+local GATHER_DEDUPE_RANGE_SQ = (GATHER_DEDUPE_YARDS / 4.575) ^ 2
+
 -- Pcall-wrapped per dbType so one bad zone/type combo in the static
 -- data can't abort the other three categories.
 local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
@@ -1814,13 +1851,43 @@ local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
 
     local infoByID = GATHER_NODE_INFO and GATHER_NODE_INFO[dbType]
     local fallbackTex = GATHER_ICON_TEX[dbType]
+
+    -- Pass 1: decode + world-position everything, bucketed by species
+    -- (nodeID) so the dedupe pass below only ever compares points that
+    -- could possibly be the same physical spawn.
+    local bySpecies = {}
     for coord, nodeID in pairs(zoneNodes) do
         local gx, gy = DecodeGatherCoord(coord)
         local wx, wy = engine:GetWorldPos(mapId, gx * 100, gy * 100)
         if wx then
-            local info = infoByID and infoByID[nodeID]
-            local tex = (info and info.tex) or fallbackTex
-            pts[#pts + 1] = { x = wx, y = wy, tex = tex, dbType = dbType, nodeID = nodeID }
+            local bucket = bySpecies[nodeID]
+            if not bucket then
+                bucket = {}
+                bySpecies[nodeID] = bucket
+            end
+            bucket[#bucket + 1] = { x = wx, y = wy }
+        end
+    end
+
+    -- Pass 2: within each species bucket, drop any point landing
+    -- within range of one already kept.
+    for nodeID, bucket in pairs(bySpecies) do
+        local info = infoByID and infoByID[nodeID]
+        local tex = (info and info.tex) or fallbackTex
+        local kept = {}
+        for _, p in ipairs(bucket) do
+            local dup = false
+            for _, k in ipairs(kept) do
+                local dx, dy = p.x - k.x, p.y - k.y
+                if dx * dx + dy * dy <= GATHER_DEDUPE_RANGE_SQ then
+                    dup = true
+                    break
+                end
+            end
+            if not dup then
+                kept[#kept + 1] = p
+                pts[#pts + 1] = { x = p.x, y = p.y, tex = tex, dbType = dbType, nodeID = nodeID }
+            end
         end
     end
 end
@@ -1931,6 +1998,226 @@ function MinimapEngine:UpdateGatherIcons()
         self.GatherFrms[n].backdrop:Hide()
     end
 end
+
+-- Build-order step 16 (2026-11-11), diagnostic only - not the "active
+-- node" feature itself, groundwork for it. User's second request:
+-- show on the map whether a gathering node is actually there right
+-- now, citing FarmHud (`R:\addons\FarmHud\`) as a known-good example.
+--
+-- Read FarmHud's own source first rather than guessing: it does NOT
+-- do any independent live-node detection at all - it's a minimap
+-- reskin (reparents/enlarges the REAL native Blizzard Minimap frame to
+-- fill its own HUD, per `FarmHud.toc`'s own description: "Turns your
+-- minimap into a hud for gathering resources!"). Its "active" accuracy
+-- is just a free side effect of still being the real native Minimap -
+-- Blizzard itself only ever draws a resource blip there when a node is
+-- actually present and in range. That's the same ground-truth signal
+-- this file's own header already went looking for and failed to
+-- isolate (`C_VignetteInfo.GetVignettes()` returned 0; a raw scan of
+-- `Minimap:GetRegions()` returned ~290 entries, declared "too noisy"
+-- and dropped without filtering by anything).
+--
+-- This addon can't just become the native Minimap the way FarmHud does
+-- - it draws its own separate custom window from a static database.
+-- But the real native Minimap frame still exists in memory even when
+-- hidden (`MinimapDock.lua`'s own "Hide Blizzard minimap" preference
+-- doesn't destroy it) and still appears to receive blip updates, so
+-- scanning IT for the real resource-blip texture - this time grouped
+-- by texture path/atlas instead of dumped one-by-one - is worth a
+-- second, more targeted look before building anything on top of it.
+-- Classic/Wrath-era clients (this server's interface version matches
+-- that family, per GatherMate2_Data's own `## Interface: 16001`) draw
+-- minimap blips as plain Texture regions cropped from one shared sheet
+-- (`Interface\Minimap\ObjectIconsAtlas`) via SetTexCoord, not individual
+-- files - if that path shows up here with a small, stable count, it's
+-- the real signal; this command exists to find out, not to assume it.
+--
+-- `/gps scanblips` - read-only, chat-only, no map/rendering changes.
+-- Dumps every distinct texture/atlas path currently on the real
+-- Minimap, grouped with a count, loudest first. Ask the user to run it
+-- once while standing right on a visibly-active node and once well
+-- away from any node, and compare the two lists - whatever path's
+-- count changes between the two is the real blip texture.
+local function ScanMinimapBlipTextures()
+    local counts, order = {}, {}
+    for _, region in ipairs({ Minimap:GetRegions() }) do
+        if region.GetObjectType and region:GetObjectType() == "Texture" then
+            local path = region:GetTexture()
+            local key = path and tostring(path) or "<no texture>"
+            local atlas = region.GetAtlas and region:GetAtlas()
+            if atlas and atlas ~= "" then
+                key = key .. " (atlas: " .. atlas .. ")"
+            end
+            if not counts[key] then
+                counts[key] = 0
+                order[#order + 1] = key
+            end
+            counts[key] = counts[key] + 1
+        end
+    end
+    table.sort(order, function(a, b) return counts[a] > counts[b] end)
+    return order, counts
+end
+
+-- 2026-11-11 follow-up: first live run came back "0 distinct paths"
+-- both on and off a node - that's not noise, it's a real result that
+-- needs its OWN explanation before trying a different texture-name
+-- filter. Most likely cause, found by reading this addon's own
+-- `NativeMinimapHide.lua`: the "Hide Blizzard minimap" preference
+-- (default ON) calls `MinimapCluster:Hide()`, and `Minimap` is a
+-- descendant of `MinimapCluster` - a hidden ancestor plausibly means
+-- the client never bothers creating/updating blip textures on it at
+-- all, not just that they're invisible. This file's own OLDER "~290
+-- children" finding (cited in RefreshGatherIcons's header) almost
+-- certainly predates this addon hiding the native minimap by default.
+-- Reporting IsVisible/IsShown + raw region/child counts (regardless of
+-- type) alongside the grouped-by-texture list below, so the NEXT run
+-- confirms or rules this out in one pass instead of another blind
+-- round-trip.
+AlchemyGPS.Core.SlashCommands:Register("scanblips", function()
+    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+    local numRegions = select("#", Minimap:GetRegions())
+    local numChildren = select("#", Minimap:GetChildren())
+    Logger:info("Minimap:IsShown()=%s IsVisible()=%s regions=%d children=%d",
+        tostring(Minimap:IsShown()), tostring(Minimap:IsVisible()), numRegions, numChildren)
+    local order, counts = ScanMinimapBlipTextures()
+    Logger:info("Minimap texture regions: %d distinct path(s)", #order)
+    for _, key in ipairs(order) do
+        Logger:info("  x%d  %s", counts[key], key)
+    end
+end, "dump real Minimap texture regions, grouped by path (gathering-node active-detection research)")
+
+-- 2026-11-11, second follow-up: live result was `regions=0,
+-- children=493` (then 499) both on and off a node, `IsShown()=true,
+-- IsVisible()=false`. This fully explains the "0 distinct paths"
+-- result above WITHOUT needing the hide theory at all - it's simpler
+-- than that: `GetRegions()` only returns direct Texture/FontString/
+-- Line children, and on this client, minimap blips are plainly NOT
+-- raw Texture regions at all (that would've shown up as >0 regions
+-- regardless of visibility) - they're child FRAMES (hence 493-499
+-- `GetChildren()`). This file's own much-older "~290 children" finding
+-- (RefreshGatherIcons's header) was actually the right call all along,
+-- just abandoned one step too early - it needs a GROUPED or DIFFED
+-- scan of children, not regions, to cut through the noise.
+--
+-- A plain count/texture dump of ~500 children would still be mostly
+-- noise (quest POIs, group member dots, any leftover vignette pins,
+-- every other installed addon's own minimap decoration). Diffing
+-- against a snapshot cancels all of that out automatically, since
+-- none of it changes just because the player walked up to one
+-- specific spot - whatever children appear/disappear between a
+-- snapshot taken away from any node and a second check taken standing
+-- on one are the real candidates.
+--
+-- `/gps diffblips start` - snapshot current Minimap children (run this
+-- FIRST, standing away from any node). `/gps diffblips` (no argument)
+-- - compare right now against that snapshot and report exactly which
+-- children were added/removed since, each described by its own name
+-- (if any) plus any texture/atlas found on ITS children (one level
+-- down, since a blip frame's actual icon is typically a texture nested
+-- inside it, not on the blip frame itself). Snapshot is kept by object
+-- identity (the frame itself as a table key), not by name or index,
+-- since most of these are anonymous pooled frames with no `GetName()`
+-- at all.
+local blipSnapshot
+
+-- 2026-11-11, second live round: first real non-empty diff (19 added,
+-- 2 removed - the 2 removed were plainly just the minimap's own zoom
+-- in/out buttons churning, named by their own atlases, unrelated
+-- noise). All 19 added came back as bare `table: 0x...` with no
+-- texture/atlas found - `DescribeMinimapChild` only ever looked at the
+-- added frame's OWN immediate regions, one level. A pin frame's actual
+-- icon is commonly nested a level or two further in (frame -> a child
+-- frame -> ITS regions), so this now recurses a few levels down
+-- looking for any Texture region anywhere inside, and also reports
+-- each candidate's pixel size and its offset from Minimap's own center
+-- - real blips should be small (icon-sized, not a layout frame) and
+-- positioned somewhere other than dead center.
+local function DescribeMinimapChild(child)
+    local parts = {}
+    local name = child.GetName and child:GetName()
+    parts[#parts + 1] = name or tostring(child)
+
+    if child.GetSize then
+        local w, h = child:GetSize()
+        parts[#parts + 1] = ("size:%.0fx%.0f"):format(w or 0, h or 0)
+    end
+    if child.GetCenter and Minimap.GetCenter then
+        local cx, cy = child:GetCenter()
+        local mx, my = Minimap:GetCenter()
+        if cx and mx then
+            parts[#parts + 1] = ("offset:%.0f,%.0f"):format(cx - mx, cy - my)
+        end
+    end
+
+    local seen = {}
+    local function scanRegions(frame, remaining)
+        if seen[frame] then return end
+        seen[frame] = true
+        if frame.GetRegions then
+            for _, r in ipairs({ frame:GetRegions() }) do
+                if r.GetObjectType and r:GetObjectType() == "Texture" then
+                    local atlas = r.GetAtlas and r:GetAtlas()
+                    local tex = r.GetTexture and r:GetTexture()
+                    if atlas and atlas ~= "" then
+                        parts[#parts + 1] = "atlas:" .. atlas
+                    elseif tex then
+                        parts[#parts + 1] = "tex:" .. tostring(tex)
+                    end
+                end
+            end
+        end
+        if remaining > 0 and frame.GetChildren then
+            for _, sub in ipairs({ frame:GetChildren() }) do
+                scanRegions(sub, remaining - 1)
+            end
+        end
+    end
+    scanRegions(child, 3)
+
+    return table.concat(parts, "  ")
+end
+
+AlchemyGPS.Core.SlashCommands:Register("diffblips", function(rest)
+    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+
+    if rest == "start" then
+        blipSnapshot = {}
+        local n = 0
+        for _, child in ipairs({ Minimap:GetChildren() }) do
+            blipSnapshot[child] = true
+            n = n + 1
+        end
+        Logger:info("diffblips: snapshot taken (%d children) - now walk to a node and run '/gps diffblips'", n)
+        return
+    end
+
+    if not blipSnapshot then
+        Logger:warn("diffblips: no snapshot yet - run '/gps diffblips start' first, away from any node")
+        return
+    end
+
+    local current, added, removed = {}, {}, {}
+    for _, child in ipairs({ Minimap:GetChildren() }) do
+        current[child] = true
+        if not blipSnapshot[child] then
+            added[#added + 1] = child
+        end
+    end
+    for child in pairs(blipSnapshot) do
+        if not current[child] then
+            removed[#removed + 1] = child
+        end
+    end
+
+    Logger:info("diffblips: %d added, %d removed since snapshot", #added, #removed)
+    for _, child in ipairs(added) do
+        Logger:info("  + %s", DescribeMinimapChild(child))
+    end
+    for _, child in ipairs(removed) do
+        Logger:info("  - %s", DescribeMinimapChild(child))
+    end
+end, "diff Minimap's child frames vs. a snapshot ('/gps diffblips start' first) - gathering-node active-detection research")
 
 -- Trimmed from Nx.Map:UpdateWorld (MapEngine.lua:5945-6147) - see this
 -- section's header for what's dropped and why. What's kept is the
