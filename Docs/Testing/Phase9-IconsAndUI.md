@@ -34,6 +34,18 @@ all; bottom items are tuning/feel questions on things known to render.
          you move and as the window is panned/zoomed, and confirm your
          on-screen native minimap (if you don't have "Hide Blizzard
          minimap" on) goes back to normal once tracking turns off.
+- [ ] **NOT YET LIVE-TESTED** — Radar sweep overlay on the live-blip
+      patch, 2026-11-11 (build-order step 17, `CHANGELOG.md`). A very
+      light green tint plus a sweeping line with a fading trail
+      (14 discrete segments, not a true gradient), on top of the live
+      widget whenever it's shown. Confirm: the tint/sweep actually
+      appears and looks intentional (not like a bug), the sweep line's
+      pivot stays centered as the patch resizes with zoom, it hides
+      cleanly when tracking turns off or the map window closes, and it
+      doesn't get caught and hidden by the passenger-hiding pass (it
+      shouldn't - it's parented to `UIParent`, not `mm` - but this is
+      exactly the kind of thing worth a second look given how many
+      follow-ups this general area has already needed).
 - [x] **CONCLUDED - confirmed dead end, 2026-11-11.** "Is this
       gathering node actually active right now" - user cited FarmHud as
       an example; its source was read and it does no independent

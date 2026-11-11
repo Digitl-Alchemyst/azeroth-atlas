@@ -2717,3 +2717,213 @@ revert), and consolidated `MinimapUpdateMask`'s header comment (two
 stacked blocks, one of them describing the reverted square-mask
 behavior as if still current) into one accurate one. No behavior
 change - everything removed was already inert, just still present.
+
+## Build-order step 17, radar sweep, same day: reframing the edge artifact as a design choice
+
+User's own idea, after accepting the ring artifact as a cosmetic
+limit: instead of fighting Blizzard's native rendering again, give the
+live-blip patch a deliberate radar look - a very light green tint over
+the whole circle, plus a thin (1-3px) line sweeping around like a
+clock hand with a fading trail behind it - so the edge reads as part
+of the design instead of a leftover artifact.
+
+**Implementation** (`UpdateLiveBlipRadar`, called from `UpdateLiveBlips`
+and `HideLiveBlips`): a new frame `self.MMRadar`, parented to
+`UIParent` like the widget itself - NOT to `mm`, since
+`HideMinimapPassengers` recursively hides everything under `mm` every
+tick and would eat this too (the same trap the reverted edge-cover
+border hit). Anchored CENTER-to-CENTER on `mm`, resized to match `mm`'s
+current width each tick (varies with zoom/fit).
+
+- **Tint**: a plain colored texture masked to the same round shape as
+  the widget (`CreateMaskTexture` + `AddMaskTexture`, using the
+  identical `TempPortraitAlphaMask` path) - texture masking via this
+  API is long-standing, stable WoW functionality (unlike the confirmed-
+  broken `SetClipsChildren` from the earlier reverted attempt), so no
+  capability-probe/fallback concern here. Very low alpha (0.10).
+- **Sweep + trail**: no custom gradient art asset exists or could be
+  generated in this environment, so the "fading trail" is approximated
+  with `LIVE_BLIP_RADAR_SEGMENTS = 14` thin lines at shrinking angular
+  offsets behind the leading edge, each a bit more transparent than the
+  last (spanning `LIVE_BLIP_RADAR_TRAIL_SPAN_DEGREES = 75` degrees
+  total) - a discrete approximation of a continuous gradient wedge,
+  not a true shader-based one. Each segment pivots at its own left-
+  center point (`SetRotation`'s normalized rotation-center args) and is
+  anchored by that same point to the circle's center, so it reads as a
+  hand swinging around a fixed pivot. One full revolution every
+  ~6.5 seconds (`LIVE_BLIP_RADAR_DEGREES_PER_SEC = 55`).
+
+All five tunable constants (speed, segment count, trail span,
+thickness, tint alpha) are plain locals right above the function - the
+exact look is easy to adjust without touching the logic.
+
+**Not yet live-tested**: this fix.
+
+**How to apply**: [[project_alchemy_gps]] - when a native rendering
+limitation can't be fixed and a cover-up was already rejected as
+visually wrong, reframing the artifact as an intentional design
+element (rather than hiding or fighting it) is a legitimate third
+path - this one came from the user, not a model guess, which is
+exactly the kind of call that belongs with them once the technical
+options are exhausted.
+
+**Immediate live-tested follow-up, same day: the sweep wasn't
+visibly moving.** Root cause: `UpdateLiveBlips` (and the radar update
+in turn) only actually runs about every 0.05s - `Update()`'s own `Ttl`
+accumulator gates the whole body - but the `elapsed` value threaded
+down into the angle math was the raw single-OnUpdate-frame delta
+(~0.007-0.02s depending on framerate), not the ~0.05s that actually
+passed since the radar last updated. The angle WAS advancing, just at
+a small fraction of the intended rate - a full revolution could take
+a minute or more at a high framerate, reading as static over a short
+glance. **Fix**: `UpdateLiveBlipRadar` now tracks its own wall-clock
+delta via `GetTime()` (`self.MMRadarLastTime`), fully decoupled from
+`Update()`'s own throttle/elapsed semantics - correct regardless of
+framerate. The now-unneeded `elapsed` plumbing through
+`UpdateLiveBlips`/its two call sites was simplified back out (the
+value is no longer used anywhere in that chain). Also dropped the
+sweep line to 1px per request (`LIVE_BLIP_RADAR_LINE_THICKNESS`).
+
+**How to apply**: [[project_alchemy_gps]] - a throttled Update()'s own
+per-call `elapsed` parameter is the time since the LAST RAW FRAME, not
+since the throttle last actually let work through - any animation
+timed off of it (not just position/zoom interpolation, which already
+has its own established pattern here) needs either the accumulated
+throttle interval or its own independent `GetTime()` delta, never the
+raw per-frame value passed through a throttled call.
+
+**Second live-tested follow-up, same day: SetRotation errored on every
+tick.** The 3-arg custom-pivot form (`SetRotation(radians,
+normalizedX, normalizedY)`) the sweep was written against isn't valid
+on this client at all - `bad argument #2 to 'SetRotation' (Usage:
+self:SetRotation(radians [, normalizedRotationPoint]))`, spammed once
+per segment per tick (1800+ count within a couple minutes), triggering
+WoW's own "large number of errors" warning popup. Only the plain
+single-argument form is supported here - rotation always pivots around
+a texture's own center, no custom pivot point available.
+
+**Fix**: rebuilt the per-segment math around that constraint instead
+of fighting it. Each segment's own CENTER is positioned via plain
+trigonometry at the midpoint of where it should visually span - half
+its length out from the circle's center, toward its current angle
+(`offsetX = radius/2 * cos(angleRad)`, same for sin/Y) - then rotated
+by that same angle with the default center pivot. The inner end lands
+exactly on the circle's center and the outer end exactly on the edge,
+with no pivot-point API involved at all. Re-anchored every tick
+(`SetPoint("CENTER", radar, "CENTER", offsetX, offsetY)`) alongside the
+existing per-tick size/alpha updates.
+
+**How to apply**: [[project_alchemy_gps]] - this client's Texture
+`SetRotation` only takes `(radians)`, never a custom normalized pivot
+point, confirmed via the real error message (not an assumption carried
+over from retail docs) - any future rotate-around-an-off-center-point
+need on this client has to be done via positioning math (offset the
+anchor by trig, rotate around the texture's own default center), the
+same pattern this fix landed on, not the pivot-argument form.
+
+**Third live-tested follow-up, same day: sweep moved correctly but
+read as discrete lines, not a trail, and sat on top of this engine's
+own markers instead of under them.** Two separate fixes:
+
+1. **Gradient fade**: 14 segments across a 75-degree span meant ~5.4
+degrees between each one - wide enough to read as individually
+countable lines fanning out, not a fading trail. Tripled to 42
+segments over the same span (~1.8 degrees apart) and switched the
+per-segment alpha falloff from linear to quadratic
+(`LEAD_ALPHA * (1-t)^2`), plus dropped peak alpha from 0.8 to 0.65 -
+denser, smoother, and a softer taper instead of a harsh linear cutoff.
+
+2. **Layering - "get all of that under the yellow dots those seem to
+be on the bottom"**: root cause, traced through `MinimapSyncLayer`
+(MinimapEngine.lua:716) - `mm` (the live patch) is deliberately kept
+ABOVE `self.Win.Frm`'s own level so it reads as a true overlay above
+the whole map window, by design. But this engine's own markers
+(player dot, gather/service/quest icons) are plain children of
+`self.Frm`, nested INSIDE that same window - meaning they were always
+bounded below `mm`'s elevated level too (their own internal
+self.Frm-relative level offsets, e.g. gather icons at
+`self.Frm:GetFrameLevel()+4`, don't change which side of that boundary
+they're on). This was already true for the dimmed terrain before the
+radar existed, just not obviously so at 0.55 alpha - the radar's
+opaque sweep made it immediately visible. Fix: new
+`RaiseIconsAboveLivePatch`/`RestoreIconsFromLivePatch` pair -
+reparents the player marker and every gather/service/quest icon frame
+to `UIParent` (the same actual parent `mm`/`MMRadar` use) while the
+patch is shown, so a plain frame-level bump against `MMRadar`'s own
+level is an unambiguous same-parent sibling comparison, then
+reparents them straight back to `self.Frm` the moment the patch drops
+(`UpdateLiveBlips`' own shown/else branches, and `HideLiveBlips`
+directly for the tracking-gate-off path that never reaches
+`UpdateLiveBlips`'s else branch at all). Confirmed via `Update()`'s own
+call order (MinimapEngine.lua:4353-4420) that `UpdatePlayerMarker`/
+`UpdateServiceIcons`/`UpdateGatherIcons` all run BEFORE the
+`UpdateLiveBlips` call each tick, so this override isn't immediately
+undone by their own unconditional per-tick level-setting.
+
+**How to apply**: [[project_alchemy_gps]] - frame level numbers are
+only directly comparable between frames sharing the same actual
+parent; two frames under different parents can't be reliably ordered
+by raw `SetFrameLevel()` value alone, no matter how large the offset -
+if one subtree needs to float above an unrelated one on this UI,
+reparent the piece that needs raising to a shared parent first, don't
+just raise its number.
+
+**Immediate live-tested regression from the reparenting fix above,
+same day: gather nodes visible from a distance but vanished up
+close.** Root cause: `ClipFrameW` positions every one of these icons
+via a 3-arg `frm:SetPoint("TOPLEFT", vx1, -vy1 - self.TitleH)` with NO
+explicit relativeTo frame - WoW resolves that implicitly against the
+icon's OWN PARENT. Reparenting to UIParent (the previous fix) silently
+changed what that anchor was relative to: every icon started
+positioning against the whole SCREEN's corner instead of the map
+window's, which only looked plausible from far away (coincidentally
+inside both rectangles) and clearly wrong up close - most points
+landing outside `ClipFrameW`'s own bounds check and getting hidden.
+
+**Real fix: don't reparent at all, bump STRATA instead.** Frame strata
+is a hard global sort key that ignores parent and level entirely
+(unlike frame level, which only compares directly within shared-parent
+siblings) - reused the `MINIMAP_STRATA_ABOVE` lookup table
+`MinimapSyncLayer` already had (MinimapEngine.lua:75) to give the
+player marker and gather/service/quest icon frames one strata tier
+above whatever `mm` currently uses, with zero effect on anchoring,
+scale inheritance, or `ClipFrameW`'s own positioning math - restored to
+`MEDIUM` (their real, confirmed-unchanged-elsewhere default) the
+moment the patch drops.
+
+**How to apply**: [[project_alchemy_gps]] - supersedes the "reparent
+to compare siblings" note above: reparenting ANY frame this engine
+positions via an implicit-parent `SetPoint` (3-arg, no relativeTo) will
+silently break its anchoring - confirmed via `ClipFrameW` specifically,
+but the same risk applies to any other icon positioned the same way.
+Frame STRATA, not reparenting, is the right tool for "draw above an
+unrelated subtree" when the frame's existing anchor must stay intact.
+
+**Fourth follow-up, same day: still read as "a bunch of lines," not a
+trail, even at 42 segments.** Root cause was geometric, not a segment-
+count/alpha-curve problem: these are thin spokes radiating from a
+shared center, and spokes necessarily spread apart approaching the
+outer edge (same reason a wheel's spokes are tight at the hub, wide at
+the rim) - at 42 segments/1px thickness, the gap between neighboring
+spokes at the patch's typical radius exceeded their own width, leaving
+visible slivers of background between every one. Fixed by widening
+(1px -> 2px trailing segments) and densifying (42 -> 90 segments) so
+neighboring spokes overlap at the outer edge instead of gapping.
+
+User also asked for "the 1 line and a fading gradient behind it, one
+solid object that spins" - WoW's plain Texture API has no true conic/
+angular gradient primitive, so there's no way to draw that as literally
+one rotating object without a custom pre-authored wedge-shaped texture
+asset (not available in this environment). Kept the multi-segment
+approach but gave the sweep's leading segment its own distinct
+treatment (full alpha, 3px vs. the trailing segments' 2px) so it reads
+as "the line," with the remaining 89 segments forming the fading trail
+behind it - same visual intent as requested, built from primitives
+already confirmed working on this client.
+
+**How to apply**: [[project_alchemy_gps]] - any radial "spoke fan"
+built from individual rotated rectangles needs segment width and count
+chosen together relative to the ACTUAL radius it'll render at (not
+picked independently) - the gap at the outer edge is
+`radius * angleBetweenSegments(radians)`, and that needs to stay below
+the segment's own thickness or neighboring spokes visibly separate.

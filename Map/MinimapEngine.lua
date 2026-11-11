@@ -494,6 +494,8 @@ function MinimapEngine:HideLiveBlips()
     self.MMZoomType = nil
     self.MMPassengerCheckAt = nil
     mm:Hide()
+    self:UpdateLiveBlipRadar(false)
+    self:RestoreIconsFromLivePatch()
 
     -- Restore whatever third-party addon buttons ShowLiveBlips hid
     -- (see its own header) - plain unprotected frames, no combat-
@@ -898,6 +900,159 @@ function MinimapEngine:ResolveLiveBlipFit()
     return bestFit
 end
 
+-- Build-order step 17, ninth follow-up, same day: the faint ring
+-- artifact at the round mask's edge (accepted as a cosmetic limit a
+-- few follow-ups back - no further lever on Blizzard's own rendering,
+-- see ClipMMW's header) gets reframed instead of fought again - a
+-- deliberate radar look (soft green tint + a sweeping line with a
+-- fading trail) gives the window its own visual identity, so the
+-- edge reads as "part of the design" rather than a leftover artifact.
+-- User's own explicit design, including the fade-via-discrete-
+-- segments approach (no custom art asset exists or is available to
+-- generate here, so the "trail" is several thin lines at shrinking
+-- angular offsets behind the leading edge, each a bit more
+-- transparent than the last, rather than a single continuously-
+-- gradiented wedge texture).
+--
+-- All of it lives in its own frame (self.MMRadar), parented to
+-- UIParent like the widget itself, NOT to mm - mm's own descendants
+-- are what HideMinimapPassengers recursively hides every tick, which
+-- would eat this too if it lived there (same trap the reverted edge-
+-- cover border hit). Anchored CENTER-to-CENTER on mm (tracks its
+-- position with no extra per-tick math), resized to match mm's own
+-- current width each tick since that varies with zoom/fit. The tint
+-- is masked to the same round shape as the widget itself (a
+-- CreateMaskTexture using the identical TempPortraitAlphaMask path -
+-- texture masking is long-standing, stable WoW API, unlike the
+-- confirmed-broken SetClipsChildren from the earlier reverted
+-- attempt, so no fallback-capability concern here). Each sweep
+-- segment pivots at its own left-center point (SetRotation's
+-- normalized rotation-center args), anchored by that same point to
+-- the circle's center, so it reads as a clock hand swinging around a
+-- fixed pivot rather than a line translating across the window.
+local LIVE_BLIP_RADAR_DEGREES_PER_SEC = 55
+-- Live-tested same day, second follow-up: even at 42 segments it still
+-- read as "a bunch of lines," not a trail - the real cause is
+-- geometric, not a segment-count/alpha-curve problem: these are thin
+-- SPOKES fanning out from a shared center, and spokes necessarily
+-- spread apart as they near the outer edge (the same way a wheel's
+-- spokes are close at the hub and far apart at the rim) - at the old
+-- 42/1px settings the gap between adjacent spokes at a typical patch
+-- radius exceeded their own width, leaving visible slivers of
+-- background between every one of them. Fixed by making the spokes
+-- wide enough, and dense enough, that neighboring ones overlap at the
+-- OUTER edge instead of gapping (see the per-tick loop's angleRad
+-- math - unchanged - this is purely a density/width tuning fix).
+-- User also asked for "the 1 line and a fading gradient behind it one
+-- solid object" - WoW's plain Texture API has no true conic/angular
+-- gradient primitive to draw that as literally one object, so this
+-- keeps the proven multi-segment approach but gives the FIRST segment
+-- (the sweep's current leading edge) its own distinct full-alpha,
+-- thicker treatment so it reads as "the line," with the remaining
+-- segments forming the fading trail behind it - same visual intent,
+-- built from primitives already confirmed working on this client.
+local LIVE_BLIP_RADAR_SEGMENTS = 90
+local LIVE_BLIP_RADAR_TRAIL_SPAN_DEGREES = 75
+local LIVE_BLIP_RADAR_LINE_THICKNESS = 2
+local LIVE_BLIP_RADAR_LEAD_LINE_THICKNESS = 3
+local LIVE_BLIP_RADAR_LEAD_ALPHA = 0.6
+local LIVE_BLIP_RADAR_TINT_ALPHA = 0.10
+local LIVE_BLIP_RADAR_R, LIVE_BLIP_RADAR_G, LIVE_BLIP_RADAR_B = 0.3, 1.0, 0.4
+
+-- Live-tested same day: the sweep wasn't visibly moving. UpdateLiveBlips
+-- (and this function in turn) only actually RUNS roughly every 0.05s -
+-- Update()'s own Ttl accumulator gates the whole body - but the
+-- `elapsed` it was passed down was the raw single-OnUpdate-frame delta
+-- (~0.007-0.02s depending on framerate), not the ~0.05s that actually
+-- passed since this function last ran. The angle was advancing at a
+-- small fraction of LIVE_BLIP_RADAR_DEGREES_PER_SEC's real intent -
+-- technically moving, just slow enough (a full revolution could take
+-- a minute or more at a high framerate) to look static over a short
+-- glance. Tracks its own wall-clock delta via GetTime() now, fully
+-- decoupled from Update()'s own throttle/elapsed semantics - correct
+-- regardless of framerate or how often this actually gets called.
+function MinimapEngine:UpdateLiveBlipRadar(shown)
+    if not shown then
+        if self.MMRadar then
+            self.MMRadar:Hide()
+        end
+        self.MMRadarLastTime = nil
+        return
+    end
+
+    local mm = self.MMFrm
+    local now = GetTime()
+    if not self.MMRadar then
+        local radar = CreateFrame("Frame", nil, UIParent)
+        radar:SetPoint("CENTER", mm, "CENTER")
+
+        local mask = radar:CreateMaskTexture()
+        mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+        mask:SetAllPoints(radar)
+
+        local tint = radar:CreateTexture(nil, "OVERLAY")
+        tint:SetAllPoints(radar)
+        tint:SetColorTexture(LIVE_BLIP_RADAR_R, LIVE_BLIP_RADAR_G, LIVE_BLIP_RADAR_B, LIVE_BLIP_RADAR_TINT_ALPHA)
+        tint:AddMaskTexture(mask)
+
+        radar.segments = {}
+        for i = 1, LIVE_BLIP_RADAR_SEGMENTS do
+            local seg = radar:CreateTexture(nil, "OVERLAY")
+            seg:SetColorTexture(LIVE_BLIP_RADAR_R, LIVE_BLIP_RADAR_G, LIVE_BLIP_RADAR_B, 1)
+            radar.segments[i] = seg
+        end
+
+        self.MMRadar = radar
+        self.MMRadarAngle = 0
+        self.MMRadarLastTime = now
+    end
+
+    local radar = self.MMRadar
+    local dt = now - (self.MMRadarLastTime or now)
+    self.MMRadarLastTime = now
+    self.MMRadarAngle = (self.MMRadarAngle + dt * LIVE_BLIP_RADAR_DEGREES_PER_SEC) % 360
+
+    local size = mm:GetWidth()
+    radar:SetSize(size, size)
+
+    local strata, level = mm:GetFrameStrata(), mm:GetFrameLevel()
+    radar:SetFrameStrata(strata)
+    radar:SetFrameLevel(level + 1)
+
+    -- Live-tested same day: SetRotation on this client only takes
+    -- (radians) - the 3-arg (radians, normalizedX, normalizedY) custom-
+    -- pivot form this was written against errored ("bad argument #2")
+    -- and spammed the error log every tick. Rotation always pivots
+    -- around a texture's own center here, so a true one-sided "hand
+    -- pinned at the circle's center" needs the PIVOT to BE that center
+    -- - done by positioning each segment's own CENTER at the midpoint
+    -- of where it should visually span (half the segment's length out
+    -- from the circle's center, toward its current angle) via plain
+    -- trig, then rotating it (default center pivot) by that same
+    -- angle. The segment's inner end lands exactly on the circle's
+    -- center and its outer end exactly on the circle's edge, with no
+    -- pivot-point API involved at all.
+    local radius = size / 2
+    local stepDeg = LIVE_BLIP_RADAR_TRAIL_SPAN_DEGREES / LIVE_BLIP_RADAR_SEGMENTS
+    for i, seg in ipairs(radar.segments) do
+        local angleRad = math.rad(self.MMRadarAngle - (i - 1) * stepDeg)
+        local offsetX = (radius / 2) * math.cos(angleRad)
+        local offsetY = (radius / 2) * math.sin(angleRad)
+        seg:SetPoint("CENTER", radar, "CENTER", offsetX, offsetY)
+        seg:SetRotation(angleRad)
+        if i == 1 then
+            seg:SetSize(radius, LIVE_BLIP_RADAR_LEAD_LINE_THICKNESS)
+            seg:SetAlpha(1)
+        else
+            seg:SetSize(radius, LIVE_BLIP_RADAR_LINE_THICKNESS)
+            local t = (i - 1) / LIVE_BLIP_RADAR_SEGMENTS
+            seg:SetAlpha(LIVE_BLIP_RADAR_LEAD_ALPHA * (1 - t) * (1 - t))
+        end
+    end
+
+    radar:Show()
+end
+
 -- Per-tick positioning/sizing of the owned widget while gathering-
 -- tracking is active - adapted from the archived Mode:Live's own
 -- inline Update() block, now sized/zoomed via ResolveLiveBlipFit
@@ -914,6 +1069,74 @@ end
 -- Ctrl/Alt "see-through" alpha was for a cosmetic background blend -
 -- this revival's whole point is seeing native blips clearly, not
 -- blending them in).
+-- Build-order step 17, radar-layering follow-up (2026-11-11): this
+-- engine's own markers (player dot, gather/service/quest icons) are
+-- plain children of self.Frm, which MinimapSyncLayer deliberately
+-- keeps BELOW mm's own elevated level - mm has to float above the
+-- whole window to read as a true overlay at all, which means
+-- everything inside self.Frm's own subtree draws under it too,
+-- regardless of each icon's own internal (self.Frm-relative) level
+-- offset - confirmed live, user-reported: the radar's opaque sweep
+-- made this newly obvious ("get all of that under the yellow dots
+-- those seem to be on the bottom").
+--
+-- First attempt reparented each icon to UIParent (mm/MMRadar's own
+-- parent) so a plain frame-level bump would be an unambiguous sibling
+-- comparison - live-tested BROKEN: ClipFrameW positions every one of
+-- these icons via a 3-arg `frm:SetPoint("TOPLEFT", vx1, ...)` with no
+-- explicit relativeTo frame (MinimapEngine.lua:1845ish), which WoW
+-- resolves against the icon's OWN PARENT implicitly - reparenting to
+-- UIParent silently changed what that anchor was relative to, so
+-- every icon started positioning against the whole screen's corner
+-- instead of the map window's, landing most of them outside ClipFrameW's
+-- own bounds check and hiding them (confirmed live: nodes visible far
+-- away, gone up close, exactly where the computed point would drift
+-- outside the window).
+--
+-- Fixed version: don't touch parent at all - bump STRATA instead.
+-- Frame strata is a hard global sort key that ignores parent/level
+-- entirely (unlike frame level, which only compares directly within
+-- shared-parent siblings), so this raises the icon above mm/MMRadar
+-- with zero effect on anchoring, scale inheritance, or ClipFrameW's
+-- own positioning math.
+local function RaiseAboveLivePatch(frm, strata)
+    if frm then frm:SetFrameStrata(strata) end
+end
+
+local function RestoreLivePatchIcon(frm)
+    if frm then frm:SetFrameStrata("MEDIUM") end
+end
+
+function MinimapEngine:RaiseIconsAboveLivePatch(strata)
+    RaiseAboveLivePatch(self.PlyrFrm, strata)
+    for i = 1, #self.GatherFrms do
+        local frm = self.GatherFrms[i]
+        RaiseAboveLivePatch(frm, strata)
+        RaiseAboveLivePatch(frm.backdrop, strata)
+    end
+    for i = 1, #self.SvcFrms do
+        RaiseAboveLivePatch(self.SvcFrms[i], strata)
+    end
+    for i = 1, #self.QuestFrms do
+        RaiseAboveLivePatch(self.QuestFrms[i], strata)
+    end
+end
+
+function MinimapEngine:RestoreIconsFromLivePatch()
+    RestoreLivePatchIcon(self.PlyrFrm)
+    for i = 1, #self.GatherFrms do
+        local frm = self.GatherFrms[i]
+        RestoreLivePatchIcon(frm)
+        RestoreLivePatchIcon(frm.backdrop)
+    end
+    for i = 1, #self.SvcFrms do
+        RestoreLivePatchIcon(self.SvcFrms[i])
+    end
+    for i = 1, #self.QuestFrms do
+        RestoreLivePatchIcon(self.QuestFrms[i])
+    end
+end
+
 function MinimapEngine:UpdateLiveBlips()
     local mm = self.MMFrm
     if not mm then return end
@@ -968,9 +1191,13 @@ function MinimapEngine:UpdateLiveBlips()
                 AlchemyGPS.Core.Logger:warn("zoom-kick failed: %s", tostring(err))
             end
         end
+        self:UpdateLiveBlipRadar(true)
+        self:RaiseIconsAboveLivePatch(MINIMAP_STRATA_ABOVE[mm:GetFrameStrata()] or mm:GetFrameStrata())
     else
         self.MMZoomType = 0
         mm:Hide()
+        self:UpdateLiveBlipRadar(false)
+        self:RestoreIconsFromLivePatch()
     end
 end
 
