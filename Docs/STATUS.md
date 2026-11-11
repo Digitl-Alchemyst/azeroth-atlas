@@ -85,11 +85,25 @@ permanent scope, not as scope creep to be walked back.
   **Confirmed working live, 2026-11-10** (this session's final fix).
 - **Right-click tile-brightness menu** (`Map/MapContextMenu.lua`, new
   file, not in the original plan). A small popup on the map window
-  with a 0-100% brightness slider for the static world-art tile
-  background, dismissed by clicking anywhere outside it (a polling
-  approach, not an overlapping catcher frame, after the catcher
-  tripped a Blizzard taint warning) or by right-clicking the map
-  again.
+  with four sliders now (2026-11-10): tile-map brightness (0-100%),
+  and three more added the same day for the gathering-node icons -
+  opacity, size (50%-300%), and a separate backdrop-halo opacity (the
+  halo's corner rounding matches the real map window's own chrome,
+  `AlchemyGPS.Skin:GetBackdrop()`). Dismissed by clicking anywhere
+  outside it (a polling approach, not an overlapping catcher frame,
+  after the catcher tripped a Blizzard taint warning) or by
+  right-clicking the map again.
+- **Map filter button + menu** (`Map/FilterMenu.lua`, new file,
+  2026-11-10, not in the original plan). A "Filter" title-bar button
+  opens a small checklist popup - same plain-frame pattern as the
+  brightness menu above, explicitly not Blizzard's own dropdown
+  system (user's own direction) - with one checkbox per icon category:
+  Gathering Nodes (Herb/Mine/Fish combined), Treasure (separate,
+  not profession-gated), Flight Masters, Innkeepers, Mailboxes.
+  Persisted per-key (`AlchemyGPS.db.profile.MapFilters`), missing key
+  means visible. Toggling calls straight into `MinimapEngine.lua`'s own
+  `RefreshGatherIcons`/`RefreshServiceIcons` for instant effect, not
+  just at the next zone change.
 
 ## Fixes layered on top of the original Phase 5-8 implementation
 
@@ -312,8 +326,9 @@ UI/       Window.lua (real ported Nx.Window chrome), SmallWindow.lua,
           Button.lua, Fonts.lua, Skin.lua, Widget.lua,
           Mixins/Draggable.lua, Mixins/Resizable.lua
 Map/      MinimapEngine.lua, MinimapWindow.lua,
-          MinimapDock.lua, MapContextMenu.lua, ZoomController.lua,
-          ScrollScale.lua, NativeMinimapHide.lua, Data/NxMapData.lua,
+          MinimapDock.lua, MapContextMenu.lua, FilterMenu.lua,
+          ZoomController.lua, ScrollScale.lua, NativeMinimapHide.lua,
+          Data/NxMapData.lua,
           Data/GuideMailbox.lua, Data/GuideInnkeeper.lua,
           Data/Gather{Herb,Mining,Fish,Treasure}.lua (static node
           position data), Data/GatherNodeInfo.lua (per-species name/

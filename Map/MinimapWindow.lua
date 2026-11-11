@@ -233,6 +233,30 @@ function MinimapWindow:Open()
     followCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
     self.FollowCB = followCB
 
+    -- Filter button, title-bar row directly left of the auto-follow
+    -- checkbox (build-order step 9k, 2026-11-10, explicit user
+    -- request). Opens FilterMenu.lua's own checklist popup - see that
+    -- file's header for why it's not built from Blizzard's dropdown
+    -- system. Styled like the zoom buttons just below (flat dark
+    -- background + text label, not an icon) rather than a bare icon
+    -- button like settingsBut - this project has had more than one
+    -- wrong-guessed icon-texture-path bug this session, and a text
+    -- label carries zero texture-path risk at all.
+    local filterBut = CreateFrame("Button", nil, win.Frm)
+    filterBut:SetSize(40, 14)
+    filterBut:SetPoint("RIGHT", followCB, "LEFT", -6, 0)
+    local filterBg = filterBut:CreateTexture(nil, "BACKGROUND")
+    filterBg:SetAllPoints()
+    filterBg:SetColorTexture(0, 0, 0, 0.5)
+    local filterText = filterBut:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    filterText:SetPoint("CENTER")
+    filterText:SetText("Filter")
+    filterBut:SetScript("OnClick", function()
+        local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+        if FilterMenu then FilterMenu:Toggle(filterBut) end
+    end)
+    self.FilterBut = filterBut
+
     -- Zoom buttons, build-order step 5. Carbonite's own +/- zoom
     -- buttons are Blizzard's native MinimapZoomIn/MinimapZoomOut,
     -- which only make sense for a docked (small, native-replacing)
@@ -299,6 +323,7 @@ function MinimapWindow:Open()
     zoomOut:SetFrameLevel(content:GetFrameLevel() + 1)
     settingsBut:SetFrameLevel(content:GetFrameLevel() + 1)
     followCB:SetFrameLevel(content:GetFrameLevel() + 1)
+    filterBut:SetFrameLevel(content:GetFrameLevel() + 1)
 
     MinimapEngine:TakeOwnership(win, content)
 

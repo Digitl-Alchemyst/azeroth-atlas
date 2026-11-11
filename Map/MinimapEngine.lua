@@ -13,21 +13,30 @@
 -- MinimapDetachFrms - ~500 lines, ported from Carbonite/Modules/Map/
 -- MapEngine.lua) and blended it into the window as a small low-alpha
 -- "Live" accent on top of the tile canvas ("Mode: Tiles" toggled this
--- off). Removed entirely, on explicit direction, after this turned
--- out to be the real root cause of a recurring "GatherMate2 has been
--- blocked from an action only available to the Blizzard UI" taint
--- popup: GatherMate2 (and presumably other addons) parent their own
--- minimap pins directly to the real Minimap widget, and
--- ApplyTakeOwnership's `mm:SetParent(UIParent)` - explicitly noted in
--- its own prior comment as "touches protected frame state" - rips that
--- widget out of MinimapCluster and into this addon's own window,
--- automatically, on login if the map window was left open, before any
--- hardware event that session. GatherMate2's own pin code then
--- inherited taint from that reparent the next time it touched its
--- pins. The real Blizzard minimap now stays fully under Blizzard's own
--- control always - shown or hidden per the user's own "Hide Blizzard
--- minimap" preference, persisted directly with no override tied to
--- this window's own open/close state (see MinimapWindow.lua).
+-- off). Removed on explicit direction, on strong (but, confirmed by a
+-- later live re-test, ultimately NOT correct) evidence that this was
+-- the root cause of a recurring "GatherMate2 has been blocked from an
+-- action only available to the Blizzard UI" taint popup: the theory
+-- was that ApplyTakeOwnership's `mm:SetParent(UIParent)` - explicitly
+-- noted in its own prior comment as "touches protected frame state" -
+-- ripped the real Minimap widget out of MinimapCluster automatically
+-- on login, tainting GatherMate2's own pin code (parented to that same
+-- widget) the next time it ran. Removing this mechanism did NOT fix
+-- the popup (confirmed live, same day) - round 9's later systematic
+-- isolation (CHANGELOG.md) ruled out every mechanism in this addon
+-- individually without ever finding the real cause, and the popup
+-- still occurs today (now blaming AlchemyGPS itself instead of
+-- GatherMate2, once GatherMate2 was disabled - see CHANGELOG.md). What
+-- this removal DID actually, confirmably fix: the "Hide Blizzard
+-- minimap" checkbox not persisting its state across reload (Open()/
+-- Close() were force-overriding the saved preference). The real
+-- Blizzard minimap now stays fully under Blizzard's own control
+-- always - shown or hidden per that saved preference, persisted
+-- directly with no override tied to this window's own open/close state
+-- (see MinimapWindow.lua). Kept removed regardless of the taint
+-- popup's real cause being unresolved - it's dead weight either way
+-- now that the gathering-node field no longer needs GatherMate2's own
+-- live database (see this file's gathering-node section further down).
 --
 -- TakeOwnership is kept as a name (one-time per-window setup: tile/
 -- marker/icon frame pools, mouse wheel/drag wiring) even though it no
@@ -953,6 +962,18 @@ end
 -- the player marker, not scaled tiles, so no new clip math is needed.
 ---------------------------------------------------------------------------------------
 
+-- Build-order step 9k, 2026-11-10: the Filter button/menu
+-- (FilterMenu.lua) - shared by this section and the gathering-node
+-- section further down, so it's declared here, before both. Missing
+-- key = on, same "absent means default" convention as MinimapWindow.
+-- lua's own AutoFollow checkbox, so a brand new filter key never
+-- needs a migration to default everyone's existing saved profile to
+-- visible.
+local function IsMapFilterOn(key)
+    local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
+    return not filters or filters[key] ~= false
+end
+
 local SERVICE_ICON_SIZE = 16
 
 -- Standard Blizzard minimap-tracking-filter textures (not Carbonite's
@@ -1043,14 +1064,19 @@ function MinimapEngine:RefreshServiceIcons()
     if not self.MapId then return end
 
     for kind, tex in pairs(SERVICE_ICON_TEX) do
-        local data = self.GuideData and self.GuideData[kind]
-        local entry = data and data[self.MapId]
-        if entry then
-            for fac, x, y in entry:gmatch("(%d+),([%d%.]+),([%d%.]+)") do
-                if ServiceIconFactionOk(tonumber(fac)) then
-                    local wx, wy = self:GetWorldPos(self.MapId, tonumber(x), tonumber(y))
-                    if wx then
-                        pts[#pts + 1] = { x = wx, y = wy, tex = tex }
+        -- FilterMenu.lua's "Innkeepers"/"Mailboxes" rows - kind here
+        -- is literally "Mailbox"/"Innkeeper", the same keys those rows
+        -- use, so no translation table needed.
+        if IsMapFilterOn(kind) then
+            local data = self.GuideData and self.GuideData[kind]
+            local entry = data and data[self.MapId]
+            if entry then
+                for fac, x, y in entry:gmatch("(%d+),([%d%.]+),([%d%.]+)") do
+                    if ServiceIconFactionOk(tonumber(fac)) then
+                        local wx, wy = self:GetWorldPos(self.MapId, tonumber(x), tonumber(y))
+                        if wx then
+                            pts[#pts + 1] = { x = wx, y = wy, tex = tex }
+                        end
                     end
                 end
             end
@@ -1077,7 +1103,8 @@ function MinimapEngine:RefreshServiceIcons()
     -- ServiceIconFactionOk above - node.faction is the same 1=Horde-
     -- only/2=Alliance-only convention (confirmed against that same
     -- addon's own OurSide()), not a separate scheme.
-    if C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
+    -- FilterMenu.lua's "Flight Masters" row.
+    if IsMapFilterOn("FlightMaster") and C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
         local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, self.MapId)
         if ok and type(nodes) == "table" then
             for _, node in ipairs(nodes) do
@@ -1522,12 +1549,20 @@ function MinimapEngine:RefreshGatherIcons()
     self.GatherPts = pts
     if not mapId then return end
 
-    local known = GetKnownGatherProfessions()
     local dbTypes = {}
-    if known.Herb then dbTypes[#dbTypes + 1] = "Herb" end
-    if known.Mine then dbTypes[#dbTypes + 1] = "Mine" end
-    if known.Fish then dbTypes[#dbTypes + 1] = "Fish" end
-    dbTypes[#dbTypes + 1] = "Treasure"
+    -- FilterMenu.lua's "Gathering Nodes" row covers all three
+    -- profession-gated categories at once (user's own request to
+    -- combine them); "Treasure" is its own separate row since it
+    -- isn't profession-gated at all.
+    if IsMapFilterOn("Gathering") then
+        local known = GetKnownGatherProfessions()
+        if known.Herb then dbTypes[#dbTypes + 1] = "Herb" end
+        if known.Mine then dbTypes[#dbTypes + 1] = "Mine" end
+        if known.Fish then dbTypes[#dbTypes + 1] = "Fish" end
+    end
+    if IsMapFilterOn("Treasure") then
+        dbTypes[#dbTypes + 1] = "Treasure"
+    end
 
     for _, dbType in ipairs(dbTypes) do
         pcall(CollectGatherZoneNodes, self, mapId, dbType, pts)

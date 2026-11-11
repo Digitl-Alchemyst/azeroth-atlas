@@ -1,0 +1,159 @@
+-- Alchemy GPS | Map / FilterMenu
+-- Build-order step 9k (2026-11-10): a "Filter" button on the map
+-- window's title bar that opens a checklist menu - explicit user
+-- request, modeled on "the normal Blizzard one" (a button that opens
+-- a dropdown-style list of checkable icon categories) but NOT built
+-- from Blizzard's own dropdown system (UIDropDownMenu etc.) at all -
+-- same reasoning MapContextMenu.lua already gave for not porting
+-- Carbonite's own Nx.Menu: a large, deeply-coupled system for what
+-- this addon actually needs (a handful of checkbox rows). Built on the
+-- exact same plain-Blizzard-frame-primitives pattern MapContextMenu.lua
+-- already established (a bordered popup frame, OnUpdate-based outside-
+-- click dismiss, one row per item) - just checkboxes instead of
+-- sliders, and anchored to the button that opened it instead of the
+-- cursor position (this is a toolbar dropdown, not a right-click menu).
+--
+-- First five filters, exactly as requested: the gathering-node field's
+-- profession-gated categories (herb/mining/fish) as ONE combined
+-- toggle ("Gathering Nodes"), Treasure as its OWN separate toggle (not
+-- profession-gated, explicit user ask to split it out), then the three
+-- static service-icon categories (Flight Masters/Innkeepers/
+-- Mailboxes) each as their own toggle. Quest-giver icons are NOT in
+-- this list - not asked for, future scope if wanted later.
+--
+-- Persisted as AlchemyGPS.db.profile.MapFilters[key] (true/false/nil -
+-- nil/missing means "on", same "absent means default" convention
+-- MinimapWindow.lua's AutoFollow checkbox already uses, so a brand
+-- new filter key added later doesn't need a migration to default
+-- everyone's existing saved profile to visible). Toggling a row calls
+-- straight into MinimapEngine's own Refresh*/Update* pairs immediately
+-- (gathering/treasure share RefreshGatherIcons; the three service
+-- kinds share RefreshServiceIcons) rather than waiting for the next
+-- zone change or tick, so the checkbox has instant visual effect.
+
+local AlchemyGPS = _G.AlchemyGPS
+AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+
+local FilterMenu = {}
+AlchemyGPS.Modules.Map.FilterMenu = FilterMenu
+
+-- Order matches the user's own request order.
+local FILTERS = {
+    { key = "Gathering",    label = "Gathering Nodes" },
+    { key = "Treasure",     label = "Treasure" },
+    { key = "FlightMaster", label = "Flight Masters" },
+    { key = "Innkeeper",    label = "Innkeepers" },
+    { key = "Mailbox",      label = "Mailboxes" },
+}
+
+local ROW_HEIGHT = 22
+local MENU_WIDTH = 170
+
+local menu
+
+local function IsFilterOn(key)
+    local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
+    return not filters or filters[key] ~= false
+end
+
+local function SetFilterOn(key, on)
+    if not (AlchemyGPS.db and AlchemyGPS.db.profile) then return end
+    AlchemyGPS.db.profile.MapFilters = AlchemyGPS.db.profile.MapFilters or {}
+    AlchemyGPS.db.profile.MapFilters[key] = on
+
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if not MinimapEngine then return end
+    if key == "Gathering" or key == "Treasure" then
+        MinimapEngine:RefreshGatherIcons()
+        MinimapEngine:UpdateGatherIcons()
+    else
+        MinimapEngine:RefreshServiceIcons()
+        MinimapEngine:UpdateServiceIcons()
+    end
+end
+
+local function create()
+    if menu then return menu end
+
+    local height = 16 + #FILTERS * ROW_HEIGHT
+    menu = CreateFrame("Frame", "AlchemyGPSFilterMenu", UIParent, "BackdropTemplate")
+    menu:SetSize(MENU_WIDTH, height)
+    menu:SetFrameStrata("TOOLTIP")
+    menu:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    menu:SetBackdropColor(0, 0, 0, 0.9)
+    menu:Hide()
+
+    menu.rows = {}
+    for i, f in ipairs(FILTERS) do
+        local y = -10 - (i - 1) * ROW_HEIGHT
+
+        -- Same stock Blizzard checkbox textures MinimapWindow.lua's
+        -- own AutoFollow checkbox already uses - an established
+        -- convention in this project, not a new asset.
+        local cb = CreateFrame("CheckButton", nil, menu)
+        cb:SetSize(14, 14)
+        cb:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, y)
+        cb:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+        cb:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+        cb:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+        cb:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+
+        local label = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetPoint("LEFT", cb, "RIGHT", 6, 0)
+        label:SetText(f.label)
+
+        local key = f.key
+        cb:SetScript("OnClick", function(btn)
+            SetFilterOn(key, btn:GetChecked() and true or false)
+        end)
+
+        menu.rows[key] = cb
+    end
+
+    -- Same outside-click dismiss pattern as MapContextMenu.lua (no
+    -- intercepting frame - see that file's own header comment for why
+    -- a full-screen clickable overlay tripped a taint warning there).
+    menu:SetScript("OnUpdate", function(self)
+        if not self:IsShown() then return end
+        if (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
+            and not self:IsMouseOver() then
+            FilterMenu:Close()
+        end
+    end)
+
+    return menu
+end
+
+function FilterMenu:Open(anchorFrame)
+    local m = create()
+
+    for _, f in ipairs(FILTERS) do
+        m.rows[f.key]:SetChecked(IsFilterOn(f.key))
+    end
+
+    m:ClearAllPoints()
+    m:SetPoint("TOPRIGHT", anchorFrame, "BOTTOMRIGHT", 0, -4)
+    m:Show()
+end
+
+function FilterMenu:Close()
+    if not menu then return end
+    menu:Hide()
+end
+
+function FilterMenu:IsShown()
+    return menu ~= nil and menu:IsShown()
+end
+
+function FilterMenu:Toggle(anchorFrame)
+    if self:IsShown() then
+        self:Close()
+    else
+        self:Open(anchorFrame)
+    end
+end

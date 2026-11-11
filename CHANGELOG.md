@@ -579,6 +579,46 @@ readable.
   AlchemyNavigation's bottom-left placement too - the ask was the
   visual style, not the layout.
   - Deployed and verified byte-identical. Not yet live-tested.
+- **Build-order step 9k, 2026-11-10: map filter button + menu.** User's
+  request: a "Filter" button on the map window, opening a dropdown-
+  style checklist "like the normal Blizzard one does only this is just
+  for us, no borrowing from the Blizzard one" - first five items:
+  gathering nodes (the profession ones, combined), a separate option
+  for treasure, then flight masters/innkeepers/mailboxes.
+  - New `Map/FilterMenu.lua`: a small bordered popup (same plain-
+    Blizzard-frame-primitives pattern `MapContextMenu.lua` already
+    established - explicitly not Blizzard's own `UIDropDownMenu`
+    system, per the user's own direction) with one checkbox row per
+    filter, using the same stock `UI-CheckBox-*` textures
+    `MinimapWindow.lua`'s AutoFollow checkbox already uses. Opens
+    anchored below a new title-bar "Filter" button (styled like the
+    zoom buttons - flat dark background + text label, no icon texture
+    to risk guessing wrong) instead of at the cursor, since this is a
+    toolbar dropdown, not a right-click menu.
+  - Persisted as `AlchemyGPS.db.profile.MapFilters[key]` - missing key
+    means "on," same convention `AutoFollow` already uses, so adding a
+    new filter later never needs a migration to default existing
+    profiles to visible.
+  - `MinimapEngine.lua`: `RefreshGatherIcons` now gates its `dbTypes`
+    list on two filter keys - "Gathering" covers Herb/Mine/Fish
+    together (the profession-gated ones, combined per the user's own
+    request), "Treasure" is separate (not profession-gated at all).
+    `RefreshServiceIcons` gates the Mailbox/Innkeeper loop per-kind
+    (those keys already match the filter keys exactly) and the
+    flight-master `C_TaxiMap` branch on its own "FlightMaster" key.
+    Toggling a row calls straight into the relevant Refresh*/Update*
+    pair immediately rather than waiting for the next zone change or
+    tick, so the checkbox has instant visual effect. Quest-giver icons
+    are NOT in this filter list - not asked for, future scope.
+  - **Also corrected, same pass**: this file's own header comment
+    claimed the "Mode: Live" removal (above) "turned out to be the
+    real root cause" of the taint popup - stale, written before round
+    9's later live re-test disproved it (see that section's own entry
+    above). Corrected to describe what was actually confirmed (fixed
+    checkbox persistence) versus what never panned out (the taint
+    popup itself, still unresolved, now blaming AlchemyGPS directly
+    with GatherMate2 disabled).
+  - Deployed and verified byte-identical. Not yet live-tested.
 
 ## Unreleased — 2026-11-10
 

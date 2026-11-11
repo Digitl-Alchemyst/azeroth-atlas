@@ -44,4 +44,5 @@
     <Script file="MinimapEngine.lua" />
     <Script file="MinimapDock.lua" />
     <Script file="MapContextMenu.lua" />
+    <Script file="FilterMenu.lua" />
 </Ui>
