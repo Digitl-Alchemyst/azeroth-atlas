@@ -2061,7 +2061,10 @@ end
 local function ensureDebugOverlay()
     if debugFrm then return end
     debugFrm = CreateFrame("Frame", "AlchemyGPSMapDebug", UIParent, "BackdropTemplate")
-    debugFrm:SetSize(520, 260)
+    -- Widened/tallened (build-order step 9m, 2026-11-10) to fit the
+    -- grouped/headered layout below without word-wrap collapsing it
+    -- back into a jumble - see UpdateDebugOverlay's own header comment.
+    debugFrm:SetSize(460, 320)
 
     local saved = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.DebugOverlay
     if saved and saved.point and saved.x and saved.y then
@@ -2101,6 +2104,28 @@ local function ensureDebugOverlay()
     debugText:SetWordWrap(true)
 end
 
+-- Formats a possibly-nil/non-number field safely - several of these
+-- (Cont/Zone especially) are nil by DESIGN for instances (see Phase8's
+-- own test doc), not a bug, so this must print "nil" cleanly rather
+-- than erroring %.2f on a nil argument.
+local function fmtNum(v, fmt)
+    if type(v) ~= "number" then return tostring(v) end
+    return (fmt or "%.2f"):format(v)
+end
+
+local DEBUG_HEADER_COLOR = "|cffffd100%s|r"
+
+-- Build-order step 9m (2026-11-10): regrouped from one flat dump into
+-- labeled sections, one per `Docs/Testing/Phase5-8*.md` doc (Pan/Zoom
+-- covers Phase 5+6+7, since all three tests read the same underlying
+-- animation state - see those docs' own "Setup" sections for exactly
+-- which fields each test watches). Explicit user request, after the
+-- flat version was reported "jumbled" - every value already existed,
+-- this is a formatting/grouping pass, not new instrumentation (the one
+-- exception: `Animating`, a derived field added because Phase5 Test 3
+-- and Phase6 Test 2 both boil down to "is Scale still catching up to
+-- ScaleDraw" and forcing the tester to compare two raw floats by eye
+-- was exactly the kind of jumble this pass is fixing).
 function MinimapEngine:UpdateDebugOverlay()
     -- Tied to the same Debug mode flag the Settings window's checkbox
     -- and the `/gps debug` slash command both already drive
@@ -2118,22 +2143,33 @@ function MinimapEngine:UpdateDebugOverlay()
     ensureDebugOverlay()
     debugFrm:Show()
 
-    -- MMFrm-specific diagnostics (live-widget parent/mask/zoom state)
-    -- dropped along with the whole live-widget-ownership mechanism this
-    -- addon used to carry - see MinimapWindow.lua's SetMode removal,
-    -- same day. Everything below is tile-mode-only state.
+    local animating = math.abs((self.ScaleDraw or 0) - (self.Scale or 0)) > 0.001
+        or (self.MapPosXDraw or 0) ~= (self.MapPosX or 0)
+        or (self.MapPosYDraw or 0) ~= (self.MapPosY or 0)
+
     local lines = {}
-    tinsert(lines, ("MapW=%s MapH=%s"):format(tostring(self.MapW), tostring(self.MapH)))
-    tinsert(lines, ("Scale=%s ScaleDraw=%s StepTime=%s"):format(
-        tostring(self.Scale), tostring(self.ScaleDraw), tostring(self.StepTime)))
-    tinsert(lines, ("MapPosX=%s MapPosY=%s MapPosXDraw=%s MapPosYDraw=%s"):format(
-        tostring(self.MapPosX), tostring(self.MapPosY), tostring(self.MapPosXDraw), tostring(self.MapPosYDraw)))
-    tinsert(lines, ("Scrolling=%s Ttl=%s"):format(tostring(self.Scrolling), tostring(self.Ttl)))
-    tinsert(lines, ("MapId=%s Cont=%s Zone=%s CurWorldUpdateMapId=%s tiles=%s"):format(
-        tostring(self.MapId), tostring(self.Cont), tostring(self.Zone),
+
+    tinsert(lines, DEBUG_HEADER_COLOR:format("Pan / Zoom  (Phase 5, 6, 7)"))
+    tinsert(lines, ("Scale: %s   ScaleDraw: %s   Animating: %s"):format(
+        fmtNum(self.Scale), fmtNum(self.ScaleDraw), tostring(animating)))
+    tinsert(lines, ("StepTime: %s"):format(fmtNum(self.StepTime, "%.3f")))
+    tinsert(lines, ("MapPosX: %s   MapPosY: %s"):format(fmtNum(self.MapPosX, "%.1f"), fmtNum(self.MapPosY, "%.1f")))
+    tinsert(lines, ("MapPosXDraw: %s   MapPosYDraw: %s"):format(
+        fmtNum(self.MapPosXDraw, "%.1f"), fmtNum(self.MapPosYDraw, "%.1f")))
+    tinsert(lines, ("Scrolling: %s   Ttl: %s"):format(tostring(self.Scrolling), fmtNum(self.Ttl, "%.2f")))
+
+    tinsert(lines, "")
+    tinsert(lines, DEBUG_HEADER_COLOR:format("Window Size  (Phase 7)"))
+    tinsert(lines, ("MapW: %s   MapH: %s"):format(tostring(self.MapW), tostring(self.MapH)))
+
+    tinsert(lines, "")
+    tinsert(lines, DEBUG_HEADER_COLOR:format("World / Position  (Phase 8)"))
+    tinsert(lines, ("MapId: %s   Cont: %s   Zone: %s"):format(
+        tostring(self.MapId), tostring(self.Cont), tostring(self.Zone)))
+    tinsert(lines, ("CurWorldUpdateMapId: %s   Tiles: %s"):format(
         tostring(self.CurWorldUpdateMapId), tostring(self.CurWorldTileCount)))
-    tinsert(lines, ("PlyrX=%s PlyrY=%s PlyrDir=%s"):format(
-        tostring(self.PlyrX), tostring(self.PlyrY), tostring(self.PlyrDir)))
+    tinsert(lines, ("PlyrX: %s   PlyrY: %s   PlyrDir: %s"):format(
+        fmtNum(self.PlyrX, "%.1f"), fmtNum(self.PlyrY, "%.1f"), fmtNum(self.PlyrDir, "%.2f")))
 
     debugText:SetText(table.concat(lines, "\n"))
 end

@@ -1,46 +1,58 @@
 # Alchemy GPS — Roadmap
 
-Companion to `STATUS.md` (current state) and `../CHANGELOG.md` (dated
-history). This is the ordered plan from here to "the minimap module is
-done" — read `STATUS.md` first if picking this up cold.
+Companion to `../CHANGELOG.md` (dated history - the permanent record
+of what's confirmed/fixed/why). This is the ordered plan from here to
+"the minimap module is done" — read `CHANGELOG.md`'s most recent
+entries first if picking this up cold.
+
+**2026-11-11 note**: `Docs/STATUS.md` (a living audit/snapshot doc)
+was deleted once its content was fully superseded by `CHANGELOG.md`'s
+dated entries and the per-phase testing docs - there is no separate
+"current state" doc anymore, by design. Every reference below that
+used to point at `STATUS.md` now points at the specific `CHANGELOG.md`
+entry that covers the same fact instead.
 
 **2026-11-10 amendment**: "Mode: Live"/the live Blizzard-widget blend
 (build-order step 4, `ClipMMW` etc.) was removed entirely this same
-day — see `STATUS.md`'s TL;DR amendment. `Docs/Testing/Phase4-*.md`
-(if it exists) and anything in Phase5-7's docs that specifically tests
-the live-widget patch (zoomType tiers, widget show/hide at fit
-boundaries) now tests a mechanism that no longer exists — read each
-doc against today's code before running it, same as Step A item 3
-below already flags for the preset-search rewrite.
+day — see `CHANGELOG.md`'s GatherMate2-taint-popup entries (rounds
+5-9) for the removal's own history. `Docs/Testing/Phase4-*.md` (if it
+exists) and anything in Phase5-7's docs that specifically tests the
+live-widget patch (zoomType tiers, widget show/hide at fit boundaries)
+now tests a mechanism that no longer exists — read each doc against
+today's code before running it, same as Step A item 3 below already
+flags for the preset-search rewrite.
 
-## Step A — Close out Phase 5-8 testing formally
+## Step A — Close out Phase 8 testing formally
 
-Nothing here is expected to fail based on live use so far, but it's
-never been walked as a checklist, and three real fixes landed *after*
-the original test docs were written (black-overlay removal, square
-mask, fill-the-window zoom math + city fit margin — see `STATUS.md`'s
-"Fixes layered on top" section). Re-running now both closes the
-original gap and validates those fixes together.
+**Phases 5 (Zoom), 6 (Pan-drag), and 7 (Resize) confirmed passing live
+by the user, 2026-11-10** — see `CHANGELOG.md`'s step 9n entry (their
+own `Docs/Testing/Phase*.md` checklists were deleted once confirmed -
+no longer needed as open checklists). The old Phase 7 Test 2
+(zoomType tier transitions) no longer exists as a test at all — that
+preset system was removed along with the live-widget mechanism, and
+the doc itself was already updated to drop it rather than test a
+mechanism that's gone. Phase 8 is the only one left:
 
-1. Walk `Docs/Testing/Phase5-Zoom.md` top to bottom, record pass/fail
-   per test.
-2. Walk `Phase6-PanDrag.md`.
-3. Walk `Phase7-Resize.md` — pay particular attention to Test 2
-   (zoomType tier transitions), since the preset-search this test was
-   written against no longer exists; re-read the test against today's
-   fill-the-window math before running it, and note in the result if
-   the test's wording needs updating rather than the code.
-4. Walk `Phase8-WorldArtCanvas.md` — particular attention to Test 1
-   (background art appears) and Test 4 (position dot direction), the
-   two places the doc itself flags as the most likely to still be
-   wrong.
-5. Any failure found: fix it, redeploy, re-test that one item, *then*
+1. Walk `Docs/Testing/Phase8-WorldArtCanvas.md` top to bottom, record
+   pass/fail per test — particular attention to Test 1 (background art
+   appears) and Test 4 (position dot direction), the two places the
+   doc itself flags as most likely to still be wrong.
+2. Any failure found: fix it, redeploy, re-test that one item, *then*
    continue the walk rather than batching fixes — same one-change-at-
    a-time discipline the original plan was built around.
-6. Once all four pass clean: update the build-order table in
-   `STATUS.md` to mark 5-8 as fully confirmed (not just "built").
+3. Once it passes clean: record it in a new `CHANGELOG.md` entry,
+   matching step 9n's own pattern for Phase 5-7 (no build-order table
+   to update anymore - `CHANGELOG.md`'s dated entries are the
+   permanent record now).
 
 ## Step B — Retroactive test coverage for the beyond-scope features
+
+**Superseded, 2026-11-10**: these got ONE consolidated doc instead of
+one each — `Docs/Testing/Phase9-IconsAndUI.md` now covers icon dock,
+mail forwarding, the brightness/gathering-icon sliders, service/
+gathering/filter-menu icons, and more. The specific test ideas below
+are kept as reference detail in case that consolidated doc needs
+expanding, not as a still-open task list.
 
 Icon dock, mail-button forwarding, and the brightness menu are real
 shipped features with their own real bug histories (several rounds
@@ -67,8 +79,9 @@ what to report back), and run each once:
   this list - genuinely untested, not just undocumented) — zoom in
   past the threshold (~5 zoom-in clicks from default) in both Kalimdor
   and Eastern Kingdoms and confirm the detail tiles that appear match
-  where you actually are (see STATUS.md's "Known open issues" #6 for
-  why this specifically needs checking); confirm zoning between the
+  where you actually are (see `CHANGELOG.md`'s `### Map window` section
+  - the `MapWorldInfo[13]`/`[14]` anchor-index note - for why this
+  specifically needs checking); confirm zoning between the
   two continents swaps tile sets correctly; confirm zooming back out
   cleanly restores the zone-overview tiles with no leftover detail
   tiles; confirm panning while zoomed in scrolls new tiles in smoothly
@@ -101,15 +114,15 @@ what to report back), and run each once:
   title-bar checkbox lets a manual pan stay put instead of snapping
   back to center within ~30 ticks of releasing the drag; re-checking
   it resumes continuous follow immediately; the checked state persists
-  across `/reload`; going indoors (see item 4 under STATUS.md's "Known
-  open issues") freezes the view rather than disappearing, with or
-  without auto-follow on.
+  across `/reload`; going indoors (see `CHANGELOG.md`'s `### Map
+  window` section, the indoor-freeze-gate fix) freezes the view rather
+  than disappearing, with or without auto-follow on.
 
 ## Step C — Resolve the deferred error popup
 
-**Done, 2026-11-10** — reproduced and fixed. See `STATUS.md`'s "Known
-open issues" #1 and `CHANGELOG.md`'s brightness-menu section for the
-root cause (`MouseIsOver()` missing on this server's client build) and
+**Done, 2026-11-10** — reproduced and fixed. See `CHANGELOG.md`'s
+`### Right-click brightness menu` section for the root cause
+(`MouseIsOver()` missing on this server's client build) and
 fix (`:IsMouseOver()` instead).
 
 ## Step D — Phase 9: keybind + remaining polish
@@ -159,8 +172,8 @@ brightness menu or mail-button forwarding at all, since all three
 postdate it. Once Steps A-E are done, either:
 
 - add a short "amendments" section at the top of that plan file
-  pointing here and to `STATUS.md`, or
-- treat `STATUS.md`/`ROADMAP.md` as having fully superseded it for
+  pointing here and to `../CHANGELOG.md`, or
+- treat `ROADMAP.md`/`CHANGELOG.md` as having fully superseded it for
   anything past Phase 8, and leave the original file as historical
   record of the Phase 1-8 design decisions (which are all still
   accurate) without editing it further.

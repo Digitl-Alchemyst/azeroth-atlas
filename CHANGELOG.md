@@ -708,6 +708,92 @@ readable.
     specifically is the least certain of the four and may need a
     follow-up round once tested in-game.
 
+- **Build-order step 9m, 2026-11-10: debug overlay cleanup.** User
+  reported the on-map debug overlay (`MinimapEngine.lua`'s
+  `UpdateDebugOverlay`, shown via `/gps debug` or the Settings
+  checkbox) was "jumbled" and asked for it to show everything the four
+  `Docs/Testing/Phase5-8*.md` checklists (just rewritten the same
+  session - see that work above) actually watch for. Every field those
+  docs reference was already present - this was purely a presentation
+  problem, not missing data:
+  - Regrouped the overlay's single flat `Key=Value` dump into three
+    labeled sections matching the testing docs: "Pan / Zoom (Phase 5,
+    6, 7)" (`Scale`/`ScaleDraw`/`StepTime`/`MapPosX`/`MapPosY`/
+    `MapPosXDraw`/`MapPosYDraw`/`Scrolling`/`Ttl` - merged into one
+    section rather than three, since all three phases' tests read this
+    same underlying animation state), "Window Size (Phase 7)"
+    (`MapW`/`MapH`), and "World / Position (Phase 8)" (`MapId`/`Cont`/
+    `Zone`/`CurWorldUpdateMapId`/`CurWorldTileCount`/`PlyrX`/`PlyrY`/
+    `PlyrDir`). Headers colored gold (`|cffffd100`) for visual
+    separation from data rows.
+  - Numeric fields now format through a new `fmtNum(v, fmt)` helper
+    (`%.2f`/`%.1f`/`%.3f` depending on field, falling back to plain
+    `tostring` for non-numbers) instead of raw `tostring()` - the raw
+    version could print a float out to a dozen-plus decimal digits,
+    which was a real contributor to the "jumbled" look. `Cont`/`Zone`
+    stay as plain `tostring` (no rounding) since `nil` is a meaningful,
+    by-design value for instances (Phase 8's own test doc) and must
+    print as literal `nil`, not error through a `%.2f` format spec.
+  - Added one new derived field, `Animating` (`true` when `ScaleDraw`/
+    `MapPosXDraw`/`MapPosYDraw` haven't caught up to `Scale`/`MapPosX`/
+    `MapPosY` yet) - Phase5 Test 3 and Phase6 Test 2 both come down to
+    "is a zoom animation still in flight," which previously meant
+    eyeballing two raw floats for a difference; this is the one piece
+    of new instrumentation added, not just reformatting.
+  - Widened/tallened the overlay frame (520x260 -> 460x320) to fit the
+    headered layout without word-wrap collapsing it back into a
+    jumble.
+  - Deployed and verified byte-identical; not yet visually confirmed
+    in-game.
+
+- **Build-order step 9n, 2026-11-10: Phase 5-7 confirmed passing
+  live.** User walked `Docs/Testing/Phase5-Zoom.md`, `Phase6-PanDrag.md`,
+  and `Phase7-Resize.md` and reported "100% pass" on all of it - the
+  first formal pass/fail record either doc has had since the tile-canvas
+  rewrite (`ROADMAP.md`'s Step A). One clarification folded into Phase
+  6's own doc rather than left as a bare observation: reopening the map
+  mid-drag re-triggers the Auto-follow re-center animation - confirmed
+  this is the intended Auto-follow behavior (default on), not the
+  "stuck scroll state" bug that test was actually checking for, so it's
+  recorded as a pass with a note, not a caveat. Updated `STATUS.md`'s
+  build-order table (rows 5-7 now "Confirmed passing" instead of
+  "pass/fail not yet formally confirmed") and `ROADMAP.md`'s Step A
+  (now just "close out Phase 8," 5-7 already done). Phase 8
+  (`Phase8-WorldArtCanvas.md`) remains the only unconfirmed phase.
+  - **2026-11-11, follow-up**: user deleted all three checklist docs
+    (`Phase5-Zoom.md`/`Phase6-PanDrag.md`/`Phase7-Resize.md`) now that
+    they're confirmed passing - no longer needed as open checklists,
+    this entry is the permanent record instead. Every other doc's
+    pointers to those three files (`STATUS.md`, `ROADMAP.md`) were
+    redirected here rather than left dangling.
+
+- **Build-order step 9o, 2026-11-11: `Docs/STATUS.md` deleted
+  outright.** User's call, confirmed explicitly when asked (deleting a
+  central project doc warranted a check first, unlike the three
+  disposable checklists above). Its role as a "living audit/snapshot"
+  doc is now fully absorbed by this file's own dated entries plus the
+  per-phase `Docs/Testing/Phase*.md` docs - there's no separate
+  "current state" doc anymore, by design. Every reference to
+  `STATUS.md` elsewhere in the repo was found (`grep -rln` across
+  `*.md`/`*.lua`/`*.xml`/`*.toc`) and redirected to the specific
+  `CHANGELOG.md` section that covers the same fact, rather than left
+  pointing at a deleted file:
+  - `Docs/ROADMAP.md`: the companion-doc intro, the Mode:Live
+    amendment, Step A's two references (build-order table -> this
+    file's own dated entries, since there's no table to update
+    anymore), Step B's two references (`### Map window` section, for
+    both the detail-tile anchor note and the indoor-freeze-gate fix),
+    Step C (`### Right-click brightness menu` section), and Step F's
+    two references (now `ROADMAP.md`/`CHANGELOG.md` instead of
+    `STATUS.md`/`ROADMAP.md`).
+  - `Docs/Testing/Phase9-IconsAndUI.md`: one present-tense claim
+    ("a gap `STATUS.md` has flagged since") rewritten to not cite a
+    file that can no longer "flag" anything.
+  - This entry and the one above it (step 9n's own 2026-11-11
+    follow-up) are themselves exempt - `CHANGELOG.md` is explicitly a
+    dated history, so a past-tense "updated `STATUS.md`'s build-order
+    table" is accurate history, not a dangling live pointer.
+
 ## Unreleased — 2026-11-10
 
 ### Map window
