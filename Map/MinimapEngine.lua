@@ -103,6 +103,13 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.BackgndAlpha = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.BackgndBrightness) or 1
 
+    -- Same pattern as BackgndAlpha just above, for the gathering-node
+    -- icons' own opacity slider (MapContextMenu.lua, build-order step
+    -- 9g) - seeded here so a value chosen via the right-click menu
+    -- survives /reload without needing the menu reopened first.
+    self.GatherOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.GatherIconOpacity) or 1
+
     -- Build-order step 8: the zone-art tile frame pool. Created once
     -- (persists across close/reopen, same as the pan/zoom state below -
     -- recreating it would just leak the old 150 frames).
@@ -1324,8 +1331,11 @@ local GATHER_NEARBY_RANGE = 3
 local GATHER_NEARBY_RANGE_SQ = GATHER_NEARBY_RANGE * GATHER_NEARBY_RANGE
 local GATHER_DIM_ALPHA = 0.45
 
--- One guaranteed-present Blizzard icon per category (not per-species -
--- see this section's header comment).
+-- Fallback only now (build-order step 9f replaced the per-category
+-- generic icon with the real per-species one from GatherNodeInfo.lua
+-- below) - used when a node ID has no entry there at all, so an
+-- unrecognized/future node type degrades to "some icon" instead of
+-- rendering blank.
 local GATHER_ICON_TEX = {
     Herb     = "Interface\\Icons\\Trade_Herbalism",
     Mine     = "Interface\\Icons\\Trade_Mining",
@@ -1333,12 +1343,83 @@ local GATHER_ICON_TEX = {
     Treasure = "Interface\\Icons\\INV_Misc_Bag_10",
 }
 
+-- Build-order step 9f: per-species name/icon/required-skill-level
+-- data (Map/Data/GatherNodeInfo.lua) - see that file's own header for
+-- sourcing/scope. [dbType][nodeID] = { name=, level=(Herb/Mine only), tex= }.
+local GATHER_NODE_INFO = _G.AlchemyGPSGatherNodeInfo
+
+-- Standard WoW profession-difficulty coloring (orange = at/near the
+-- skill floor, best skill-up odds; yellow/green = easier as current
+-- skill climbs further past it; red = below the floor, can't harvest
+-- at all). Gold replaces WoW's usual gray for Fish/Treasure, which
+-- have no `level` at all (see GatherNodeInfo.lua's header) - explicit
+-- user direction, not a WoW convention.
+-- Returns r, g, b, cantHarvest (boolean, only true for red).
+local function GatherNodeColor(info, curSkill)
+    if not info or not info.level then
+        return 1, 0.82, 0, false
+    end
+    if not curSkill or curSkill < info.level then
+        return 1, 0.1, 0.1, true
+    end
+    local over = curSkill - info.level
+    if over <= 25 then
+        return 1, 0.5, 0.25, false
+    elseif over <= 75 then
+        return 1, 1, 0, false
+    else
+        return 0.1, 1, 0.1, false
+    end
+end
+
+-- Hover-time only (cheap, infrequent) rather than threaded through
+-- RefreshGatherIcons's point list, so a profession skill-up between
+-- zone changes still shows correctly without needing a re-scan.
+local function GetCurrentGatherSkill(dbType)
+    if dbType ~= "Herb" and dbType ~= "Mine" then return nil end
+    local wantName = (dbType == "Herb") and "Herbalism" or "Mining"
+    local p1, p2 = GetProfessions()
+    for _, idx in ipairs({ p1, p2 }) do
+        if idx then
+            local name, _, skillLevel = GetProfessionInfo(idx)
+            if name == wantName then return skillLevel end
+        end
+    end
+    return nil
+end
+
+local function GatherFrameOnEnter(frm)
+    local dbType, nodeID = frm.gatherDbType, frm.gatherNodeID
+    if not dbType then return end
+    local info = GATHER_NODE_INFO and GATHER_NODE_INFO[dbType] and GATHER_NODE_INFO[dbType][nodeID]
+    local name = (info and info.name) or dbType
+    local r, g, b, cantHarvest = GatherNodeColor(info, GetCurrentGatherSkill(dbType))
+
+    local label
+    if info and info.level then
+        if cantHarvest then
+            label = string.format("%s (%d - can't harvest)", name, info.level)
+        else
+            label = string.format("%s (%d)", name, info.level)
+        end
+    else
+        label = name
+    end
+
+    GameTooltip:SetOwner(frm, "ANCHOR_CURSOR")
+    GameTooltip:SetText(label, r, g, b)
+    GameTooltip:Show()
+end
+
+local function GatherFrameOnLeave()
+    GameTooltip:Hide()
+end
+
 -- This feature's own static data tables (Map/Data/Gather*.lua),
 -- keyed by this engine's own dbType short names. Each table is
 -- [uiMapID] = { [packedCoord] = nodeID }, GatherMate2's own encoding
--- (see this section's header) - nodeID itself is unused here (no per-
--- species icon lookup), kept only because that's the shape the data
--- ships in.
+-- (see this section's header) - nodeID now also feeds the per-species
+-- icon/name/level lookup above.
 local GATHER_DB = {
     Herb     = _G.AlchemyGPSHerbDB,
     Mine     = _G.AlchemyGPSMineDB,
@@ -1379,12 +1460,15 @@ local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
     local zoneNodes = db and db[mapId]
     if not zoneNodes then return end
 
-    local tex = GATHER_ICON_TEX[dbType]
-    for coord in pairs(zoneNodes) do
+    local infoByID = GATHER_NODE_INFO and GATHER_NODE_INFO[dbType]
+    local fallbackTex = GATHER_ICON_TEX[dbType]
+    for coord, nodeID in pairs(zoneNodes) do
         local gx, gy = DecodeGatherCoord(coord)
         local wx, wy = engine:GetWorldPos(mapId, gx * 100, gy * 100)
         if wx then
-            pts[#pts + 1] = { x = wx, y = wy, tex = tex }
+            local info = infoByID and infoByID[nodeID]
+            local tex = (info and info.tex) or fallbackTex
+            pts[#pts + 1] = { x = wx, y = wy, tex = tex, dbType = dbType, nodeID = nodeID }
         end
     end
 end
@@ -1428,7 +1512,11 @@ function MinimapEngine:UpdateGatherIcons()
 
     if #self.GatherFrms < #pts then
         for n = #self.GatherFrms + 1, #pts do
-            self.GatherFrms[n] = self:CreateMiniFrame()
+            local frm = self:CreateMiniFrame()
+            frm:EnableMouse(true)
+            frm:SetScript("OnEnter", GatherFrameOnEnter)
+            frm:SetScript("OnLeave", GatherFrameOnLeave)
+            self.GatherFrms[n] = frm
         end
     end
 
@@ -1440,11 +1528,12 @@ function MinimapEngine:UpdateGatherIcons()
             frm.texture:SetTexture(pt.tex)
             frm.svcTex = pt.tex
         end
+        frm.gatherDbType, frm.gatherNodeID = pt.dbType, pt.nodeID
         if self:ClipFrameW(frm, pt.x, pt.y, GATHER_ICON_SIZE, GATHER_ICON_SIZE) then
             frm:SetFrameLevel(level)
             local near = px and py
                 and ((pt.x - px) ^ 2 + (pt.y - py) ^ 2) <= GATHER_NEARBY_RANGE_SQ
-            frm.texture:SetAlpha(near and 1 or GATHER_DIM_ALPHA)
+            frm.texture:SetAlpha((near and 1 or GATHER_DIM_ALPHA) * (self.GatherOpacity or 1))
         end
     end
     for n = #pts + 1, #self.GatherFrms do

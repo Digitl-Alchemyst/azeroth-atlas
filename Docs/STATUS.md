@@ -276,8 +276,29 @@ original docs' pass/fail as still valid against today's code.
     scanning) both came back unusable on this server. Ships a proximity
     approximation instead (bright when near a known point, dimmed
     otherwise) - not a confirmed-active claim, unchanged from every
-    prior version. Deployed and verified byte-identical; **completely
-    untested in-game as of this writing.**
+    prior version. Deployed and verified byte-identical.
+    **Live-tested, same day**: gathering nodes render correctly with
+    GatherMate2 disabled - but the SAME "blocked from an action only
+    available to the Blizzard UI" popup now names **AlchemyGPS itself**
+    instead of GatherMate2, cosmetic-only (nodes still work), accepted
+    by the user as a known open issue rather than opening a round 10 -
+    see `CHANGELOG.md`'s step-9e entry for why this is actually a
+    useful new clue, not just a shrug.
+    **Build-order step 9f, same day, follow-up**: real per-species icons
+    (copper vein -> copper icon, silverleaf -> silverleaf icon, etc.,
+    not one generic icon per category) plus a hover tooltip (node name
+    + required skill level, colored green/yellow/orange/red/gold
+    relative to the player's own current Herbalism/Mining skill - gold
+    for Fish/Treasure, which have no skill-level concept at all). New
+    `Map/Data/GatherNodeInfo.lua` (name/icon/level per node ID, scoped
+    to exactly the species this server's own zone data uses - all
+    vanilla-era, confirmed by grep). Icon textures still point at
+    GatherMate2's own `Artwork\*.tga` files on disk (loads fine with
+    GatherMate2 disabled, not just enabled - WoW loads a texture by
+    path regardless of addon enable state; only breaks if GatherMate2
+    is fully uninstalled). Skill-level numbers are hand-entered classic
+    WoW data, not sourced from any addon (GatherMate2 doesn't track
+    this). Deployed and verified byte-identical; **not yet live-tested.**
 
 ## Current file tree (non-library files)
 
@@ -293,9 +314,10 @@ UI/       Window.lua (real ported Nx.Window chrome), SmallWindow.lua,
 Map/      MinimapEngine.lua, MinimapWindow.lua,
           MinimapDock.lua, MapContextMenu.lua, ZoomController.lua,
           ScrollScale.lua, NativeMinimapHide.lua, Data/NxMapData.lua,
-          Data/GuideMailbox.lua, Data/GuideInnkeeper.lua
-          (gathering-node data is read live from GatherMate2, see
-          STATUS item 10 - no local data file for it)
+          Data/GuideMailbox.lua, Data/GuideInnkeeper.lua,
+          Data/Gather{Herb,Mining,Fish,Treasure}.lua (static node
+          position data), Data/GatherNodeInfo.lua (per-species name/
+          icon/skill-level data - see STATUS item 10)
 Settings/ SettingsWindow.lua
 Gfx/      Skin/*.tga, Map/32Transparent.blp
 Docs/     STATUS.md (this file), ROADMAP.md, Testing/Phase5-8*.md

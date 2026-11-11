@@ -9,13 +9,20 @@
 -- small UI - structured as a list of rows so later items are just
 -- another row, not a rewrite.
 --
--- First (and currently only) row: a brightness slider for the static
--- world-art tile background (MinimapEngine:MoveZoneTiles's own
--- texture:SetVertexColor call - see that function's header comment
--- for why this is "brightness," allowed above 1, rather than plain
--- 0-1 alpha transparency). Persisted as
+-- Row 1: a brightness slider for the static world-art tile background
+-- (MinimapEngine:MoveZoneTiles's own texture:SetVertexColor call - see
+-- that function's header comment for why this is "brightness," allowed
+-- above 1, rather than plain 0-1 alpha transparency). Persisted as
 -- AlchemyGPS.db.profile.BackgndBrightness, applied live to
 -- MinimapEngine.BackgndAlpha on every slider move.
+--
+-- Row 2 (build-order step 9g, 2026-11-10): an opacity slider for the
+-- gathering-node icons (MinimapEngine:UpdateGatherIcons's own
+-- texture:SetAlpha call) - plain 0-1 transparency multiplied on top of
+-- the existing near/dimmed distinction, not a brightness overlay like
+-- row 1, so it stays capped at 100%. Persisted as
+-- AlchemyGPS.db.profile.GatherIconOpacity, applied live to
+-- MinimapEngine.GatherOpacity on every slider move.
 
 local AlchemyGPS = _G.AlchemyGPS
 AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
@@ -29,6 +36,9 @@ local DEFAULT_BRIGHTNESS = 1
 -- working range to be 0-100"), reverting the earlier 0-250% attempt.
 local MIN_BRIGHTNESS, MAX_BRIGHTNESS = 0, 1
 
+local DEFAULT_GATHER_OPACITY = 1
+local MIN_GATHER_OPACITY, MAX_GATHER_OPACITY = 0, 1
+
 local menu
 
 local function applyBrightness(value)
@@ -41,11 +51,21 @@ local function applyBrightness(value)
     end
 end
 
+local function applyGatherOpacity(value)
+    if AlchemyGPS.db and AlchemyGPS.db.profile then
+        AlchemyGPS.db.profile.GatherIconOpacity = value
+    end
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if MinimapEngine then
+        MinimapEngine.GatherOpacity = value
+    end
+end
+
 local function create()
     if menu then return menu end
 
     menu = CreateFrame("Frame", "AlchemyGPSMapContextMenu", UIParent, "BackdropTemplate")
-    menu:SetSize(220, 70)
+    menu:SetSize(220, 136)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -78,6 +98,24 @@ local function create()
         applyBrightness(value)
     end)
     menu.slider = slider
+
+    local gatherLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    gatherLabel:SetPoint("TOP", menu, "TOP", 0, -74)
+    gatherLabel:SetText("Gathering Icon Opacity")
+
+    local gatherSlider = CreateFrame("Slider", "AlchemyGPSGatherOpacitySlider", menu, "OptionsSliderTemplate")
+    gatherSlider:SetPoint("TOP", menu, "TOP", 0, -98)
+    gatherSlider:SetWidth(180)
+    gatherSlider:SetMinMaxValues(MIN_GATHER_OPACITY, MAX_GATHER_OPACITY)
+    gatherSlider:SetValueStep(0.05)
+    gatherSlider:SetObeyStepOnDrag(true)
+    _G[gatherSlider:GetName() .. "Low"]:SetText("0%")
+    _G[gatherSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_GATHER_OPACITY * 100))
+    _G[gatherSlider:GetName() .. "Text"]:SetText("")
+    gatherSlider:SetScript("OnValueChanged", function(_, value)
+        applyGatherOpacity(value)
+    end)
+    menu.gatherSlider = gatherSlider
 
     -- Dismiss on an outside click WITHOUT an intercepting frame: a
     -- full-screen clickable Button over UIParent sat above Blizzard's
@@ -115,6 +153,10 @@ function MapContextMenu:Open()
     local brightness = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.BackgndBrightness) or DEFAULT_BRIGHTNESS
     m.slider:SetValue(brightness)
+
+    local gatherOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.GatherIconOpacity) or DEFAULT_GATHER_OPACITY
+    m.gatherSlider:SetValue(gatherOpacity)
 
     local x, y = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()

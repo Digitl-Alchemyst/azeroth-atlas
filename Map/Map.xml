@@ -34,6 +34,9 @@
     <Script file="Data\GatherMining.lua" />
     <Script file="Data\GatherFish.lua" />
     <Script file="Data\GatherTreasure.lua" />
+    <!-- Build-order step 9f: per-species name/icon/skill-level data
+         for the same four categories, pure data, no dependencies. -->
+    <Script file="Data\GatherNodeInfo.lua" />
     <Script file="MinimapWindow.lua" />
     <Script file="NativeMinimapHide.lua" />
     <Script file="ScrollScale.lua" />

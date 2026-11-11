@@ -401,6 +401,96 @@ readable.
     don't assume the cause is understood just because this round's
     specific theories were disproven - re-derive from scratch or re-
     read this entry's full isolation-test history first.
+  - **New clue, live-tested after the revert above**: with GatherMate2
+    disabled (per the user's own plan) and the gathering-node field
+    fully reverted to static data with zero runtime calls into
+    GatherMate2 at all, the SAME "has been blocked from an action only
+    available to the Blizzard UI" popup now names **AlchemyGPS itself**
+    instead of GatherMate2 - still fires, gathering nodes still render
+    correctly despite it. This is a meaningful new data point for any
+    future investigation: the popup was never really "about"
+    GatherMate2 specifically - something in AlchemyGPS's own login-time
+    code trips a Blizzard protected-action check regardless of which
+    other addon happens to be next in the blamed chain when one is
+    present. User's call was to accept this as a known cosmetic issue
+    for now rather than open a round 10 investigation; worth revisiting
+    if it starts causing real (not just cosmetic) problems.
+- **Build-order step 9f, 2026-11-10: per-species gathering-node icons +
+  hover tooltip.** Follow-up to step 9e's static-data revert, same day.
+  User's request: real per-species icons (copper vein -> copper icon,
+  silverleaf -> silverleaf icon, etc. - not the one generic icon per
+  category step 9e shipped with), plus a hover tooltip showing the
+  node's name and required skill level, colored relative to the
+  player's own current profession skill (green/yellow/orange/red/gold).
+  - **New file `Map/Data/GatherNodeInfo.lua`**: `[dbType][nodeID] = {
+    name=, level=(Herb/Mine only), tex= }`, scoped to exactly the
+    species IDs present in this server's own zone data (confirmed by
+    grepping `Map/Data/Gather{Herb,Mining,Fish,Treasure}.lua` for their
+    distinct node IDs - turned out to be vanilla-era content only, Herb
+    401-431, Mine 201-219, which made hand-porting this tractable in
+    one pass). Names/icon paths ported from GatherMate2's own
+    `Constants.lua` (`node_textures` + `node_ids`, read as static
+    reference data - zero runtime call into GatherMate2's code).
+    Texture paths still point at GatherMate2's own `Artwork\*.tga`
+    files on disk rather than copies bundled into this addon - WoW
+    loads a texture by file path regardless of whether that addon's
+    Lua is enabled, confirmed by checking the files are present at the
+    deployed client path independent of GatherMate2's enabled state -
+    this only degrades (falls back to the old generic per-category
+    icon) if GatherMate2 is fully *uninstalled*, not just disabled.
+  - **Skill-level data** (the `level` field) is NOT sourced from any
+    addon - GatherMate2 doesn't track this at all (pure position
+    tracker). Hand-entered from well-documented classic WoW Herbalism/
+    Mining skill breakpoints. Three Mining entries with real quest/
+    reputation gating on top of a skill floor (Dark Iron Deposit,
+    Lesser Bloodstone Deposit, Incendicite Mineral Vein - Silithus war
+    effort / Blackrock Depths questline resources) use a best-effort
+    approximate floor, flagged in the data file's own comments, since
+    this is a cosmetic tooltip, not a hard gameplay gate.
+  - Fish/Treasure have no `level` field at all (classic fishing has no
+    hard skill gate - Fishing skill affects catch chance/quality, not
+    whether you can click the pool; Treasure is plain world loot, not
+    tied to any profession) - the tooltip code treats a missing level
+    as gold ("no level"), per explicit user direction, instead of
+    WoW's usual gray for this case.
+  - `MinimapEngine.lua`: `CollectGatherZoneNodes` now looks up each
+    point's real icon by `nodeID` (falling back to the old generic
+    per-category icon if a future/unrecognized ID has no entry) and
+    carries `dbType`/`nodeID` on the point; `UpdateGatherIcons` wires
+    `EnableMouse(true)` + `OnEnter`/`OnLeave` once per pooled frame
+    (frames are reused across different species as zones change, so
+    the per-frame `gatherDbType`/`gatherNodeID` fields are refreshed
+    every reposition pass, not just at creation) and a new
+    `GatherFrameOnEnter` builds the tooltip fresh on every hover
+    (re-reads current Herbalism/Mining skill live via
+    `GetProfessionInfo` rather than caching it from the last zone
+    refresh, so a skill-up mid-session shows correctly without needing
+    a `/reload`). New `GatherNodeColor` implements the standard WoW
+    profession-difficulty color convention (orange = at/near the skill
+    floor = best skill-up odds, climbing to yellow then green as
+    current skill clears it by more; red + "(can't harvest)" appended
+    to the level if current skill is below the floor).
+  - Deployed and verified byte-identical. Not yet live-tested.
+- **Build-order step 9g, 2026-11-10: gathering-icon opacity slider in
+  the map's right-click menu.** Follow-up to step 9f, same day. User's
+  request: a second slider in `MapContextMenu.lua` (alongside the
+  existing tile-map-brightness one) that controls the gathering-node
+  icons' overall opacity.
+  - `MapContextMenu.lua`: added a second label+slider row ("Gathering
+    Icon Opacity"), same `OptionsSliderTemplate`/0-100%/persisted
+    pattern as row 1's brightness slider - persists to
+    `AlchemyGPS.db.profile.GatherIconOpacity`, applied live to
+    `MinimapEngine.GatherOpacity`. Menu frame resized taller (70px ->
+    136px) to fit both rows.
+  - `MinimapEngine.lua`: `TakeOwnership` seeds `self.GatherOpacity`
+    from the saved profile value (mirrors the existing `BackgndAlpha`
+    seeding right above it), so a chosen value survives `/reload`
+    without needing the menu reopened first. `UpdateGatherIcons`
+    multiplies it into the existing near/dimmed alpha calculation
+    (`(near and 1 or GATHER_DIM_ALPHA) * (self.GatherOpacity or 1)`) -
+    a plain 0-1 transparency multiplier on top of the existing
+    proximity-based dim/bright logic, not a replacement for it.
+  - Deployed and verified byte-identical. Not yet live-tested.
 
 ## Unreleased — 2026-11-10
 
