@@ -131,6 +131,35 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     if not self.TileFrms then
         self:InitTileFrames()
     end
+    -- Build-order step 8b's detail-tile pool (see UpdateMiniFrames) -
+    -- same "create once, grow on demand, persist across close/reopen"
+    -- treatment as TileFrms above.
+    self.MiniFrms = self.MiniFrms or {}
+
+    -- Build-order step 9a (2026-11-10): the canvas-drawn player marker
+    -- (see UpdatePlayerMarker below) - created once, same persistence
+    -- treatment as TileFrms/MiniFrms above.
+    if not self.PlyrFrm then
+        self.PlyrFrm = self:CreateMiniFrame()
+    end
+
+    -- Build-order step 9b's static service-icon pool (see
+    -- RefreshServiceIcons/UpdateServiceIcons) - same persistence
+    -- treatment as the pools above.
+    self.SvcFrms = self.SvcFrms or {}
+    self.SvcPts = self.SvcPts or {}
+
+    -- Build-order step 9c's quest turn-in marker pool (see
+    -- RefreshQuestIcons/UpdateQuestIcons) - same persistence
+    -- treatment as the pools above.
+    self.QuestFrms = self.QuestFrms or {}
+    self.QuestPts = self.QuestPts or {}
+
+    -- Build-order step 9e's gathering-node pool (see
+    -- RefreshGatherIcons/UpdateGatherIcons) - same persistence
+    -- treatment as the pools above.
+    self.GatherFrms = self.GatherFrms or {}
+    self.GatherPts = self.GatherPts or {}
 
     -- PlyrX/Y are overwritten every tick once Update() resolves a real
     -- zone (build-order step 8's RefreshCurrentZone/live-position
@@ -148,6 +177,7 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     -- permanently mismatched, since the animation block below only
     -- runs while StepTime ~= 0.
     self.PlyrX, self.PlyrY = self.PlyrX or 0, self.PlyrY or 0
+    self.PlyrDir = self.PlyrDir or 0
     self.Scale = self.Scale or 1
     self.MapPosX, self.MapPosY = self.MapPosX or 0, self.MapPosY or 0
     self.StepTime = self.StepTime or 0
@@ -720,6 +750,29 @@ function MinimapEngine:GetWorldZoneInfo(cont, zone)
     return nil, x, y, scale, scale / 1.5
 end
 
+-- Nx.Map:GetWorldPos (MapEngine.lua:15047-15068) - referenced by name
+-- in several comments elsewhere in this file (RefreshCurrentZone,
+-- the step 9b service-icon section) but never actually implemented
+-- until now (found live, 2026-11-10, while wiring RefreshServiceIcons
+-- - it would have errored on first call). Converts a 0-100
+-- zone-relative percent position to world coordinates, using the
+-- exact same per-zone anchor/scale data GetWorldZoneInfo above already
+-- relies on successfully (info.X/Y, winfo.X/Y/Scale) - just the
+-- general-position form instead of GetWorldZoneInfo's own fixed "top-
+-- left + full span" return. x/y default to 50/50 (zone center),
+-- matching the real source's own default and RefreshCurrentZone's
+-- "pans to the zone's center" comment above.
+function MinimapEngine:GetWorldPos(mapId, x, y)
+    local cont = self:FindContinent(mapId)
+    if not cont then return nil end
+    local info = self.MapInfo[cont]
+    local winfo = self.MapWorldInfo[mapId]
+    if not info or not winfo or not winfo.X or not winfo.Scale then return nil end
+    local anchorX = info.X + winfo.X
+    local anchorY = info.Y + winfo.Y
+    return anchorX + (x or 50) * winfo.Scale, anchorY + (y or 50) * winfo.Scale / 1.5
+end
+
 -- Kept verbatim from Nx.Map:MoveZoneTiles (MapEngine.lua:9533-9690) -
 -- the real tile-grid crop/position/texcoord math. Not approximated;
 -- every branch (including the zone==0 continent-overview path, dead
@@ -892,13 +945,14 @@ end
 -- bare MoveCurZoneTiles() for ANY zone, ordinary or not. The inner
 -- gate this function drops only matters for the camelot flavor's own
 -- narrower cases (city sub-maps, the very-first-login start zone,
--- battlegrounds, micro-dungeons) - this addon has no close-zoom
--- "detail relief" tile system to defer to when zoomed in anyway (an
--- explicit non-goal), so there's nothing for an ordinary zone's
--- overview art to ever need to yield to - always drawing whichever
--- known zone we're in, at any zoom level, is the correct
--- simplification for this engine, not an approximation of a real gate
--- we're skipping.
+-- battlegrounds, micro-dungeons) - not applicable to this engine's
+-- simpler zone model, so always drawing whichever known zone we're in
+-- is the correct simplification here, not an approximation of a real
+-- gate we're skipping. The OTHER half of UpdateZones' own gate - what
+-- happens when zoomed IN past that threshold - used to be dismissed
+-- in this same comment as "an explicit non-goal"; that was wrong (see
+-- UpdateMiniFrames below, added 2026-11-10 once a live screenshot
+-- comparison against real Carbonite revealed what it actually is).
 function MinimapEngine:MoveCurZoneTiles()
     if not self.Cont then
         self:HideZoneTileFrames(self.TileFrms)
@@ -906,6 +960,990 @@ function MinimapEngine:MoveCurZoneTiles()
     end
     self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1,
         self.Frm:GetFrameLevel() or 1)
+end
+
+---------------------------------------------------------------------------------------
+-- Build-order step 8b (2026-11-10): the real-terrain "detail tile"
+-- system - a THIRD visual layer, distinct from both the zone-overview
+-- tiles above (MoveZoneTiles) and the live Blizzard-widget blend
+-- (ClipMMW). Ported from Nx.Map:UpdateMiniFrames/CreateMiniFrame/
+-- HideMiniFrames/ClipFrameTL (MapEngine.lua:10296-10535+/11552),
+-- discovered by reading the real source after a live screenshot
+-- comparison showed Carbonite's own undocked map filling its whole
+-- window with rich, continuously-pannable detail that the live widget
+-- alone can't produce (it only ever renders a small patch near the
+-- player - see ClipMMW's own header). The real mechanism: plain
+-- static frames tiled with real per-256px client minimap textures
+-- (Map/Data/MinimapTiles.lua's FileDataIDs - the same art the native
+-- minimap itself renders from), positioned from MapPosXDraw/Y like any
+-- other tile layer, so panning scrolls them smoothly and they aren't
+-- tied to the player's live position the way the small widget patch
+-- is. Unlike the zone-overview layer, this one is NOT scale-gated:
+-- real Carbonite's UpdateZones (MapEngine.lua:9831-9900) calls
+-- UpdateMiniFrames() unconditionally on every single tick, at every
+-- zoom level, in every branch - it's always live from the moment the
+-- window opens. The NXDetailScale threshold only ever decides whether
+-- the COARSE zone-overview layer (MoveCurZoneTiles, above) is ALSO
+-- drawn on top of it (zoomed out) or cleared (zoomed in); this
+-- engine's Update() mirrors exactly that, not an either/or swap
+-- between the two layers (an earlier version of this code wrongly
+-- treated it as one, gating UpdateMiniFrames itself behind the same
+-- threshold - confirmed wrong live, 2026-11-10: it meant detail tiles
+-- only ever turned on once already zoomed in far enough that a single
+-- ~107-world-unit tile exceeded the whole window, i.e. "stuck showing
+-- one square, no update on pan").
+--
+-- View3D (Carbonite's tilted 3D relief mode) is an explicit non-goal
+-- throughout this addon (ZoomController.lua's own header) - both
+-- functions below drop that entire branch, keeping only the flat 2D
+-- tiling math (same shape as MoveZoneTiles' own per-tile clip code
+-- above).
+---------------------------------------------------------------------------------------
+
+-- How far out (in 256px tile blocks) to tile in each direction from
+-- the current view center. Real Carbonite exposes this as a user
+-- slider (Nx.db.profile.Map.DetailSize, default 6) this addon has no
+-- settings UI for - hardcoded at that same default instead, same
+-- "disclosed trim" pattern as FIT_MARGIN elsewhere in this file.
+local DETAIL_RADIUS = 6
+
+-- Zoom-scale threshold controlling ONLY the zone-overview layer above
+-- (MoveCurZoneTiles vs. HideZoneTileFrames in Update(), below) - real
+-- Carbonite's NXDetailScale, hardcoded here at its real default 4,
+-- same reasoning as DETAIL_RADIUS above. Does NOT gate UpdateMiniFrames
+-- itself (see that function's own header comment - it's unconditional,
+-- every tick, every zoom level). Real Carbonite's UpdateMiniFrames
+-- does take its own optional alphaPer fade-in parameter, but traced
+-- through every one of UpdateZones' real call sites and confirmed
+-- it's always invoked with zero arguments there - the fade parameter
+-- exists for a different, unported caller (the View3D/tilted-relief
+-- branch's own transition), not for this one - so UpdateMiniFrames
+-- below skips that parameter entirely and always draws at full
+-- BackgndAlpha, matching every reachable real call site exactly.
+local DETAIL_SCALE = 4
+
+function MinimapEngine:CreateMiniFrame()
+    local tf = CreateFrame("Frame", nil, self.Frm)
+    local t = tf:CreateTexture()
+    tf.texture = t
+    t:SetAllPoints(tf)
+    t:SetSnapToPixelGrid(false)
+    t:SetTexelSnappingBias(0)
+    return tf
+end
+
+function MinimapEngine:HideMiniFrames()
+    for i = 1, #self.MiniFrms do
+        self.MiniFrms[i]:Hide()
+    end
+end
+
+-- Kept verbatim from Nx.Map:ClipFrameTL (MapEngine.lua:11552) - the
+-- flat (non-View3D) half only; also drops the real source's w<.3/
+-- ScrollingFrm micro-tile-width special case (that guard exists for
+-- Carbonite's own click-drag-to-scroll frame identity, self.ScrollingFrm,
+-- which this engine's own pan-drag - MinimapEngine:OnMouseDown/Up's
+-- Scrolling flag - doesn't track per-frame; a tile narrower than .3px
+-- just hiding outright is harmless here).
+function MinimapEngine:ClipFrameTL(frm, bx, by, w, h)
+    local scale = self.ScaleDraw
+
+    local bw = w * scale
+    local clipW = self.MapW
+    local x = (bx - self.MapPosXDraw) * scale + clipW * .5
+
+    local texX1, texX2 = 0, 1
+    local vx1 = x
+    local vx2 = x + bw
+
+    if vx1 < 0 then
+        vx1 = 0
+        texX1 = (vx1 - x) / bw
+    end
+    if vx2 > clipW then
+        vx2 = clipW
+        texX2 = (vx2 - x) / bw
+    end
+
+    w = vx2 - vx1
+    if w <= 0 then
+        frm:Hide()
+        return false
+    end
+
+    local bh = h * scale
+    local clipH = self.MapH
+    local y = (by - self.MapPosYDraw) * scale + clipH * .5
+
+    local texY1, texY2 = 0, 1
+    local vy1 = y
+    local vy2 = y + bh
+
+    if vy1 < 0 then
+        vy1 = 0
+        texY1 = (vy1 - y) / bh
+    end
+    if vy2 > clipH then
+        vy2 = clipH
+        texY2 = (vy2 - y) / bh
+    end
+
+    h = vy2 - vy1
+    if h <= 0 then
+        frm:Hide()
+        return false
+    end
+
+    frm:SetPoint("TOPLEFT", vx1, -vy1 - self.TitleH)
+    frm:SetWidth(w)
+    frm:SetHeight(h)
+    frm.texture:SetTexCoord(texX1, texX2, texY1, texY2)
+    frm:Show()
+    return true
+end
+
+-- Kept verbatim (flat-view math only) from Nx.Map:UpdateMiniFrames
+-- (MapEngine.lua:10296-10535+). miniT/basex/basey come from
+-- GetMiniInfo (Map/Data/MinimapRuntime.lua). Called every tick,
+-- unconditionally, at every zoom level (see Update()'s call site and
+-- the DETAIL_SCALE comment above for why this is NOT zoom-gated) -
+-- full BackgndAlpha, no fade-in parameter needed for the reason
+-- explained there.
+function MinimapEngine:UpdateMiniFrames()
+    local miniT, basex, basey = self:GetMiniInfo(self.MapId)
+    if not miniT then
+        self:HideMiniFrames()
+        return
+    end
+
+    -- Each real minimap tile texture covers this many world units -
+    -- kept verbatim (256 * the real source's own magic constant,
+    -- MapEngine.lua:10387).
+    local scale = 256 * 0.416767770014
+    local blks = DETAIL_RADIUS
+    local miniX = floor((self.MapPosXDraw - basex) / scale - blks / 2 + .5)
+    local miniY = floor((self.MapPosYDraw - basey) / scale - blks / 2 + .5)
+
+    local need = blks * blks
+    if #self.MiniFrms < need then
+        for n = #self.MiniFrms + 1, need do
+            self.MiniFrms[n] = self:CreateMiniFrame()
+        end
+    end
+
+    basex = basex + miniX * scale
+    basey = basey + miniY * scale
+
+    local al = self.BackgndAlpha or 1
+    local level = self.Frm:GetFrameLevel() or 1
+    local frmNum = 1
+    local wy = basey
+
+    for y = miniY, miniY + blks - 1 do
+        local wx = basex
+        for x = miniX, miniX + blks - 1 do
+            local frm = self.MiniFrms[frmNum]
+            local key = (x + miniT[3]) * 100 + (y + miniT[4])
+            local txname = miniT[1][key]
+
+            if txname and txname ~= "" then
+                if self:ClipFrameTL(frm, wx, wy, scale, scale) then
+                    frm:SetFrameLevel(level)
+                    frm.texture:SetVertexColor(1, 1, 1, al)
+                    frm.texture:SetTexture(txname)
+                end
+            else
+                frm:Hide()
+            end
+
+            wx = wx + scale
+            frmNum = frmNum + 1
+        end
+        wy = wy + scale
+    end
+
+    for n = frmNum, #self.MiniFrms do
+        self.MiniFrms[n]:Hide()
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Build-order step 9a (2026-11-10): a player-position marker drawn
+-- directly on the canvas, independent of the live Blizzard-widget
+-- blend (ClipMMW above). Added after live testing showed the live
+-- widget - the only thing in this addon showing where the player is -
+-- can legitimately clip out of view (same "pan far enough and lose
+-- the square" behavior disclosed since this project's first session)
+-- or visibly disagree with the tile layers whenever the view's pan
+-- target (MapPosXDraw/Y) differs from the player's raw live position
+-- (PlyrX/Y) - e.g. mid-animation after a zoom/recenter, or while
+-- panned away with auto-follow off.
+--
+-- Investigated how real Carbonite actually solves this (not guessed):
+-- it doesn't have a separate "draw the player" mechanism at all. The
+-- player marker is just one more icon - a "Player" Pin (Pin.lua,
+-- Pins/PlayerPin.lua) drawn by the same generic per-frame icon
+-- renderer (Renderer.lua) as every other world icon (mailbox, inn,
+-- quest giver, etc.), all going through the identical world-to-screen
+-- math this file's own ClipFrameTL/ClipMMW already use. The one
+-- real difference: it keeps a dedicated self.PlyrFrm reference
+-- (MapEngine.lua:1585) rather than going through the generic
+-- pool/mixin plumbing every other icon kind uses, since there's
+-- always exactly one.
+--
+-- This ports that same real mechanism at the same scope: one
+-- dedicated frame, the real ClipFrameW point-clip math (MapEngine.lua
+-- :10668-10786 - the "WP"/world-point draw mode every Pin kind
+-- defaults to), continuously repositioned from PlyrX/Y every tick.
+-- It does NOT pull in Pin.lua/Layer.lua/Renderer.lua's generic
+-- class/pool machinery - that's only worth its complexity once
+-- multiple icon kinds exist (mailbox/inn/quest-giver icons, tracked
+-- as a separate, larger follow-on scope decision, not part of this
+-- step).
+---------------------------------------------------------------------------------------
+
+-- Fixed pixel size (not scaled by ScaleDraw - same "icons stay a
+-- constant on-screen size, only their position moves with zoom/pan"
+-- rule real Carbonite's own Pin system documents, Pin.lua's own header
+-- comment: "w, h  pixel size at scale 1"). Real Carbonite exposes this
+-- as a user slider (Nx.db.profile.Map.PlyrArrowSize) this addon has no
+-- settings UI for - started at the real PlayerPin class's own default
+-- size (Pins/PlayerPin.lua: w=20, h=20), bumped up per user feedback
+-- 2026-11-10 ("needs to be a touch bigger").
+local PLAYER_MARKER_SIZE = 28
+
+-- Kept verbatim (core W-clip math only) from Nx.Map:ClipFrameW
+-- (MapEngine.lua:10681-10786). Drops the real source's View3D branch
+-- (explicit non-goal, same as every other function in this file) and
+-- its ClipFrameByMapType instance-map wrapper (ClipFrameMF branch -
+-- this addon has no instance-map canvas; UpdatePlayerMarker below
+-- calls this directly instead of through that wrapper). Unlike
+-- ClipFrameTL (used for tiles), w/h here are NOT multiplied by scale -
+-- see PLAYER_MARKER_SIZE's own comment above for why - only the
+-- center position moves with zoom/pan, matching real Carbonite's own
+-- icon-vs-tile distinction exactly.
+function MinimapEngine:ClipFrameW(frm, bx, by, w, h, dir)
+    local scale = self.ScaleDraw
+    local clipW = self.MapW
+    local clipH = self.MapH
+
+    local x = (bx - self.MapPosXDraw) * scale + clipW * .5
+    local y = (by - self.MapPosYDraw) * scale + clipH * .5
+
+    -- hideOutside: real Carbonite's own icon call sites always pass
+    -- true here (that's what makes an icon vanish once panned off the
+    -- visible canvas, same behavior as ClipFrameTL's own tiles) - this
+    -- marker has exactly one use site, so it's hardcoded true rather
+    -- than threaded through as a parameter nothing else would set
+    -- differently.
+    if x < 0 or x > clipW or y < 0 or y > clipH then
+        frm:Hide()
+        return false
+    end
+
+    local bw, bh = w, h
+    local texX1, texX2 = 0, 1
+    local texY1, texY2 = 0, 1
+
+    local vx1 = x - bw * .5
+    local vx2 = vx1 + bw
+    if vx1 < 0 then
+        vx1 = 0
+        texX1 = (vx1 - (x - bw * .5)) / bw
+    end
+    if vx2 > clipW then
+        vx2 = clipW
+        texX2 = (vx2 - (x - bw * .5)) / bw
+    end
+    local fw = vx2 - vx1
+    if fw < .3 then
+        frm:Hide()
+        return false
+    end
+
+    local vy1 = y - bh * .5
+    local vy2 = vy1 + bh
+    if vy1 < 0 then
+        vy1 = 0
+        texY1 = (vy1 - (y - bh * .5)) / bh
+    end
+    if vy2 > clipH then
+        vy2 = clipH
+        texY2 = (vy2 - (y - bh * .5)) / bh
+    end
+    local fh = vy2 - vy1
+    if fh < .3 then
+        frm:Hide()
+        return false
+    end
+
+    frm:SetPoint("TOPLEFT", vx1, -vy1 - self.TitleH)
+    frm:SetWidth(fw)
+    frm:SetHeight(fh)
+    frm.texture:SetTexCoord(texX1, texX2, texY1, texY2)
+
+    -- Facing rotation, for the player marker. Real Carbonite's own
+    -- ClipFrameW (MapEngine.lua:10792-10805+) does this via UV-space
+    -- corner rotation (rotating the four texcoords around .5,.5) -
+    -- first ported that way verbatim here, but user-reported live
+    -- 2026-11-10 that the marker never visibly rotated at all, and
+    -- that hand-rolled corner math couldn't be cross-checked against
+    -- a working reference (PlayerPin.lua, the newer Pin-system
+    -- rewrite of this same addon, doesn't carry facing/rotation over
+    -- at all - it only tracks x/y). Switched to the texture's own
+    -- native :SetRotation(), the standard WoW API built for exactly
+    -- this (rotates in place around the texture's center, composes
+    -- fine with the texcoord cropping above) - simpler and doesn't
+    -- depend on hand-rolled trig being right. If this turns out
+    -- mirrored (rotates the wrong way) rather than not rotating at
+    -- all, the fix is a one-line sign flip on PlyrDir below, not
+    -- another rewrite here.
+    frm.texture:SetRotation(dir or 0)
+
+    frm:Show()
+    return true
+end
+
+-- Repositions the dedicated canvas player marker every tick from the
+-- engine's own already-tracked PlyrX/Y/PlyrDir (see Update()'s own
+-- position-resolution block and this section's header comment above
+-- for why this exists independently of the live-widget blend).
+function MinimapEngine:UpdatePlayerMarker()
+    local frm = self.PlyrFrm
+    if not frm then return end
+    if not frm.texture:GetTexture() then
+        frm.texture:SetTexture("Interface\\Minimap\\MinimapArrow")
+    end
+    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
+    self:ClipFrameW(frm, self.PlyrX, self.PlyrY,
+        PLAYER_MARKER_SIZE, PLAYER_MARKER_SIZE, self.PlyrDir)
+end
+
+---------------------------------------------------------------------------------------
+-- Build-order step 9b (2026-11-10): static service-location icons
+-- (mailbox, innkeeper, flight master) - the "reopen full icon/pin
+-- system" scope decision, same session as step 9a's player marker.
+--
+-- Investigated how real Carbonite actually sources these (not
+-- guessed): unlike quest-giver/trainer/gather icons - which track
+-- live game state and go through the generic Pin/Layer/Renderer
+-- system (Pin.lua/Renderer.lua) - static service icons come from a
+-- hand-curated per-flavor coordinate database shipped as plain data
+-- files (Carbonite/Data/camelot/Guides/<Kind>.lua), looked up by the
+-- current mapID. Ported Mailbox/Innkeeper verbatim (Map/Data/
+-- GuideMailbox.lua/GuideInnkeeper.lua). Flight Master's own camelot
+-- data file ships empty for this flavor (no coordinates, just a Mode
+-- flag) - sourced from Blizzard's own live C_TaxiMap API instead,
+-- which is arguably the more robust choice anyway (always accurate to
+-- what the player has actually discovered, no hand-curated data to go
+-- stale or miss this server's custom geography).
+--
+-- These are STATIC positions (a mailbox doesn't move), so unlike the
+-- player marker this only needs to resolve world positions on zone
+-- change (RefreshServiceIcons, called from RefreshCurrentZone) rather
+-- than every tick - but still needs to REPOSITION on screen every
+-- tick (UpdateServiceIcons, called from Update()), since pan/zoom
+-- moves the screen position even though the world position hasn't
+-- changed. Reuses step 9a's ClipFrameW directly - these are icons like
+-- the player marker, not scaled tiles, so no new clip math is needed.
+---------------------------------------------------------------------------------------
+
+local SERVICE_ICON_SIZE = 16
+
+-- Standard Blizzard minimap-tracking-filter textures (not Carbonite's
+-- own icon atlas) - long-standing paths, present since Classic.
+-- Innkeeper confirmed rendering live, 2026-11-10 (visible once the
+-- faction-filter bug above was found and fixed). Mailbox switched the
+-- same day to Interface\Icons\INV_Letter_15 - the user reported no
+-- mail icon at all, and Interface\Minimap\TrackingIcons\Mailbox is in
+-- the exact same Interface\Minimap\... texture family already
+-- confirmed BROKEN on this server build (MinimapDock.lua's native
+-- mail-icon fix, same session - MiniMap-MailIcon renders nothing
+-- here). Reusing that fix's own already-verified-visible replacement
+-- rather than guessing a third path blind.
+local SERVICE_ICON_TEX = {
+    Mailbox   = "Interface\\Icons\\INV_Letter_15",
+    Innkeeper = "Interface\\MINIMAP\\TRACKING\\Innkeeper",
+}
+-- Not yet confirmed either way - same TRACKING family as the now-
+-- confirmed-working Innkeeper path above, so likely fine; flight-
+-- master's own absence in the user's 2026-11-10 report is more likely
+-- a C_TaxiMap data/mapID question than a texture one. See
+-- RefreshServiceIcons' own header comment for the open question.
+local FLIGHTMASTER_TEX = "Interface\\MINIMAP\\TRACKING\\FlightMaster"
+
+-- Carbonite's real faction filter (GuideLocations.lua's hideFaction),
+-- ported inline since this addon doesn't have that whole module.
+-- Found and fixed live, 2026-11-10: this addon's own first pass at
+-- this had the two conditions backwards. Real Carbonite's
+-- hideFaction() returns the faction CODE TO HIDE for the current
+-- player (1 for a Horde player, 2 for an Alliance player), and its one
+-- call site (FindNPC) shows an entry whenever `fac ~= hide` - so
+-- fac==1 is actually hidden FROM Horde (Alliance-only), and fac==2 is
+-- hidden FROM Alliance (Horde-only). The original version here did
+-- the opposite (showed fac==1 to Horde, fac==2 to Alliance), which
+-- silently hid every Horde-only entry from a Horde player - exactly
+-- matching the reported symptom (only one of three innkeeper entries
+-- in a zone visible, and not the one actually nearby).
+local function ServiceIconFactionOk(fac)
+    if fac == 0 then return true end
+    local faction = UnitFactionGroup("player")
+    if faction == "Horde" then return fac == 2 end
+    if faction == "Alliance" then return fac == 1 end
+    return true
+end
+
+-- Confirmed live, 2026-11-10: C_TaxiMap's own node.faction does NOT use
+-- GuideData's hide-code convention above (1=Alliance-only/2=Horde-only).
+-- The Camp Taurajo node (a real Horde-only flight point) reported
+-- faction=1 - direct identity (1=Horde, 2=Alliance), the opposite
+-- scheme. Reusing ServiceIconFactionOk for taxi nodes was rejecting
+-- every same-faction node outright - this is why none ever appeared
+-- even once the whole-continent/bounds-check fix landed. Separate
+-- function, do not merge back with ServiceIconFactionOk - the two data
+-- sources disagree on what the numbers mean.
+local function TaxiFactionOk(fac)
+    if not fac or fac == 0 then return true end
+    local faction = UnitFactionGroup("player")
+    if faction == "Horde" then return fac == 1 end
+    if faction == "Alliance" then return fac == 2 end
+    return true
+end
+
+function MinimapEngine:HideServiceFrames()
+    for i = 1, #self.SvcFrms do
+        self.SvcFrms[i]:Hide()
+    end
+end
+
+-- Rebuilds the resolved service-icon world-position list for the
+-- current zone. Call only on zone change (RefreshCurrentZone) - these
+-- are static positions, recomputing every tick would be wasted work.
+--
+-- Open question, 2026-11-10: user reported no flight-master icon
+-- visible at a Crossroads (The Barrens, mapID 1413) landing, right
+-- after flying in. Camelot's own FlightMaster.lua data file ships
+-- empty for this flavor (confirmed earlier this session), so this
+-- only ever has anything to show via the C_TaxiMap branch below - if
+-- that reports no reachable/current node for this exact mapID, or
+-- GetTaxiNodesForMap itself isn't returning what's expected on this
+-- server build, nothing renders. Not yet root-caused; the faction-
+-- filter bug and the Mailbox texture swap above were both confirmed,
+-- concrete fixes, this one still needs a live check (does
+-- C_TaxiMap.GetTaxiNodesForMap(1413) return anything at all from
+-- Crossroads once landed) before guessing further.
+function MinimapEngine:RefreshServiceIcons()
+    local pts = {}
+    self.SvcPts = pts
+    if not self.MapId then return end
+
+    for kind, tex in pairs(SERVICE_ICON_TEX) do
+        local data = self.GuideData and self.GuideData[kind]
+        local entry = data and data[self.MapId]
+        if entry then
+            for fac, x, y in entry:gmatch("(%d+),([%d%.]+),([%d%.]+)") do
+                if ServiceIconFactionOk(tonumber(fac)) then
+                    local wx, wy = self:GetWorldPos(self.MapId, tonumber(x), tonumber(y))
+                    if wx then
+                        pts[#pts + 1] = { x = wx, y = wy, tex = tex }
+                    end
+                end
+            end
+        end
+    end
+
+    -- Found and fixed live, 2026-11-10: the original check here
+    -- (`node.state == Enum.FlightPathState.Reachable/.Current`) never
+    -- matched anything on this server build - no flight-master icon
+    -- ever appeared. Re-derived against ForeverDungeonJournal's own
+    -- Systems/MapMarkers.lua, an already-installed, already-working
+    -- addon on this exact server that also calls GetTaxiNodesForMap:
+    -- it doesn't trust the node's own state/type field for
+    -- reachability either - it tracks "discovered" itself from the
+    -- flight map being opened, specifically because the live field
+    -- isn't reliable here. It also reads node.position defensively
+    -- (some builds hand back a plain {x,y} table, others a Vector2D
+    -- needing :GetXY()) rather than assuming `.x`/`.y` are always
+    -- present. Matched both of those here, and dropped the
+    -- reachability filter entirely in favor of showing every node
+    -- this call returns for the zone - we're not building a discovery
+    -- log, just flight-master icons, and "shows an undiscovered one
+    -- too" beats "shows none at all". Faction filtering reuses
+    -- ServiceIconFactionOk above - node.faction is the same 1=Horde-
+    -- only/2=Alliance-only convention (confirmed against that same
+    -- addon's own OurSide()), not a separate scheme.
+    if C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
+        local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, self.MapId)
+        if ok and type(nodes) == "table" then
+            for _, node in ipairs(nodes) do
+                if TaxiFactionOk(tonumber(node.faction)) then
+                    local pos = node.position
+                    local nx, ny = pos and pos.x, pos and pos.y
+                    if pos and (nx == nil or ny == nil) and pos.GetXY then
+                        nx, ny = pos:GetXY()
+                    end
+                    -- Confirmed live, 2026-11-10: GetTaxiNodesForMap(1413)
+                    -- returned 38 nodes standing in The Barrens - the
+                    -- whole continent's flight network (the same thing a
+                    -- flight master's own map shows when you talk to one),
+                    -- not just nodes physically in this zone. Positions
+                    -- for a node elsewhere on the continent aren't
+                    -- meaningful as a percent-through-THIS-zone and land
+                    -- miles outside it once run through GetWorldPos -
+                    -- this bounds check rejects those before that
+                    -- conversion rather than relying on ClipFrameW's
+                    -- downstream screen-space clip to hide them (their
+                    -- resulting world position could coincidentally
+                    -- overlap something on-screen, not just land safely
+                    -- off it).
+                    if nx and ny and nx >= 0 and nx <= 1 and ny >= 0 and ny <= 1 then
+                        local wx, wy = self:GetWorldPos(self.MapId, nx * 100, ny * 100)
+                        if wx then
+                            pts[#pts + 1] = { x = wx, y = wy, tex = FLIGHTMASTER_TEX }
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Repositions every resolved service-icon point every tick - world
+-- positions are static (see RefreshServiceIcons above), but screen
+-- position still moves with pan/zoom, same reasoning as the player
+-- marker.
+function MinimapEngine:UpdateServiceIcons()
+    local pts = self.SvcPts
+    if not pts or #pts == 0 then
+        self:HideServiceFrames()
+        return
+    end
+
+    if #self.SvcFrms < #pts then
+        for n = #self.SvcFrms + 1, #pts do
+            self.SvcFrms[n] = self:CreateMiniFrame()
+        end
+    end
+
+    local level = (self.Frm:GetFrameLevel() or 1) + 5
+    for i, pt in ipairs(pts) do
+        local frm = self.SvcFrms[i]
+        if frm.svcTex ~= pt.tex then
+            frm.texture:SetTexture(pt.tex)
+            frm.svcTex = pt.tex
+        end
+        if self:ClipFrameW(frm, pt.x, pt.y, SERVICE_ICON_SIZE, SERVICE_ICON_SIZE) then
+            frm:SetFrameLevel(level)
+        end
+    end
+    for n = #pts + 1, #self.SvcFrms do
+        self.SvcFrms[n]:Hide()
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Build-order step 9c (2026-11-10): quest turn-in markers. User asked
+-- for "quest [icons] working" after step 9b landed - investigated
+-- Carbonite.Quests' own MapIcons.lua (a separate, already-installed
+-- addon on this same server) before writing anything, since it's a
+-- large, real, already-working implementation of exactly this problem
+-- for Carbonite's own map. Two real findings shaped what's below:
+--
+-- 1. A "brand new available quest at an NPC I haven't talked to yet"
+--    marker (the yellow ! Carbonite's own QuestPin.lua/ICONS.giver
+--    represents) needs a static NPC-to-quest database - this addon
+--    has none, and the one already installed on this server
+--    (QuestieDB, via its public LibQuestieDB contract) stores spawn
+--    zones by legacy AreaID, not the uiMapID this engine uses
+--    everywhere else. Converting between the two turned out to
+--    require Questie's own PRIVATE, undocumented ZoneDB module (confirmed
+--    by reading Questie's own QuestiePlayer:GetCurrentZoneId, which
+--    depends on it too) - not a stable public contract, and a real
+--    scope step up from anything built this session. Deliberately NOT
+--    built - deferred, not forgotten.
+-- 2. A "where do I turn in/continue the quests already in my log"
+--    marker needs none of that: C_QuestLog.GetQuestsOnMap(mapID) is a
+--    live, standard Blizzard API with no external database at all
+--    (confirmed real and current via Carbonite.Quests' own
+--    MapIcons.lua, which uses this exact call as its primary feed).
+--    That's what this section builds - the smaller, immediately
+--    achievable half of "quest icons," not the full system.
+--
+-- Position convention matches the flight-master branch above:
+-- GetQuestsOnMap's x/y are 0-1 normalized (same family as
+-- C_TaxiMap/C_Map.GetPlayerMapPosition), so *100 for GetWorldPos's
+-- 0-100 convention.
+---------------------------------------------------------------------------------------
+
+local QUEST_ICON_SIZE = 16
+-- Same texture Carbonite's own QuestPin.lua (ICONS.turnin) uses for a
+-- quest ready to hand in - a real, long-standing Blizzard path (the
+-- GossipFrame's own quest-icon art), not guessed.
+local QUEST_TURNIN_TEX = "Interface\\GossipFrame\\ActiveQuestIcon"
+
+function MinimapEngine:HideQuestFrames()
+    for i = 1, #self.QuestFrms do
+        self.QuestFrms[i]:Hide()
+    end
+end
+
+-- Only shows quests already in the player's log that are flagged
+-- complete (ready to turn in) - see this section's header for why an
+-- in-progress objective marker isn't included in this first pass.
+-- Called on zone change (RefreshCurrentZone) and on a time throttle
+-- from Update() below, since quest state (unlike the static mailbox/
+-- innkeeper data) can change without a zone change at all.
+function MinimapEngine:RefreshQuestIcons()
+    local pts = {}
+    self.QuestPts = pts
+    local mapId = self.MapId
+    if not mapId or not C_QuestLog or not C_QuestLog.GetQuestsOnMap then return end
+
+    local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, mapId)
+    if not ok or type(quests) ~= "table" then return end
+
+    for _, info in ipairs(quests) do
+        local questID = info and info.questID
+        if questID and type(info.x) == "number" and type(info.y) == "number" then
+            local completeOk, complete = pcall(C_QuestLog.IsComplete, questID)
+            if completeOk and complete then
+                local wx, wy = self:GetWorldPos(mapId, info.x * 100, info.y * 100)
+                if wx then
+                    pts[#pts + 1] = { x = wx, y = wy, tex = QUEST_TURNIN_TEX }
+                end
+            end
+        end
+    end
+end
+
+function MinimapEngine:UpdateQuestIcons()
+    local pts = self.QuestPts
+    if not pts or #pts == 0 then
+        self:HideQuestFrames()
+        return
+    end
+
+    if #self.QuestFrms < #pts then
+        for n = #self.QuestFrms + 1, #pts do
+            self.QuestFrms[n] = self:CreateMiniFrame()
+        end
+    end
+
+    local level = (self.Frm:GetFrameLevel() or 1) + 6
+    for i, pt in ipairs(pts) do
+        local frm = self.QuestFrms[i]
+        if frm.svcTex ~= pt.tex then
+            frm.texture:SetTexture(pt.tex)
+            frm.svcTex = pt.tex
+        end
+        if self:ClipFrameW(frm, pt.x, pt.y, QUEST_ICON_SIZE, QUEST_ICON_SIZE) then
+            frm:SetFrameLevel(level)
+        end
+    end
+    for n = #pts + 1, #self.QuestFrms do
+        self.QuestFrms[n]:Hide()
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Build-order step 9e (2026-11-10, REWRITTEN same day): gathering
+-- nodes (herb/mining/fish/treasure) - direct user request after the
+-- quest/flight-master work above.
+--
+-- First version ported a static Wowhead data dump (Carbonite.
+-- Gathermate2_Data) into this addon's own files. User then copied
+-- their real GatherMate2 install + its own collected data into the
+-- dev tree and saw DOUBLED-UP markers at one node - the real cause:
+-- two independent data sources (our ported dump vs. their actual
+-- GatherMate2 database) disagreeing by a few feet on the same real
+-- node. User's explicit call: stop maintaining our own copy, integrate
+-- GatherMate2 directly, and use ITS per-species icons ("so we see
+-- whats at the node") instead of one generic icon per category.
+--
+-- Reads GatherMate2's own public accessors (confirmed by reading its
+-- real source, not guessed):
+--   GatherMate:GetNodesForZone(zone, dbType) - stateless iterator of
+--     coord,nodeID for a zone (GatherMate2.lua:526). zone is a uiMapID
+--     (confirmed via its HereBeDragons dependency - HBD:GetZoneSize
+--     takes the same ID this engine's own self.MapId already is).
+--   GatherMate:DecodeLoc(coord) -> x, y, both 0-1 fractional
+--     (GatherMate2.lua:685) - GatherMate2's OWN decode, called
+--     directly rather than reimplemented, so this can never drift
+--     from whatever encoding GatherMate2 itself uses.
+--   GatherMate.nodeTextures[fullDbName][nodeID] -> real per-species
+--     icon path (Constants.lua:1322, `GatherMate.nodeTextures =
+--     node_textures` - confirmed public, not the file's local).
+-- dbType ("Herb"/"Mine"/"Fish"/"Treasure") is GetNodesForZone's own
+-- short key (RegisterDBType's call sites); nodeTextures is keyed by
+-- the full profession name instead ("Herb Gathering"/"Mining"/
+-- "Fishing"/"Treasure") - GatherMate2 never unifies the two itself, so
+-- GM_TYPE_TO_TEXKEY below bridges them.
+--
+-- This addon now has a real soft runtime dependency on GatherMate2
+-- (## OptionalDeps in the .toc, for load order only). Every call site
+-- guards with `if GatherMate then` - no GatherMate2 installed/enabled
+-- just means no gathering icons, never an error.
+--
+-- "Active right now" investigated and NOT solved live, same day:
+-- checked Carbonite's own real GatherPin.lua (Modules/Map/Pins/
+-- GatherPin.lua) - it only ever draws the static database, gated by
+-- zoom scale and gather-skill cap, no live presence check at all.
+-- Live-tested two real candidate APIs with the user standing at an
+-- actual visible node: C_VignetteInfo.GetVignettes() returned 0 (not
+-- how this server surfaces gathering nodes), and scanning Minimap's
+-- own child region textures returned ~290 children, most of which are
+-- clearly some other addon's minimap-skin decoration, not blips - too
+-- noisy to isolate the real one without a much larger diff-based
+-- investigation. Neither GatherMate2 nor Carbonite's own mature,
+-- long-iterated addons do live detection either - real evidence no
+-- clean client API exists for "is a resource node here right now"
+-- beyond normal engine visibility range (the same reason the native
+-- yellow blips only show once you're close).
+--
+-- Decision (user's own call after being told the above): ship a
+-- proximity APPROXIMATION instead of true live confirmation - a
+-- known point renders brighter/full-alpha once the player is within
+-- GATHER_NEARBY_RANGE of it, dimmed otherwise. This is NOT a claim
+-- the node is actually there - it's "close enough that it's worth
+-- walking over and looking", clearly distinct from the quest/flight-
+-- master icons elsewhere in this file which only ever show confirmed,
+-- API-backed state.
+--
+-- Profession gating (user's own call) is independent of GatherMate2's
+-- own per-node filterTable (that's about individual toggled/
+-- deprecated node subtypes, not profession knowledge, so it doesn't
+-- replace this check): herb nodes only show if the player knows
+-- Herbalism, mining only if Mining, fishing pools only if the player
+-- has any Fishing skill. Treasure is NOT gated - it's a plain world
+-- chest/loot spawn, not tied to any profession.
+---------------------------------------------------------------------------------------
+
+local GATHER_ICON_SIZE = 10
+-- World-position units (the same space GetWorldPos/ClipFrameW already
+-- work in, not real yards) - tuned by eye, not measured. Adjust after
+-- live testing if "nearby" triggers too early or too late.
+local GATHER_NEARBY_RANGE = 3
+local GATHER_NEARBY_RANGE_SQ = GATHER_NEARBY_RANGE * GATHER_NEARBY_RANGE
+local GATHER_DIM_ALPHA = 0.45
+
+local GM_TYPE_TO_TEXKEY = {
+    Herb     = "Herb Gathering",
+    Mine     = "Mining",
+    Fish     = "Fishing",
+    Treasure = "Treasure",
+}
+-- Only used if a specific nodeID has no entry in GatherMate.
+-- nodeTextures (new/unmapped node) - same guaranteed-present
+-- profession-spell icons the first version used throughout.
+local GATHER_FALLBACK_TEX = {
+    Herb     = "Interface\\Icons\\Trade_Herbalism",
+    Mine     = "Interface\\Icons\\Trade_Mining",
+    Fish     = "Interface\\Icons\\Trade_Fishing",
+    Treasure = "Interface\\Icons\\INV_Misc_Bag_10",
+}
+
+local function GetKnownGatherProfessions()
+    local known = {}
+    local p1, p2, _, fishing = GetProfessions()
+    for _, idx in ipairs({ p1, p2 }) do
+        if idx then
+            local name = GetProfessionInfo(idx)
+            if name == "Herbalism" then known.Herb = true end
+            if name == "Mining" then known.Mine = true end
+        end
+    end
+    if fishing then known.Fish = true end
+    return known
+end
+
+function MinimapEngine:HideGatherFrames()
+    for i = 1, #self.GatherFrms do
+        self.GatherFrms[i]:Hide()
+    end
+end
+
+-- REWRITTEN again, same day: still no nodes after the AceAddon fix
+-- above. Root cause this time: Carbonite.Gathermate2_Data (where the
+-- actual node data lives) is `## LoadOnDemand: 1` in its own .toc -
+-- its globals (GatherMateData2HerbDB etc.) simply don't exist until
+-- SOMETHING calls LoadAddOn on it. Carbonite's own GatherStorage.lua
+-- only does that when the user explicitly runs its GatherMate import
+-- UI action - nothing guarantees it's happened. Round 1 (the ported
+-- local copy) never hit this because it was our own file, always
+-- loaded with this addon. User's call: meet in the middle - force-
+-- load the data pack ourselves (same technique Carbonite's own
+-- GatherImportCarb already uses) and read its raw tables LIVE, no
+-- local copy of the data itself, same proven data path round 1 used.
+-- GatherMate2 proper's live addon object (GetGatherMate below) is kept
+-- as an OPTIONAL upgrade for real per-species icons when that addon
+-- also happens to be enabled - falls back to the generic per-category
+-- icon otherwise. Node positions no longer depend on GatherMate2
+-- proper being enabled at all, only on Carbonite.Gathermate2_Data's
+-- data pack, which this forces to load itself.
+-- REWRITTEN again, same day (round 3): dropped Carbonite entirely, on
+-- explicit direction - this addon exists to phase Carbonite OUT, so
+-- depending on Carbonite.Gathermate2_Data (which hard-requires
+-- `## Dependencies: Carbonite` in its own .toc) was backwards even
+-- setting the taint bug aside, and moot for this user anyway (their
+-- whole Carbonite suite is disabled). Back to GatherMate2's own live
+-- API as the ONLY data source, no local copy, no Carbonite anywhere in
+-- the chain.
+--
+-- The taint popup is now understood, not just routed around: GatherMate2
+-- ships its own "Import GatherMate2Data" button (`/gathermate` -> Import
+-- tab -> GatherMate2Data section, see GatherMate2/Config.lua:1175-1199)
+-- that calls `C_AddOns.LoadAddOn("GatherMate2_Data")` and
+-- `PerformMerge(...)` from GatherMate2's OWN trusted code, fired by a
+-- direct hardware click - exactly why that's allowed and this addon's
+-- own earlier programmatic LoadAddOn attempt wasn't. This addon never
+-- calls LoadAddOn on anything now; the player runs that button ONCE
+-- (not per session - it merges Wowhead seed data permanently into
+-- GatherMate2's own saved database) and from then on GatherMate2's own
+-- GetNodesForZone includes it like any other node, with zero special
+-- handling needed here.
+--
+-- GatherMate2 keeps its own addon object as a FILE-LOCAL variable in
+-- its own files (confirmed in two of its own files:
+-- GatherMate2.lua:7 and Constants.lua:7, both
+-- `local GatherMate = LibStub("AceAddon-3.0"):GetAddon/NewAddon(...)`)
+-- - there is no bare _G.GatherMate global. AceAddon-3.0 registers every
+-- addon it creates in its own shared registry regardless, so
+-- GetAddon(name, silent) is the correct way to reach it.
+local GatherMateAddon
+local function GetGatherMate()
+    if GatherMateAddon then return GatherMateAddon end
+    local ok, AceAddon = pcall(LibStub, "AceAddon-3.0", true)
+    if ok and AceAddon then
+        local ok2, addon = pcall(AceAddon.GetAddon, AceAddon, "GatherMate2", true)
+        if ok2 and addon then
+            GatherMateAddon = addon
+        end
+    end
+    return GatherMateAddon
+end
+
+local gatherTipShown = false
+-- Not a required step - GatherMate2 records nodes as you gather them,
+-- with zero action needed, and this addon just reads whatever's
+-- already in its live database. This is purely an FYI for a brand-new
+-- character/zone with nothing gathered yet, in case the player wants
+-- nodes pre-populated instead of waiting to find them naturally.
+local function ShowGatherImportTip()
+    if gatherTipShown then return end
+    gatherTipShown = true
+    print("|cff33ff99AlchemyGPS|r: gathering-node icons read GatherMate2's own data as you gather - no setup needed. If a zone looks empty and you'd rather not wait, GatherMate2's |cffffffff/gathermate|r Import tab can optionally seed it with Wowhead data.")
+end
+
+-- Pcall-wrapped per dbType so one bad zone/type combo in GatherMate2's
+-- own data can't abort the other three categories.
+local function CollectGatherZoneNodes(engine, gm, mapId, dbType, pts)
+    local texTable = gm.nodeTextures and gm.nodeTextures[GM_TYPE_TO_TEXKEY[dbType]]
+    local fallback = GATHER_FALLBACK_TEX[dbType]
+    for coord, nodeID in gm:GetNodesForZone(mapId, dbType) do
+        local gx, gy = gm:DecodeLoc(coord)
+        local wx, wy = engine:GetWorldPos(mapId, gx * 100, gy * 100)
+        if wx then
+            local tex = (texTable and texTable[nodeID]) or fallback
+            pts[#pts + 1] = { x = wx, y = wy, tex = tex }
+        end
+    end
+end
+
+-- Rebuilds the full point list for the current zone - only needs to
+-- run on zone change (and once at login via TakeOwnership's first
+-- RefreshCurrentZone), not every tick, since GatherMate2's own data
+-- only changes as the player gathers/imports, not from AlchemyGPS
+-- repainting. A newly learned profession picks up its node type on the
+-- next zone change or /reload, not instantly - acceptable, professions
+-- aren't learned often.
+--
+-- Fix, same day (round 7): user confirmed the "GatherMate2 has been
+-- blocked" popup ONLY ever appears at initial login/reload, never
+-- during normal play (walking, zoning, standing near nodes) - ruling
+-- out GatherMate2's own continuous pin-drawing colliding with this
+-- addon's native-minimap-hide (that theory predicted it'd happen
+-- during play, not specifically at load). The real pattern: this
+-- addon's very FIRST RefreshGatherIcons call happens as part of
+-- TakeOwnership's initial RefreshCurrentZone, during addon load -
+-- before any hardware event (click/keypress) has occurred this
+-- session. Every previous attempt deferred a DIFFERENT call (the now-
+-- removed LoadAddOn, in round 4) but never this one - GetGatherMate()/
+-- gm:GetNodesForZone()/gm:DecodeLoc() have been called eagerly, un-
+-- deferred, at this exact early moment through every round since round
+-- 3. Fixed by deferring the whole body one frame via C_Timer.After(0),
+-- the standard WoW addon-dev workaround for "called before any
+-- hardware event this session" - every call site becomes safe once
+-- just one real frame has ticked. The MapId re-check inside guards
+-- against the (rare) case of zoning again before the deferred call
+-- fires.
+function MinimapEngine:RefreshGatherIcons()
+    local mapId = self.MapId
+    if not mapId then
+        self.GatherPts = {}
+        return
+    end
+
+    local engine = self
+    C_Timer.After(0, function()
+        if engine.MapId ~= mapId then return end -- zoned again already; a later call owns this
+
+        local pts = {}
+        engine.GatherPts = pts
+        local gm = GetGatherMate()
+        if not gm or not gm.GetNodesForZone then return end
+
+        ShowGatherImportTip()
+
+        local known = GetKnownGatherProfessions()
+        local dbTypes = {}
+        if known.Herb then dbTypes[#dbTypes + 1] = "Herb" end
+        if known.Mine then dbTypes[#dbTypes + 1] = "Mine" end
+        if known.Fish then dbTypes[#dbTypes + 1] = "Fish" end
+        dbTypes[#dbTypes + 1] = "Treasure"
+
+        for _, dbType in ipairs(dbTypes) do
+            pcall(CollectGatherZoneNodes, engine, gm, mapId, dbType, pts)
+        end
+    end)
+end
+
+-- Repositioned on its own 0.1s throttle from Update() below, not
+-- every tick - these are stationary world points, and a single zone
+-- can carry 800+ of them (confirmed: Barrens herb data alone is 857
+-- entries), so a 20Hz reposition pass the way the player marker gets
+-- is needless cost. 10Hz is still visually smooth for something that
+-- never moves.
+function MinimapEngine:UpdateGatherIcons()
+    local pts = self.GatherPts
+    if not pts or #pts == 0 then
+        self:HideGatherFrames()
+        return
+    end
+
+    if #self.GatherFrms < #pts then
+        for n = #self.GatherFrms + 1, #pts do
+            self.GatherFrms[n] = self:CreateMiniFrame()
+        end
+    end
+
+    local level = (self.Frm:GetFrameLevel() or 1) + 4
+    local px, py = self.PlyrX, self.PlyrY
+    for i, pt in ipairs(pts) do
+        local frm = self.GatherFrms[i]
+        if frm.svcTex ~= pt.tex then
+            frm.texture:SetTexture(pt.tex)
+            frm.svcTex = pt.tex
+        end
+        if self:ClipFrameW(frm, pt.x, pt.y, GATHER_ICON_SIZE, GATHER_ICON_SIZE) then
+            frm:SetFrameLevel(level)
+            local near = px and py
+                and ((pt.x - px) ^ 2 + (pt.y - py) ^ 2) <= GATHER_NEARBY_RANGE_SQ
+            frm.texture:SetAlpha(near and 1 or GATHER_DIM_ALPHA)
+        end
+    end
+    for n = #pts + 1, #self.GatherFrms do
+        self.GatherFrms[n]:Hide()
+    end
 end
 
 -- Trimmed from Nx.Map:UpdateWorld (MapEngine.lua:5945-6147) - see this
@@ -1067,6 +2105,23 @@ function MinimapEngine:RefreshCurrentZone()
     self.MapId = mapId
     self.Cont = cont
     self.Zone = cont and mapId or nil
+
+    -- Build-order step 9b: static service icons (mailbox/innkeeper/
+    -- flight master) are per-mapID, so they only need resolving here,
+    -- not every tick - see RefreshServiceIcons' own header comment.
+    self:RefreshServiceIcons()
+
+    -- Build-order step 9c: quest turn-in markers get their own
+    -- immediate refresh on zone entry too (a stale list from the
+    -- PREVIOUS zone would otherwise linger up to the throttle
+    -- interval below) - see RefreshQuestIcons' own header comment.
+    self:RefreshQuestIcons()
+
+    -- Build-order step 9e: the gathering-node field is per-mapID
+    -- static data (same as service icons above), so it only needs
+    -- rebuilding here, not every tick - see RefreshGatherIcons' own
+    -- header comment.
+    self:RefreshGatherIcons()
 
     if not cont then
         -- Not in Carbonite's static catalog for this flavor (an
@@ -1478,7 +2533,32 @@ function MinimapEngine:Update(elapsed)
         -- Carbonite's own world-Y-increases-south convention, so
         -- flipping it was backwards).
         local _, zx, zy, zw, zh = self:GetWorldZoneInfo(self.Cont, self.Zone)
-        if zx then
+        -- self.Cont guard added 2026-11-10: GetWorldZoneInfo's own
+        -- "invalid cont/zone" fallback returns 0 for zx (not nil, see
+        -- that function above) - 0 is truthy in Lua, so without this
+        -- extra check this block was running anyway whenever the
+        -- player stood somewhere not in the static zone catalog (a
+        -- building interior, since indoor sub-zone IDs mostly aren't
+        -- in Carbonite's camelot-flavor catalog - see NxMapData.lua's
+        -- header on why its real GetZoneInfo/BuildMissingZoneInfo
+        -- resolver is dead/unported here), computing PlyrX/PlyrY from
+        -- that meaningless (0,0,1002,668) fallback rectangle instead
+        -- of leaving them alone. The bogus result was wildly far from
+        -- the last real outdoor position, so ZoomController:Move's own
+        -- auto-follow (below) tried to animate the view there, and the
+        -- live widget patch's ClipMMW fit check failed outright at
+        -- that distance - confirmed live, 2026-11-10: walking into the
+        -- Freewind Post inn made the live-widget patch disappear
+        -- entirely instead of just freezing in place. Requiring
+        -- self.Cont (nil whenever RefreshCurrentZone couldn't find the
+        -- current map in the catalog) skips this whole block indoors,
+        -- so PlyrX/PlyrY/the title/the live patch all simply freeze at
+        -- their last good outdoor values instead of jumping to noise.
+        -- This does NOT make the live widget track real indoor
+        -- movement (that needs Carbonite's full zone/instance database
+        -- - a separate, much bigger port, not attempted here) - it only
+        -- stops the existing patch from vanishing while indoors.
+        if self.Cont and zx then
             local pos = C_Map and C_Map.GetPlayerMapPosition
                 and C_Map.GetPlayerMapPosition(self.MapId, "player")
             if pos then
@@ -1518,6 +2598,19 @@ function MinimapEngine:Update(elapsed)
 
                 self.PlyrX = newX
                 self.PlyrY = newY
+
+                -- Build-order step 9a: facing, for the canvas player
+                -- marker's rotation (UpdatePlayerMarker/ClipFrameW's
+                -- :SetRotation call below). GetPlayerFacing() already
+                -- returns radians, 0 = north - fed straight in, no
+                -- sign correction (that was only needed for Carbonite's
+                -- own legacy degrees-then-cos/sin formula, abandoned in
+                -- favor of SetRotation - see ClipFrameW's own comment).
+                -- Unverified as of 2026-11-10: if the marker turns out
+                -- to rotate mirrored (backwards) rather than not at
+                -- all, negate this one line rather than touching
+                -- ClipFrameW again.
+                self.PlyrDir = GetPlayerFacing() or 0
 
                 -- Window title: zone name + live coordinates + run
                 -- speed, same three pieces Nx.Map:OnUpdate's title
@@ -1562,14 +2655,79 @@ function MinimapEngine:Update(elapsed)
                 -- for click-to-travel the way Carbonite's full map is),
                 -- keeping only the self.Scrolling guard so an active
                 -- manual drag (ScrollScale.lua) is never fought.
+                --
+                -- 2026-11-10: gated on the new AutoFollow saved
+                -- setting (MinimapWindow.lua's title-bar checkbox,
+                -- next to the Settings gear) so this continuous
+                -- re-center can be turned off - without it, any manual
+                -- pan got fought back to center within ~30 ticks of
+                -- releasing the drag, which is what the checkbox is
+                -- for.
                 local ZoomController = AlchemyGPS.Modules.Map.ZoomController
-                if ZoomController and not self.Scrolling then
+                local followWin = AlchemyGPS.Modules.Map.MinimapWindow
+                local autoFollow = not (followWin and followWin:DB().profile.AutoFollow == false)
+                if ZoomController and not self.Scrolling and autoFollow then
                     ZoomController:Move(self.PlyrX, self.PlyrY, nil, 30)
                 end
             end
         end
     end
-    self:MoveCurZoneTiles()
+    -- Build-order step 8b, corrected 2026-11-10 after live testing
+    -- showed only ever one detail tile at a time, frozen on pan: a
+    -- re-read of real Carbonite's UpdateZones (MapEngine.lua:9831-9900)
+    -- shows UpdateMiniFrames() is called EVERY tick, UNCONDITIONALLY,
+    -- in every branch (city, ordinary zone, zoomed in or out) - the
+    -- detail-tile layer is always live, following pan/zoom
+    -- continuously from the very first tick. ScaleDraw <= DETAIL_SCALE
+    -- only ever decides whether the COARSE zone-overview art is ALSO
+    -- drawn on top of it (zoomed out: self:MoveCurZoneTiles()) or
+    -- cleared (zoomed in: real source's "MoveCurZoneTiles(true)" -
+    -- this engine's own equivalent is HideZoneTileFrames). The
+    -- previous version of this block treated the two layers as a
+    -- mutually-exclusive switch and only ever turned detail tiles on
+    -- once already zoomed in far enough that a single ~107-world-unit
+    -- tile exceeds the whole window - exactly the "one frozen square"
+    -- symptom reported live.
+    if self.ScaleDraw <= DETAIL_SCALE then
+        self:MoveCurZoneTiles()
+    else
+        self:HideZoneTileFrames(self.TileFrms)
+    end
+    self:UpdateMiniFrames()
+
+    -- Build-order step 9a: independent of both tile layers and the
+    -- live-widget blend below - see UpdatePlayerMarker's own header.
+    self:UpdatePlayerMarker()
+
+    -- Build-order step 9b: repositions already-resolved static service
+    -- icons for the current pan/zoom - see UpdateServiceIcons' own
+    -- header comment for why this runs every tick while
+    -- RefreshServiceIcons only runs on zone change.
+    self:UpdateServiceIcons()
+
+    -- Build-order step 9c: quest turn-in state can change without a
+    -- zone change (turning a quest in while standing still), unlike
+    -- the static service-icon data above - re-resolve on a plain
+    -- 2-second real-time throttle (GetTime(), not an elapsed-time
+    -- accumulator - simpler and immune to drift) rather than every
+    -- tick. A couple of seconds' lag before a turned-in quest's
+    -- marker disappears is an acceptable tradeoff, not a correctness
+    -- problem.
+    local now = GetTime()
+    if not self.QuestRefreshAt or now >= self.QuestRefreshAt then
+        self.QuestRefreshAt = now + 2
+        self:RefreshQuestIcons()
+    end
+    self:UpdateQuestIcons()
+
+    -- Build-order step 9e: gathering-node field. Repositioned on its
+    -- own 0.1s throttle, not every tick - see UpdateGatherIcons'
+    -- header for why (hundreds of stationary points, 20Hz precision
+    -- is wasted on something that never moves).
+    if not self.GatherUpdateAt or now >= self.GatherUpdateAt then
+        self.GatherUpdateAt = now + 0.1
+        self:UpdateGatherIcons()
+    end
 
     local mm = self.MMFrm
     local zoomType = 0

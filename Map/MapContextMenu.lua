@@ -87,10 +87,21 @@ local function create()
     -- never touches or blocks a click meant for something else, so it
     -- can't taint a secure frame's click the way an overlapping
     -- mouse-enabled frame can).
+    --
+    -- Found and fixed live, 2026-11-10 (the deferred "large number of
+    -- AddOn errors" bug from earlier this session, finally reproduced
+    -- with an exact error): the global MouseIsOver() function doesn't
+    -- exist on this server's client build - "attempt to call a nil
+    -- value" on every single OnUpdate tick while this menu was open,
+    -- which is exactly what "large number of errors" looks like. Same
+    -- pattern as this session's other missing-default-Blizzard-asset
+    -- finds (the native mail icon texture). Switched to the frame's
+    -- own :IsMouseOver() method instead, which doesn't depend on that
+    -- global and is the more modern, idiomatic equivalent anyway.
     menu:SetScript("OnUpdate", function(self)
         if not self:IsShown() then return end
         if (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
-            and not MouseIsOver(self) then
+            and not self:IsMouseOver() then
             MapContextMenu:Close()
         end
     end)

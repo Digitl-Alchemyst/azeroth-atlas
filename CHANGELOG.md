@@ -5,6 +5,257 @@ All notable changes to Alchemy GPS are logged here. Format is loose
 but entries are dated and grouped by area so the history stays
 readable.
 
+- **Build-order step 9e, 2026-11-10: gathering-node field (herb/mining/
+  fish/treasure).** User's request: see gathering nodes on the tiled
+  map, as far out as possible, accurate, AND able to tell a node that
+  might actually be there right now from one that's just a known
+  historical spot - explicitly not a plain GatherMate2-style static
+  dot field.
+  - **Data source found already on this server**: `GatherMate2` plus
+    a Carbonite companion addon (`Carbonite.Gathermate2_Data`) ship a
+    Wowhead-sourced static dump of every herb/ore/fish/treasure spawn
+    for this exact "Camelot (Forever)" flavor. Confirmed its zone keys
+    are this engine's own uiMapID (zone 1413 present = The Barrens,
+    matching `NxMapData.lua` exactly) - no AreaID-style conversion
+    problem like the quest-giver case (see `Docs/QuestieIntegration.md`).
+    Since it's static data, not a live scan, it isn't bounded by the
+    game engine's render distance at all - "as far out as possible" is
+    just "the whole zone's static list," trivially satisfied.
+  - Ported the four camelot data files (`HerbalismData.lua`,
+    `MiningData.lua`, `FishData.lua`, `TreasureData.lua`) verbatim into
+    this addon's own `Map/Data/` (`GatherHerb.lua`, `GatherMining.lua`,
+    `GatherFish.lua`, `GatherTreasure.lua`), renaming their global
+    table names (`AlchemyGPS*` instead of `GatherMateData2*`) so they
+    can't collide with GatherMate2/Carbonite's own identically-shaped
+    globals if those addons are also loaded. Coordinate decode is a
+    direct port of GatherMate2's own `Collector.lua` `DecodeLoc` (a
+    packed `x*1000000 + y*100` encoding, confirmed by reading its real
+    source, not guessed).
+  - **Profession gating** (user's call): herb nodes only show if the
+    player knows Herbalism, mining only if Mining, fish only if the
+    player has any Fishing skill. Treasure is unconditional - it's a
+    plain world chest/loot spawn, not tied to any profession.
+  - **"Active right now" investigated at length, not solved live**:
+    checked Carbonite's own real node-map renderer
+    (`Modules/Map/Pins/GatherPin.lua`) first - it only ever draws the
+    static database, gated by zoom scale and gather-skill cap, no live
+    presence check at all. Neither GatherMate2 nor Carbonite (both
+    mature, long-iterated, purpose-built addons) do live detection -
+    real evidence this isn't achievable the easy way. Live-tested two
+    real candidate APIs with the user standing at an actual visible
+    peacebloom node: `C_VignetteInfo.GetVignettes()` returned 0 (not
+    how this server surfaces gathering nodes), and scanning
+    `Minimap`'s own child region textures returned ~290 children, most
+    clearly some other addon's minimap-skin decoration rather than
+    blips - too noisy to isolate the real one without a much larger
+    diff-based investigation (stand at a node / stand far from any
+    node / diff the two child lists). Root cause isn't a missing
+    technique so much as a hard constraint: a resource node is an
+    ordinary game object, and the client only learns one exists once
+    it's close enough to sync - there's no "list every active node in
+    this zone" query for anyone, which is exactly why the native
+    yellow blips only appear once you're near them either.
+  - **Decision (user's own call after being told the above)**: ship a
+    proximity APPROXIMATION instead of true live confirmation. A known
+    point renders full-alpha/bright once the player is within
+    `GATHER_NEARBY_RANGE` of it (a tuned-by-eye constant, not measured
+    yards - needs live-test adjustment), dimmed otherwise. This is
+    explicitly NOT a claim the node is actually there - it's "close
+    enough that it's worth walking over and looking" - clearly
+    different in kind from the quest/flight-master icons elsewhere in
+    this file, which only ever show confirmed, API-backed state.
+  - Icons use guaranteed-present Blizzard profession-spell textures
+    (`Trade_Herbalism`/`Trade_Mining`/`Trade_Fishing`) plus a generic
+    bag icon for treasure, rather than GatherMate2's own per-species
+    `Artwork` files, so this doesn't carry a soft dependency on
+    GatherMate2 staying installed for icons to render.
+  - **Performance**: Barrens herb data alone is 857 entries; a player
+    with multiple gather professions could have 1500+ points active
+    in one zone. Reposition/clip pass (`UpdateGatherIcons`) runs on
+    its own 0.1s throttle rather than every tick (unlike the player
+    marker's 20Hz) - stationary points don't need that precision. Full
+    rebuild (`RefreshGatherIcons`) only runs on zone change, same as
+    the service-icon pattern, since none of this data changes
+    mid-session (a newly learned profession picks up its node type on
+    the next zone change or `/reload`, not instantly).
+  - Completely untested in-game as of this writing - both the basic
+    rendering and the `GATHER_NEARBY_RANGE` tuning need a live pass.
+- **Step 9e REWRITTEN same day: direct GatherMate2 integration,
+  dropped the self-ported data entirely.** First live test showed
+  doubled-up markers at one node once the user copied their real
+  GatherMate2 install + its own collected data into the dev tree - the
+  real cause was two independent data sources (our ported Wowhead dump
+  vs. their actual GatherMate2 database) disagreeing by a few feet on
+  the same real node. User's explicit call: stop maintaining a local
+  copy, integrate GatherMate2 directly, and use ITS real per-species
+  icons ("so we see whats at the node") instead of one generic icon
+  per category.
+  - Deleted `Map/Data/GatherHerb.lua`, `GatherMining.lua`,
+    `GatherFish.lua`, `GatherTreasure.lua` and their `Map.xml` entries
+    entirely - no local gathering data lives in this addon anymore.
+  - `RefreshGatherIcons` now reads GatherMate2's own public accessors
+    directly (confirmed by reading its real source):
+    `GatherMate:GetNodesForZone(zone, dbType)` (a stateless
+    coord/nodeID iterator, zone = uiMapID per its HereBeDragons
+    dependency), `GatherMate:DecodeLoc(coord)` (called directly, not
+    reimplemented, so it can never drift from GatherMate2's own
+    encoding), and `GatherMate.nodeTextures[fullDbName][nodeID]` (the
+    real per-species icon path - confirmed public via
+    `Constants.lua:1322`'s `GatherMate.nodeTextures = node_textures`).
+  - `dbType` short keys ("Herb"/"Mine"/"Fish"/"Treasure") and
+    `nodeTextures`' full-name keys ("Herb Gathering"/"Mining"/
+    "Fishing"/"Treasure") are two different naming schemes GatherMate2
+    itself never unifies - bridged with `GM_TYPE_TO_TEXKEY`. Kept a
+    generic fallback icon (the same ones the first version used) for
+    any nodeID missing from `nodeTextures`.
+  - Added `## OptionalDeps: GatherMate2` to the `.toc` for load order.
+    This is a real soft runtime dependency now - every call site
+    guards with `if GatherMate then`, so no GatherMate2 installed/
+    enabled just means no gathering icons, never an error.
+  - Profession gating and the proximity-approximation "nearby"
+    highlight (both from the first version) are unchanged -
+    GatherMate2's own per-node filter is about toggled/deprecated node
+    subtypes, not profession knowledge, so it doesn't replace either.
+  - Still completely untested in-game as of this writing.
+- **Fix, same day: no gathering icons appeared at all after the
+  GatherMate2 rewrite above.** Root cause: `GatherMate2.lua:7` declares
+  its addon object as `local GatherMate = LibStub("AceAddon-3.0"):
+  NewAddon("GatherMate2", ...)` - a FILE-LOCAL variable. There is no
+  bare `_G.GatherMate` global at all, despite GatherMate2's own code
+  always referring to it that way internally - every `if GatherMate
+  then` guard here was seeing a real `nil`, not a real absence of the
+  addon. Fixed by resolving it the correct way instead of guessing a
+  global name: `LibStub("AceAddon-3.0"):GetAddon("GatherMate2", true)`
+  - AceAddon-3.0 keeps its own registry of every addon it creates
+  regardless of how the creating file named its local, so this is the
+  standard, intended way for one addon to reach another's AceAddon
+  object. Resolved once and cached (`GetGatherMate()`).
+- **Still no nodes after that fix - rewritten a third time, user's own
+  call to "meet in the middle."** Root cause this time: the actual
+  node data lives in `Carbonite.Gathermate2_Data`, which is `##
+  LoadOnDemand: 1` in its own `.toc` - its raw tables simply don't
+  exist in memory until something explicitly loads it. Carbonite's own
+  `GatherStorage.lua` only does that when the user manually runs its
+  GatherMate import UI action - nothing guarantees that's happened.
+  Round 1 (the ported local copy) never hit this because it was our
+  own file, always loaded with this addon regardless.
+  - Fixed by force-loading the data pack ourselves
+    (`EnsureGatherDataLoaded`, calling `C_AddOns.LoadAddOn(
+    "Carbonite.Gathermate2_Data")` - the exact same technique
+    Carbonite's own `GatherImportCarb` already uses) and reading its
+    raw `GatherMateData2HerbDB`/`MineDB`/`FishDB`/`TreasureDB` tables
+    LIVE as globals - no local copy of the data, same proven data path
+    round 1 used, just pointed at the real installed addon instead of
+    a ported duplicate.
+  - GatherMate2 proper's live addon object (`GetGatherMate`, from the
+    previous fix) is kept, but now strictly as an OPTIONAL upgrade:
+    when that addon also happens to be enabled, its real per-species
+    icons (`GatherMate.nodeTextures`) are used; otherwise the generic
+    per-category fallback icon shows instead. Node POSITIONS no longer
+    depend on GatherMate2 proper being enabled at all - only on the
+    data pack, which this forces to load itself.
+  - Still untested in-game as of this writing - this is the third
+    attempt at this feature and needs a clean live pass before trusting
+    it's actually fixed this time.
+- **Fix, same day: the force-load above triggered a real Blizzard
+  protection popup - "GatherMate2 has been blocked from an action only
+  available to the Blizzard UI."** Root cause: `EnsureGatherDataLoaded`
+  called `C_AddOns.LoadAddOn` every zone change from inside the
+  `Update()` OnUpdate tick chain - not a direct hardware event - which
+  tainted the execution context; when GatherMate2's own code ran next
+  (reacting to `Carbonite.Gathermate2_Data`'s `ADDON_LOADED` firing) it
+  inherited that taint and got blocked calling something Blizzard
+  restricts to untainted/Blizzard-only code. Fixed two ways: (1) only
+  ever attempt the load ONCE per session (`gatherDataLoadAttempted`
+  guard), not every zone change; (2) defer the actual `LoadAddOn` call
+  via `C_Timer.After(0, ...)`, which runs in a fresh, untainted
+  execution context - the standard WoW addon-dev workaround for this
+  exact class of taint-inheritance bug. Since the deferred load means
+  data isn't ready yet for whichever `RefreshGatherIcons` call
+  triggered it (always the first one each session), that same callback
+  re-runs `self:RefreshGatherIcons()` once the load actually completes,
+  so the player's starting zone doesn't need an extra real zone change
+  to populate. Still untested in-game as of this writing.
+- **Fix, same day: the taint-deferral fix above STILL tripped the same
+  "GatherMate2 has been blocked" popup.** User confirmed via a clean
+  isolating test - AlchemyGPS disabled entirely, GatherMate2 left
+  enabled on its own: no error at all - that this addon's own code is
+  the trigger, not a pre-existing GatherMate2-vs-server incompatibility.
+  The only non-passive thing this addon did to GatherMate2 was the
+  forced `LoadAddOn` call; since deferring it via `C_Timer.After`
+  didn't help, the restriction apparently isn't a taint-inheritance
+  issue at all - force-loading an on-demand addon programmatically
+  seems to just be blocked outright on this server, regardless of
+  calling context. **Dropped the LoadAddOn call entirely** - this addon
+  never force-loads anything anymore. `CheckGatherDataPresent` just
+  checks whether `Carbonite.Gathermate2_Data`'s raw globals already
+  exist; if not, prints a one-time chat message telling the player to
+  enable it themselves via the normal Blizzard AddOns list checkbox
+  (a real "action available to the Blizzard UI" - exactly what the
+  popup itself was steering toward) and `/reload`. Still untested
+  in-game as of this writing - this is the fifth pass on this feature.
+- **Still tainted even with LoadAddOn fully removed - and a scope
+  correction, same day (round 3).** User re-tested: the same "blocked"
+  popup still fired, and the "enable Carbonite.Gathermate2_Data"
+  message printed too, prompting the user to point out their entire
+  Carbonite suite is disabled - meaning `Carbonite.Gathermate2_Data`
+  (which hard-requires `## Dependencies: Carbonite` in its own `.toc`)
+  could never load for this setup regardless of any fix. More
+  importantly, the user clarified the actual direction: **AlchemyGPS
+  exists to phase Carbonite out** - depending on a Carbonite-only data
+  bridge was backwards on principle, not just broken for this user.
+  - Root cause of the taint, now actually understood instead of routed
+    around: GatherMate2 ships its own first-party "Import
+    GatherMate2Data" button (`/gathermate` -> Import tab ->
+    GatherMate2Data section, `GatherMate2/Config.lua:1175-1199`) that
+    calls `C_AddOns.LoadAddOn("GatherMate2_Data")` and
+    `GatherMateData:PerformMerge(...)` from GatherMate2's own trusted
+    code, fired by a direct hardware click - exactly why that's allowed
+    and this addon's own programmatic `LoadAddOn` attempts (both
+    versions) weren't.
+  - **Rewritten back to GatherMate2's own live API as the sole data
+    source** - `gm:GetNodesForZone(mapId, dbType)` /
+    `gm:DecodeLoc(coord)` / `gm.nodeTextures`, via the already-correct
+    `GetGatherMate()` resolution from the earlier AceAddon fix. This
+    addon never calls `LoadAddOn` on anything, ever, now. No Carbonite
+    dependency anywhere in the chain - `Carbonite.Gathermate2_Data` and
+    its raw globals are gone from this code entirely.
+  - Confirmed this needs no manual step at all per the user's explicit
+    preference ("we dont want to have to do our own dataimport if we
+    can just look at the gathermate data that is already there") -
+    GatherMate2 records nodes automatically as the player gathers, with
+    zero action required, and this addon just reads whatever's already
+    in GatherMate2's live database. A one-time, clearly-optional chat
+    tip (`ShowGatherImportTip`) mentions GatherMate2's own Import button
+    only as a way to pre-seed an empty zone faster, not as a
+    requirement.
+  - Still untested in-game as of this writing - this is the sixth pass
+    on this feature.
+- **Still tainted, same day (round 7) - but with the decisive clue**:
+  the round-6 rewrite was architecturally correct (no Carbonite, no
+  LoadAddOn) but the SAME "GatherMate2 has been blocked" popup still
+  fired. User reported the key new fact that finally pinned it down:
+  the error ONLY ever appears at initial login/reload, never during
+  normal play (walking, zoning, standing near nodes) - ruling out a
+  theory floated this session that GatherMate2's own continuous pin-
+  drawing was colliding with this addon's native-minimap-hide feature
+  (that would show up during play, not specifically at load).
+  - Real cause: this addon's very first `RefreshGatherIcons` call
+    happens inside `TakeOwnership`'s initial `RefreshCurrentZone`,
+    during addon load - before any hardware event (click/keypress) has
+    happened yet this session. `GetGatherMate()` /
+    `gm:GetNodesForZone()` / `gm:DecodeLoc()` were all being called
+    eagerly, un-deferred, at exactly this moment through every round
+    since round 3. Round 4's taint-deferral fix deferred a DIFFERENT
+    call (`LoadAddOn`, since removed) and never touched this one - so
+    it was never actually tested until now.
+  - Fixed by deferring `RefreshGatherIcons`'s entire body one frame via
+    `C_Timer.After(0, ...)` - the standard workaround for "called before
+    any hardware event this session." A `MapId` re-check inside guards
+    the rare case of zoning again before the deferred call fires.
+  - Still untested in-game as of this writing - this is the seventh
+    pass on this feature.
+
 ## Unreleased — 2026-11-10
 
 ### Map window
@@ -34,6 +285,275 @@ readable.
   zoom buttons (`ZoomController.lua`). Previously only the background
   world-art reacted to zoom; Blizzard's own rendered terrain has a
   separate, discrete zoom level that was never being touched.
+- Added an "Auto-follow player" checkbox to the map window's title bar,
+  directly left of the Settings gear (`MinimapWindow.lua`, new saved
+  flag `AutoFollow`, default on). Backs a continuous per-tick
+  re-center-on-player call in `MinimapEngine.lua` that was previously
+  always on — manually panning the view would get pulled back to
+  center within about half a second of releasing the drag, with no way
+  to turn it off. Unchecking the box now lets a manual pan stay put.
+- Fixed the live-widget patch vanishing entirely when going indoors
+  (`MinimapEngine.lua`). Root cause: `GetWorldZoneInfo` returns a
+  fallback rectangle (`0,0,1002,668`, not `nil`) whenever the player's
+  current map isn't in the static zone catalog — true for most building
+  interiors, since Carbonite's real per-mapID catalog resolver
+  (`NxMapData.lua`'s `GetZoneInfo`/`BuildMissingZoneInfo`) was
+  deliberately left unported (needs Carbonite's full `Nx.Zones`
+  database, confirmed this session to be a real hard dependency, not
+  just an unverified assumption — out of scope for now). Because `0` is
+  truthy in Lua, the per-tick update block ran anyway on that bogus
+  fallback, computing a wildly-wrong player position and fighting the
+  live widget's fit check until it failed outright. Now gated on
+  `self.Cont` as well, so indoors the view simply freezes at the last
+  good outdoor position instead of jumping to noise and disappearing.
+  This is a mitigation, not true indoor tracking — real indoor
+  movement still won't move the patch; that needs the full zone
+  database port mentioned above.
+- **Added the real-terrain "detail tile" layer** (new: `Map/Data/
+  MinimapTiles.lua`, `MinimapBindings.lua`, `MinimapRuntime.lua`;
+  `MinimapEngine.lua`'s new `UpdateMiniFrames`/`ClipFrameTL`/
+  `CreateMiniFrame`/`HideMiniFrames`). Root cause of "the live view
+  only fills a little box, not the whole window" (user screenshot
+  comparison against real Carbonite, 2026-11-10): the live Blizzard
+  widget is inherently square (one scalar drives both width and
+  height in both our `MinimapSetScale` and real Carbonite's own), so
+  on a non-square window it can only ever cover the shorter side —
+  that part was never a bug. What actually fills Carbonite's whole
+  window is a *third* layer we'd never ported: real per-256px client
+  minimap textures (the same art the native minimap renders from,
+  referenced by FileDataID), tiled as plain static frames that follow
+  the view's pan position rather than the player's live position.
+  Ported near-verbatim from Carbonite's `UpdateMiniFrames`/
+  `ClipFrameTL` (flat 2D math only — View3D is still an explicit
+  non-goal), gated the same way real Carbonite's `UpdateZones` does:
+  this layer replaces the zone-overview tiles once zoomed in past a
+  scale threshold (`DETAIL_SCALE = 4`, matching Carbonite's own
+  `NXDetailScale` default), zone-overview tiles return once zoomed
+  back out.
+  - The `MapWorldInfo[13]`/`[14]` anchor-index concern noted when this
+    first landed turned out to be fine — confirmed live, position
+    matches.
+  - **Found and fixed live, 2026-11-10**: the detail tiles weren't
+    appearing at all once zoomed past the threshold (background went
+    blank, only the live-widget patch remained; panning rendered
+    nothing new) — all three symptoms traced to one cause.
+    `GetMiniInfo` (`MinimapRuntime.lua`) needs a per-zone `.Cont` field
+    to know which continent's tile table to use, but that field is
+    only ever written by the dead `BuildMissingZoneInfo` resolver
+    (needs the real `Nx.Zones` database this addon doesn't have), so
+    it's nil on every ordinary outdoor zone — `GetMiniInfo` silently
+    returned nil every time. Fixed by falling back to
+    `MinimapEngine.Cont`, the engine's own already-reliable current-
+    continent number (the same one `MoveZoneTiles` already uses
+    correctly), since `GetMiniInfo` is only ever called here with the
+    current zone anyway.
+  - **Found and fixed live, 2026-11-10 (second round)**: after the fix
+    above, detail tiles appeared and were correctly positioned, but
+    only ever as one frozen square that didn't change while
+    panning/zooming. Root cause: the zoom-threshold gate was wrongly
+    written as an either/or switch between the zone-overview layer and
+    the detail-tile layer. Re-reading real Carbonite's `UpdateZones`
+    (`MapEngine.lua:9831-9900`) shows `UpdateMiniFrames()` is called
+    unconditionally on *every* tick at *every* zoom level in every
+    branch — the threshold only ever decides whether the coarse
+    zone-overview art is *also* drawn on top of it (zoomed out) or
+    cleared (zoomed in). Gating `UpdateMiniFrames` itself behind the
+    threshold meant detail tiles only ever turned on once already
+    zoomed in far enough that a single ~107-world-unit tile exceeded
+    the whole window — so only one tile was ever visible, and panning
+    within it looked like nothing was happening. Fixed by calling
+    `UpdateMiniFrames()` unconditionally every tick, matching real
+    Carbonite exactly; only the zone-overview draw/clear choice stays
+    behind the threshold.
+- **Added a canvas-drawn player-position marker** (new:
+  `MinimapEngine.lua`'s `ClipFrameW`/`UpdatePlayerMarker`, `PlyrFrm`).
+  Root cause of "I see no icons, I have no idea where I am" and of
+  markers visibly disagreeing after zooming: the live Blizzard-widget
+  blend was the *only* thing in this addon showing player position,
+  and it can legitimately clip out of view entirely (same "pan far
+  enough and lose the square" behavior disclosed since this project's
+  very first session) or visibly diverge from the tile layers whenever
+  the view's pan target differs from the player's raw live position
+  (mid-animation after a zoom/recenter, or panned away with auto-follow
+  off). Investigated how real Carbonite actually solves this: it has
+  no separate "draw the player" mechanism at all — the player marker
+  is just one more icon (a "Player" Pin) drawn by the same generic
+  per-frame icon renderer as every other world icon (mailbox, inn,
+  quest giver), through the identical world-to-screen math this
+  addon's own tile code already uses, with one dedicated frame instead
+  of the generic icon pool since there's always exactly one. Ported
+  that same mechanism at the same scope: one dedicated frame, the real
+  `ClipFrameW` point-clip math (fixed pixel size, not scaled by zoom —
+  unlike tiles), repositioned every tick, independent of both tile
+  layers and the live widget. Includes facing-direction rotation;
+  corrected a real degrees-vs-radians unit mismatch found along the
+  way in Carbonite's own legacy source (its `PlyrDir` is computed in
+  degrees but fed straight into `cos()`/`sin()`, which expect radians)
+  rather than porting that mismatch faithfully.
+- **Decision, 2026-11-10**: user chose to reopen the full mailbox/
+  inn/quest-giver icon system (Carbonite's real Pin/Layer/Renderer
+  architecture) as real scope, previously an explicit non-goal.
+- **Added static service-location icons** (mailbox, innkeeper, flight
+  master; new `Map/Data/GuideMailbox.lua`/`GuideInnkeeper.lua`,
+  `MinimapEngine.lua`'s `RefreshServiceIcons`/`UpdateServiceIcons`).
+  First concrete slice of the scope decision above. Investigated how
+  real Carbonite actually sources these: unlike quest-giver/trainer/
+  gather icons (live game state, the generic Pin/Layer/Renderer
+  system), static service icons come from a hand-curated per-flavor
+  coordinate database keyed by mapID
+  (`Carbonite/Data/camelot/Guides/<Kind>.lua`) — ported Mailbox/
+  Innkeeper verbatim. Flight Master's own camelot data file ships
+  empty for this flavor (no coordinates, just a mode flag) — sourced
+  from Blizzard's live `C_TaxiMap` API instead, which is arguably more
+  robust anyway (always accurate to what's actually been discovered).
+  World positions resolve once per zone change; screen position still
+  updates every tick (pan/zoom), reusing step 9a's `ClipFrameW`
+  directly rather than new clip math.
+  - **Found and fixed live, 2026-11-10**: while wiring this up,
+    discovered `GetWorldPos` — referenced by name in several existing
+    comments across this file (`RefreshCurrentZone`, `NxMapData.lua`'s
+    dead zone-resolver) as if it already existed — was never actually
+    implemented. It would have errored on first real call. Added it
+    using the exact same per-zone anchor/scale data
+    `GetWorldZoneInfo` already relies on successfully, just in its
+    general "convert an arbitrary 0-100 zone-relative position"
+    form instead of that function's fixed "top-left + full span"
+    return.
+  - Icon textures are standard Blizzard minimap-tracking-filter
+    paths, not Carbonite's own icon atlas, and not yet confirmed to
+    exist on this server build — this server has already shown one
+    default Blizzard texture path missing entirely this same session
+    (the native mail-icon fix). Needs live verification.
+  - Completely untested in-game as of this writing.
+- **First live test results, 2026-11-10, and fixes from them**:
+  - Player marker appeared but never rotated (always pointed up) and
+    was reported too small. Bumped `PLAYER_MARKER_SIZE` 20→28. For
+    rotation: the hand-rolled UV-corner-rotation math ported from
+    Carbonite's legacy `ClipFrameW` couldn't be cross-checked against
+    a working reference (the newer Pin-system rewrite's own
+    `PlayerPin.lua` doesn't carry facing/rotation over at all - it
+    only tracks x/y) and evidently had a bug somewhere. Replaced with
+    the texture's native `:SetRotation()` instead - the standard WoW
+    API for exactly this, simpler and not dependent on hand-rolled
+    trig. Dropped the now-unneeded degrees/radians sign correction on
+    `PlyrDir` that only made sense for the old UV-math formula. If
+    this turns out mirrored (rotates backwards) rather than not
+    rotating, the fix is a one-line sign flip, not another rewrite.
+  - Only one of three innkeeper entries in The Barrens (mapID 1413)
+    showed, and it was the wrong one for a Horde player (a neutral
+    entry near Ratchet, not Crossroads). Root cause: this addon's own
+    `ServiceIconFactionOk` had Carbonite's real faction convention
+    backwards. Real `hideFaction()` (`GuideLocations.lua`) returns the
+    code to HIDE (1 for Horde, 2 for Alliance), and its call site shows
+    an entry when `fac ~= hide` - so fac==1 is Alliance-only and
+    fac==2 is Horde-only. This addon's port had it exactly reversed,
+    silently hiding every Horde-only entry from Horde players (and
+    vice versa for Alliance). Fixed - same bug affected Mailbox
+    identically, same fix applies to both.
+  - No mail icon appeared at all. Root cause: `Interface\Minimap\
+    TrackingIcons\Mailbox` is in the exact same `Interface\Minimap\...`
+    texture family already confirmed broken on this server build this
+    same session (`MinimapDock.lua`'s native mail-icon fix -
+    `MiniMap-MailIcon` renders nothing here). Switched to
+    `Interface\Icons\INV_Letter_15`, that same earlier fix's own
+    already-verified-visible replacement, rather than guessing a third
+    path blind. Innkeeper's own path
+    (`Interface\MINIMAP\TRACKING\Innkeeper`) is a different, modern
+    texture family and is now confirmed working (visible once the
+    faction bug above was fixed) - left unchanged.
+  - No flight-master icon appeared at a Crossroads landing. **Not yet
+    root-caused** - unlike the three fixes above, this one is still
+    open. Flight Master's own texture path is in the same now-
+    confirmed-working family as Innkeeper, so a texture problem is
+    unlikely; more likely `C_TaxiMap.GetTaxiNodesForMap` isn't
+    returning what's expected for this mapID on this server build, or
+    there's a reachable/current state-filtering mismatch. See
+    `RefreshServiceIcons`'s own header comment for the open question.
+  - Quest-giver icons still don't appear - **expected, not a bug**:
+    the dynamic Pin/Layer/Renderer system quest-givers would need is
+    explicitly out of scope so far (see the "reopen full icon/pin
+    system" decision above) - only the static service-icon slice
+    (mailbox/innkeeper/flight-master) has been built.
+- **Flight-master icon, root-caused and fixed, 2026-11-10**: the
+  original reachability check (`node.state == Enum.FlightPathState...`)
+  never matched anything on this server build. Found an already-
+  installed, already-working addon on this exact server
+  (`ForeverDungeonJournal/Systems/MapMarkers.lua`) that also calls
+  `C_TaxiMap.GetTaxiNodesForMap` and does NOT trust the node's own
+  state/type field for reachability either - it tracks "discovered"
+  itself, specifically because the live field isn't reliable here. It
+  also reads `node.position` defensively (plain `{x,y}` table on some
+  builds, a Vector2D needing `:GetXY()` on others). Matched both of
+  those: dropped the reachability filter entirely (shows every node
+  the API returns for the zone - "shows an undiscovered one too" beats
+  "shows none"), fixed position reading, added the same faction filter
+  the mailbox/innkeeper fix above uses (`node.faction`, same
+  1=Horde-only/2=Alliance-only convention, confirmed against that same
+  addon's own filter).
+- **Added quest turn-in markers** (user asked to "get... quest
+  working" after testing the above). Investigated a large, real,
+  already-working quest-map-icon implementation on this same server
+  first (`Carbonite.Quests/MapIcons.lua`, 2000+ lines) before writing
+  anything. Two findings shaped the scope:
+  - A "new available quest, NPC not yet talked to" marker needs a
+    static NPC-to-quest database. The one already installed
+    (QuestieDB) has exactly this data via its public `LibQuestieDB`
+    contract, but stores spawn positions by legacy AreaID, not this
+    engine's uiMapID - converting between the two turns out to need
+    Questie's own PRIVATE, undocumented `ZoneDB` module (confirmed:
+    even Questie's own `QuestiePlayer:GetCurrentZoneId` depends on it
+    for exactly this). Not a stable contract to build on - **deferred,
+    not built**, real future scope.
+  - A "where do I turn in a quest already in my log" marker needs none
+    of that - `C_QuestLog.GetQuestsOnMap(mapID)` is a live, standard,
+    external-database-free Blizzard API, confirmed current by
+    Carbonite.Quests' own use of it as its primary feed. Built this
+    half only: `RefreshQuestIcons`/`UpdateQuestIcons` show the
+    standard quest-turn-in texture (`Interface\GossipFrame\
+    ActiveQuestIcon`, same one Carbonite's own `QuestPin.lua` names)
+    at every map point whose quest is flagged complete
+    (`C_QuestLog.IsComplete`). Refreshes on zone change plus a plain
+    2-second throttle (quest state can change without a zone change,
+    unlike the static service-icon data). In-progress objective
+    markers (not yet complete) are deliberately left out of this first
+    pass - simpler scope, avoids ambiguity about what a mid-quest
+    marker would even mean positionally.
+  - Completely untested in-game as of this writing.
+- **Live test, 2026-11-10 (Camp Taurajo, The Barrens)**: user reported
+  neither quest nor flight-master icons appeared. Diagnosed with two
+  one-line `/run` checks rather than guessing a third time:
+  - Quest icons: confirmed working as designed, not broken - zero
+    complete quests in the log at the time, so correctly nothing to
+    show. Only a turn-in-ready quest produces a marker.
+  - Flight master: genuinely broken. `GetTaxiNodesForMap(1413)`
+    returned 38 nodes - the whole continent's flight network (the
+    same thing a flight master's own map shows when you talk to one),
+    not just nodes physically in The Barrens. Their positions, read as
+    percent-through-this-zone, land far outside it once converted to
+    world space - not necessarily safely off-screen, since that wrong
+    position could coincidentally overlap something else on the
+    canvas. Added an explicit 0-1 bounds check on the node's position
+    before converting, rejecting every node that doesn't actually
+    belong to the current zone.
+- **Live test round 2, 2026-11-10 (Camp Taurajo)**: user moved away
+  and zoomed in - still no flight-master icon. Ruled out the obvious
+  theory first (player marker drawn on a higher frame level than
+  service icons, and the node's position is almost exactly the
+  player's own coordinate) by asking the user to step away; icon still
+  didn't appear, so that wasn't it. One more `/run` check
+  (`d.faction, d.type, d.state` for the Taurajo node) found the real
+  cause: `print` returned `1  nil  nil` - `C_TaxiMap`'s own
+  `node.faction` does NOT use `GuideData`'s hide-code convention
+  (1=Alliance-only/2=Horde-only, confirmed against Carbonite's
+  `hideFaction()`). It's direct identity instead (1=Horde, 2=Alliance)
+  - Camp Taurajo (a real Horde-only flight point) reporting `faction=1`
+  proves it. Reusing `ServiceIconFactionOk` for taxi nodes was
+  rejecting every node of the player's own faction outright, which is
+  why none ever rendered even after the whole-continent bounds-check
+  fix. Added a separate `TaxiFactionOk` with the opposite convention -
+  deliberately NOT merged into `ServiceIconFactionOk`, since the two
+  data sources disagree on what the numbers mean and conflating them
+  would silently reintroduce this exact bug later.
 
 ### Right-click brightness menu (new: `MapContextMenu.lua`)
 - Added a small right-click popup on the map window with a tile-map
@@ -48,6 +568,15 @@ readable.
   by sitting on top of the action bars.
 - Right-click again on the map toggles the menu closed (same action
   that opens it).
+- **Fixed, 2026-11-10**: the long-deferred "Your AddOns are
+  experiencing a large number of errors" popup, finally reproduced
+  with an exact error — `MapContextMenu.lua:93: attempt to call a nil
+  value`, firing every single `OnUpdate` tick while this menu was
+  open. Root cause: the global `MouseIsOver()` function doesn't exist
+  on this server's client build — same pattern as the native mail-icon
+  texture also being missing. Switched the outside-click-dismiss check
+  to the frame's own `:IsMouseOver()` method, which doesn't depend on
+  that global.
 
 ### Minimap icon dock (`MinimapDock.lua`)
 - Fixed real addon/Blizzard minimap buttons being swept up as fake

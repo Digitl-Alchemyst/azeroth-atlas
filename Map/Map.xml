@@ -7,6 +7,24 @@
          AlchemyGPS.Map alias (build-order step 8) finds it already
          populated, whichever of the two happens to load first. -->
     <Script file="Data\NxMapData.lua" />
+    <!-- Build-order step 8b: the real-terrain detail-tile system
+         (shows once zoomed in past NXDetailScale, see
+         MinimapEngine.lua's UpdateMiniFrames). MinimapTiles.lua is
+         pure data (no dependency); MinimapBindings.lua needs both it
+         (CamelotKalMapBlks/CamelotEkMapBlks) and NxMapData.lua
+         (MapWorldInfo/MapInfo) already loaded, so it goes last of the
+         three. MinimapRuntime.lua just defines methods, no load-time
+         dependency on the other two. -->
+    <Script file="Data\MinimapTiles.lua" />
+    <Script file="Data\MinimapRuntime.lua" />
+    <Script file="Data\MinimapBindings.lua" />
+    <!-- Build-order step 9b: static service-icon data (mailbox/
+         innkeeper), pure data, no dependencies. -->
+    <Script file="Data\GuideMailbox.lua" />
+    <Script file="Data\GuideInnkeeper.lua" />
+    <!-- Build-order step 9e: gathering-node data is read live from
+         GatherMate2 (see MinimapEngine.lua's own header comment on
+         that section) - no local data file needed or wanted here. -->
     <Script file="MinimapWindow.lua" />
     <Script file="NativeMinimapHide.lua" />
     <Script file="ScrollScale.lua" />

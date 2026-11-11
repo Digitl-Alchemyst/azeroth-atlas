@@ -34,6 +34,7 @@ local MinimapWindow = Module:New("MinimapWindow", {
         profile = {
             MinimapWindow = {
                 NativeMinimapHidden = true,
+                AutoFollow = true,
             },
             Map = {
                 Compatibility = true,
@@ -277,6 +278,38 @@ function MinimapWindow:Open()
     end)
     self.SettingsBut = settingsBut
 
+    -- Auto-follow checkbox, title-bar row directly left of the
+    -- Settings gear (user-requested quick toggle, 2026-11-10). Backs
+    -- MinimapEngine.lua's continuous per-tick re-center-on-player call
+    -- (ZoomController:Move, gated on this same saved flag) - unchecking
+    -- it is what lets a manual pan-drag stay where you left it instead
+    -- of snapping back to center the instant you release the mouse.
+    -- Real checkbox textures (Blizzard's stock UI-CheckBox set, shrunk
+    -- to match the tight title-bar row), not a plain icon button like
+    -- settingsBut above - this one needs to show a persistent
+    -- checked/unchecked state, not just fire once on click.
+    local followCB = CreateFrame("CheckButton", nil, win.Frm)
+    followCB:SetSize(14, 14)
+    followCB:SetPoint("RIGHT", settingsBut, "LEFT", -6, 0)
+    followCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+    followCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+    followCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+    followCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    followCB:SetChecked(self:DB().profile.AutoFollow ~= false)
+    followCB:SetScript("OnClick", function(cb)
+        self:DB().profile.AutoFollow = cb:GetChecked() and true or false
+    end)
+    followCB:SetScript("OnEnter", function(cb)
+        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
+        GameTooltip:SetText("Auto-follow player")
+        GameTooltip:AddLine(
+            "Recenters the view on you once you stop panning. Uncheck to pan freely without it snapping back.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    followCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self.FollowCB = followCB
+
     -- Mode toggle, same idea as Carbonite's own 2D/3D map-mode button.
     -- See SetMode above for what "Live" vs "Tiles" actually changes.
     local modeBut = CreateFrame("Button", nil, win.Frm, "UIPanelButtonTemplate")
@@ -332,6 +365,7 @@ function MinimapWindow:Open()
     zoomIn:SetFrameLevel(content:GetFrameLevel() + 1)
     zoomOut:SetFrameLevel(content:GetFrameLevel() + 1)
     settingsBut:SetFrameLevel(content:GetFrameLevel() + 1)
+    followCB:SetFrameLevel(content:GetFrameLevel() + 1)
 
     MinimapEngine:TakeOwnership(win, content)
 
