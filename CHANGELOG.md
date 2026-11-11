@@ -491,6 +491,94 @@ readable.
     a plain 0-1 transparency multiplier on top of the existing
     proximity-based dim/bright logic, not a replacement for it.
   - Deployed and verified byte-identical. Not yet live-tested.
+- **Build-order step 9h, 2026-11-10: gathering-icon visibility pass.**
+  Same day, user-reported: "100 cannot be the best these get, can
+  barely see them" after testing step 9g's opacity slider - plus a
+  request for a size slider and "anything else you can think of to
+  make these more visible."
+  - **Root cause of the "100% still barely visible" report**:
+    `GATHER_DIM_ALPHA` (the non-near/"dimmed" icon alpha) was 0.45,
+    multiplied by the opacity slider - so even at the slider's max,
+    any icon not within `GATHER_NEARBY_RANGE` (a small radius, so
+    "dimmed" is the common case for anything visible at a normal zoom
+    level, not the exception) topped out at 45% opacity. Raised to
+    0.85 - now a subtle closer-is-brighter cue instead of the
+    dominant factor in whether an icon is visible at all.
+  - Bumped the base icon size 10 -> 12 (`GATHER_ICON_SIZE`,
+    `MinimapEngine.lua`).
+  - **New size slider** (row 3 in `MapContextMenu.lua`): 50%-300% of
+    that base size, persisted as `AlchemyGPS.db.profile.
+    GatherIconScale`, applied live to `MinimapEngine.GatherIconScale`
+    and multiplied into the size passed to `ClipFrameW` in
+    `UpdateGatherIcons`. Menu resized 136px -> 198px for the third row.
+  - **New backdrop halo** (the "anything else" ask): each gather icon
+    now has a plain dark square (`frm.backdrop`, a `BACKGROUND`-layer
+    `SetColorTexture` - no new art asset needed) sized proportionally
+    larger than the icon itself (`GATHER_BACKDROP_PAD_RATIO`, 20% per
+    side, scales with the size slider rather than a fixed pixel
+    border) for contrast against busy map art. Its alpha tracks the
+    same near/dim/opacity calculation as the icon itself (at a reduced
+    multiplier, `GATHER_BACKDROP_ALPHA_MULT` = 0.7) so it fades
+    together with the icon rather than fighting the opacity slider.
+  - Deployed and verified byte-identical. Not yet live-tested.
+- **Build-order step 9i, 2026-11-10: backdrop halo refinement.**
+  Same-day follow-up, user-reported after step 9h: the backdrop was "a
+  little 2 big," wanted it to "hug tight with only a couple pixel
+  padding," wanted the corners "a slight rounding," and wanted its
+  opacity independently controllable (not fixed).
+  - **Tight padding**: `GATHER_BACKDROP_PAD_RATIO` (20% of the icon's
+    current size) replaced with a flat `GATHER_BACKDROP_PAD = 2`
+    (pixels, every side) - no longer scales with the size slider.
+  - **Rounded corners**: `frm.backdrop` is now a real `BackdropTemplate`
+    frame (was a plain `SetColorTexture` square) using the exact same
+    `UI-Tooltip-Background`/`UI-Tooltip-Border` combo
+    `MapContextMenu.lua`'s own menu panel already uses, shrunk to icon
+    scale (`edgeSize = 3`, 1px insets) - reuses an asset already in
+    this addon rather than needing new art. Since BackdropTemplate
+    frames don't layer the way `CreateMiniFrame`'s plain child textures
+    do, it's a sibling frame (parented to `self.Frm`, not to the icon
+    frame itself) kept behind it purely via frame level
+    (`level - 1`, set every update pass).
+  - **New backdrop-opacity slider** (row 4, `MapContextMenu.lua`): 0-
+    100%, persisted as `AlchemyGPS.db.profile.GatherBackdropOpacity`,
+    applied live to `MinimapEngine.GatherBackdropOpacity` - replaces
+    the old fixed `GATHER_BACKDROP_ALPHA_MULT` (0.7) constant, which is
+    now just that slider's default so today's look doesn't change
+    until the user actually touches it. Menu resized 198px -> 260px.
+  - Becoming a sibling frame instead of a child texture meant hiding
+    the icon frame no longer auto-hides the backdrop - fixed in both
+    `HideGatherFrames` and the end-of-list hide loop in
+    `UpdateGatherIcons`, and the off-screen (`ClipFrameW` returns
+    false) branch now explicitly hides it too rather than leaving a
+    stale backdrop floating with no icon on top of it.
+  - Deployed and verified byte-identical. Not yet live-tested.
+- **Build-order step 9j, 2026-11-10: backdrop corners matched to the
+  real map window's own chrome.** Same-day follow-up to step 9i - user
+  asked for the backdrop's corner rounding to match the map module's
+  own window corners specifically, rather than the ad-hoc small
+  `edgeSize` picked in step 9i. `frm.backdrop`'s `SetBackdrop` call now
+  reads `AlchemyGPS.Skin:GetBackdrop()` directly (the exact same table
+  `UI/Window.lua`'s `CreateBorders` applies to the real window frame,
+  defined in `UI/Skin.lua`) instead of a separate hardcoded recipe -
+  same asset, same `edgeSize`/`tileSize`/`insets`, so it keeps matching
+  automatically if that skin table is ever changed later, rather than
+  two copies that could drift apart. Fill/border color stay plain black
+  (not the skin's own blue-gray tint) - this is still "the black box"
+  from the backdrop-opacity slider, not a themed panel.
+  - Deployed and verified byte-identical. Not yet live-tested.
+- **2026-11-10: zoom buttons restyled to match AlchemyNavigation's.**
+  User's request: "steal the style" from the sibling AlchemyNavigation
+  project's own undocked-minimap zoom buttons. `MinimapWindow.lua`'s
+  zoomIn/zoomOut (build-order step 5) were `UIPanelButtonTemplate`
+  (Blizzard's gray beveled button look); replaced with a plain 16x16
+  `Button` + a black 50%-alpha `SetColorTexture` background + a
+  centered +/- `GameFontNormalSmall` label - copied as-is from
+  AlchemyNavigation's `Modules/Map/Minimap.lua` `makeButton` (no hover/
+  pressed textures there either, so none added here). Kept this
+  window's own bottom-right anchor rather than copying
+  AlchemyNavigation's bottom-left placement too - the ask was the
+  visual style, not the layout.
+  - Deployed and verified byte-identical. Not yet live-tested.
 
 ## Unreleased — 2026-11-10
 

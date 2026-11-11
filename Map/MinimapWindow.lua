@@ -238,17 +238,40 @@ function MinimapWindow:Open()
     -- which only make sense for a docked (small, native-replacing)
     -- minimap - this window is the undocked case, so it gets its own
     -- pair instead, matching MiniMap:ZoomIn/ZoomOut's delta of +-2.
+    --
+    -- Styled 2026-11-10 to match AlchemyNavigation's own undocked-
+    -- minimap zoom buttons (Modules/Map/Minimap.lua's makeButton) per
+    -- explicit user request ("steal the style") - a plain flat 16x16
+    -- button (not UIPanelButtonTemplate's gray beveled look) with a
+    -- black 50%-alpha background and a centered +/- label, no
+    -- hover/pressed textures (that sibling project's version doesn't
+    -- have any either - copied as-is, not embellished). Position kept
+    -- at this window's own bottom-right anchor rather than
+    -- AlchemyNavigation's bottom-left, since "style" was the ask, not
+    -- layout.
     local ZoomController = AlchemyGPS.Modules.Map.ZoomController
-    local zoomIn = CreateFrame("Button", nil, win.Frm, "UIPanelButtonTemplate")
-    zoomIn:SetSize(24, 20)
+
+    local function makeZoomButton(label)
+        local b = CreateFrame("Button", nil, win.Frm)
+        b:SetSize(16, 16)
+
+        local bg = b:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0, 0, 0, 0.5)
+
+        local text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        text:SetPoint("CENTER")
+        text:SetText(label)
+
+        return b
+    end
+
+    local zoomIn = makeZoomButton("+")
     zoomIn:SetPoint("BOTTOMRIGHT", win.Frm, "BOTTOMRIGHT", -6, 4)
-    zoomIn:SetText("+")
     zoomIn:SetScript("OnClick", function() ZoomController:ScrollSteps(2) end)
 
-    local zoomOut = CreateFrame("Button", nil, win.Frm, "UIPanelButtonTemplate")
-    zoomOut:SetSize(24, 20)
+    local zoomOut = makeZoomButton("-")
     zoomOut:SetPoint("RIGHT", zoomIn, "LEFT", -2, 0)
-    zoomOut:SetText("-")
     zoomOut:SetScript("OnClick", function() ZoomController:ScrollSteps(-2) end)
 
     -- content is the clip area the live minimap patch and the world-

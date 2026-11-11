@@ -23,6 +23,23 @@
 -- row 1, so it stays capped at 100%. Persisted as
 -- AlchemyGPS.db.profile.GatherIconOpacity, applied live to
 -- MinimapEngine.GatherOpacity on every slider move.
+--
+-- Row 3 (build-order step 9h, 2026-11-10, same "can barely see them"
+-- visibility pass as row 2's dim-ratio/backdrop fixes): a size slider
+-- for the same icons, 50%-300% of their base size
+-- (MinimapEngine.lua's GATHER_ICON_SIZE). Allowed above 100% - unlike
+-- row 1/2, making these bigger than their natural size is exactly the
+-- point. Persisted as AlchemyGPS.db.profile.GatherIconScale, applied
+-- live to MinimapEngine.GatherIconScale on every slider move.
+--
+-- Row 4 (build-order step 9i, 2026-11-10, follow-up to row 3's own
+-- backdrop halo): a separate opacity slider just for that backdrop
+-- (MinimapEngine:UpdateGatherIcons's frm.backdrop, a BackdropTemplate
+-- frame, not the icon itself) - user wanted it independently
+-- controllable rather than fixed. 0-100%, same capped-at-100% reasoning
+-- as row 2. Persisted as AlchemyGPS.db.profile.GatherBackdropOpacity,
+-- applied live to MinimapEngine.GatherBackdropOpacity on every slider
+-- move.
 
 local AlchemyGPS = _G.AlchemyGPS
 AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
@@ -38,6 +55,12 @@ local MIN_BRIGHTNESS, MAX_BRIGHTNESS = 0, 1
 
 local DEFAULT_GATHER_OPACITY = 1
 local MIN_GATHER_OPACITY, MAX_GATHER_OPACITY = 0, 1
+
+local DEFAULT_GATHER_SCALE = 1
+local MIN_GATHER_SCALE, MAX_GATHER_SCALE = 0.5, 3
+
+local DEFAULT_GATHER_BACKDROP_OPACITY = 0.7
+local MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY = 0, 1
 
 local menu
 
@@ -61,11 +84,31 @@ local function applyGatherOpacity(value)
     end
 end
 
+local function applyGatherScale(value)
+    if AlchemyGPS.db and AlchemyGPS.db.profile then
+        AlchemyGPS.db.profile.GatherIconScale = value
+    end
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if MinimapEngine then
+        MinimapEngine.GatherIconScale = value
+    end
+end
+
+local function applyGatherBackdropOpacity(value)
+    if AlchemyGPS.db and AlchemyGPS.db.profile then
+        AlchemyGPS.db.profile.GatherBackdropOpacity = value
+    end
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if MinimapEngine then
+        MinimapEngine.GatherBackdropOpacity = value
+    end
+end
+
 local function create()
     if menu then return menu end
 
     menu = CreateFrame("Frame", "AlchemyGPSMapContextMenu", UIParent, "BackdropTemplate")
-    menu:SetSize(220, 136)
+    menu:SetSize(220, 260)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -117,6 +160,42 @@ local function create()
     end)
     menu.gatherSlider = gatherSlider
 
+    local sizeLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sizeLabel:SetPoint("TOP", menu, "TOP", 0, -136)
+    sizeLabel:SetText("Gathering Icon Size")
+
+    local sizeSlider = CreateFrame("Slider", "AlchemyGPSGatherSizeSlider", menu, "OptionsSliderTemplate")
+    sizeSlider:SetPoint("TOP", menu, "TOP", 0, -160)
+    sizeSlider:SetWidth(180)
+    sizeSlider:SetMinMaxValues(MIN_GATHER_SCALE, MAX_GATHER_SCALE)
+    sizeSlider:SetValueStep(0.1)
+    sizeSlider:SetObeyStepOnDrag(true)
+    _G[sizeSlider:GetName() .. "Low"]:SetText(("%d%%"):format(MIN_GATHER_SCALE * 100))
+    _G[sizeSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_GATHER_SCALE * 100))
+    _G[sizeSlider:GetName() .. "Text"]:SetText("")
+    sizeSlider:SetScript("OnValueChanged", function(_, value)
+        applyGatherScale(value)
+    end)
+    menu.sizeSlider = sizeSlider
+
+    local backdropLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    backdropLabel:SetPoint("TOP", menu, "TOP", 0, -198)
+    backdropLabel:SetText("Gathering Icon Backdrop Opacity")
+
+    local backdropSlider = CreateFrame("Slider", "AlchemyGPSGatherBackdropOpacitySlider", menu, "OptionsSliderTemplate")
+    backdropSlider:SetPoint("TOP", menu, "TOP", 0, -222)
+    backdropSlider:SetWidth(180)
+    backdropSlider:SetMinMaxValues(MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY)
+    backdropSlider:SetValueStep(0.05)
+    backdropSlider:SetObeyStepOnDrag(true)
+    _G[backdropSlider:GetName() .. "Low"]:SetText("0%")
+    _G[backdropSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_GATHER_BACKDROP_OPACITY * 100))
+    _G[backdropSlider:GetName() .. "Text"]:SetText("")
+    backdropSlider:SetScript("OnValueChanged", function(_, value)
+        applyGatherBackdropOpacity(value)
+    end)
+    menu.backdropSlider = backdropSlider
+
     -- Dismiss on an outside click WITHOUT an intercepting frame: a
     -- full-screen clickable Button over UIParent sat above Blizzard's
     -- own protected action bars and tripped "AlchemyGPS has been
@@ -157,6 +236,14 @@ function MapContextMenu:Open()
     local gatherOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.GatherIconOpacity) or DEFAULT_GATHER_OPACITY
     m.gatherSlider:SetValue(gatherOpacity)
+
+    local gatherScale = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.GatherIconScale) or DEFAULT_GATHER_SCALE
+    m.sizeSlider:SetValue(gatherScale)
+
+    local gatherBackdropOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.GatherBackdropOpacity) or DEFAULT_GATHER_BACKDROP_OPACITY
+    m.backdropSlider:SetValue(gatherBackdropOpacity)
 
     local x, y = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()

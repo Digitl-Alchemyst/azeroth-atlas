@@ -104,11 +104,21 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
         and AlchemyGPS.db.profile.BackgndBrightness) or 1
 
     -- Same pattern as BackgndAlpha just above, for the gathering-node
-    -- icons' own opacity slider (MapContextMenu.lua, build-order step
-    -- 9g) - seeded here so a value chosen via the right-click menu
-    -- survives /reload without needing the menu reopened first.
+    -- icons' own opacity and size sliders (MapContextMenu.lua, build-
+    -- order steps 9g/9h) - seeded here so a value chosen via the
+    -- right-click menu survives /reload without needing the menu
+    -- reopened first.
     self.GatherOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.GatherIconOpacity) or 1
+    self.GatherIconScale = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.GatherIconScale) or 1
+    -- Literal fallback (not the DEFAULT_GATHER_BACKDROP_OPACITY named
+    -- constant below) - same reason BackgndAlpha/GatherOpacity/
+    -- GatherIconScale just above use literals too: this runs before
+    -- that constant's own `local` declaration further down the file
+    -- is in scope.
+    self.GatherBackdropOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.GatherBackdropOpacity) or 0.7
 
     -- Build-order step 8: the zone-art tile frame pool. Created once
     -- (persists across close/reopen, same as the pan/zoom state below -
@@ -1323,13 +1333,36 @@ end
 -- plain world chest/loot spawn, not tied to any profession.
 ---------------------------------------------------------------------------------------
 
-local GATHER_ICON_SIZE = 10
+-- Base size before the right-click menu's size slider (self.
+-- GatherIconScale) multiplies it - bumped 10 -> 12 same day as the
+-- visibility pass below, user-reported "can barely see them" even at
+-- max opacity.
+local GATHER_ICON_SIZE = 12
 -- World-position units (the same space GetWorldPos/ClipFrameW already
 -- work in, not real yards) - tuned by eye, not measured. Adjust after
 -- live testing if "nearby" triggers too early or too late.
 local GATHER_NEARBY_RANGE = 3
 local GATHER_NEARBY_RANGE_SQ = GATHER_NEARBY_RANGE * GATHER_NEARBY_RANGE
-local GATHER_DIM_ALPHA = 0.45
+-- Was 0.45 - raised 2026-11-10 (same "can barely see them" report).
+-- 0.45 meant a non-near icon was still only ~45% opaque even with the
+-- opacity slider (MapContextMenu.lua) maxed at 100%, which is most of
+-- what's actually on screen at once (GATHER_NEARBY_RANGE above is
+-- small, so "near" is the exception, not the rule, for anything
+-- visible at a normal zoom level). This is now just a subtle
+-- closer-is-brighter cue, not the dominant factor in whether an icon
+-- is visible at all.
+local GATHER_DIM_ALPHA = 0.85
+-- Backdrop halo behind each icon for contrast against busy map art
+-- (same "anything else to make these more visible" ask). Tightened
+-- 2026-11-10 (user: "a little 2 big... make it hug tight with only a
+-- couple pixel padding") from a proportional 20%-of-size pad to a flat
+-- 2px on every side, regardless of the size slider.
+local GATHER_BACKDROP_PAD = 2
+-- Default for the new backdrop-opacity slider (MapContextMenu.lua row
+-- 4) - same value the old hardcoded GATHER_BACKDROP_ALPHA_MULT used,
+-- so today's look doesn't change until the user actually touches the
+-- new slider.
+local DEFAULT_GATHER_BACKDROP_OPACITY = 0.7
 
 -- Fallback only now (build-order step 9f replaced the per-category
 -- generic icon with the real per-species one from GatherNodeInfo.lua
@@ -1450,6 +1483,10 @@ end
 function MinimapEngine:HideGatherFrames()
     for i = 1, #self.GatherFrms do
         self.GatherFrms[i]:Hide()
+        -- backdrop (build-order step 9h) is a sibling frame, not a
+        -- child texture of GatherFrms[i] - hiding the icon frame no
+        -- longer hides it automatically, so this needs its own call.
+        self.GatherFrms[i].backdrop:Hide()
     end
 end
 
@@ -1516,12 +1553,33 @@ function MinimapEngine:UpdateGatherIcons()
             frm:EnableMouse(true)
             frm:SetScript("OnEnter", GatherFrameOnEnter)
             frm:SetScript("OnLeave", GatherFrameOnLeave)
+            -- Backdrop halo, a real frame (not a plain SetColorTexture
+            -- square) so it can use BackdropTemplate's edge art for
+            -- corner rounding. Uses the exact same backdrop recipe as
+            -- the real map window's own chrome (AlchemyGPS.Skin:
+            -- GetBackdrop(), UI/Skin.lua/UI/Window.lua:CreateBorders) -
+            -- user asked for the rounding to match the map module's
+            -- own corners, and reading the live table (not a hardcoded
+            -- copy) means it keeps matching automatically if that skin
+            -- ever changes. Fill/border stay plain black here (not the
+            -- skin's own blue-gray tint) since this is still "the black
+            -- box" from the opacity-slider request, not a themed panel.
+            -- A sibling of frm (parented to self.Frm, not to frm)
+            -- rather than a child texture, since BackdropTemplate
+            -- frames don't layer the way CreateMiniFrame's plain
+            -- textures do - its own frame LEVEL (set below, each pass)
+            -- is what keeps it behind frm instead.
+            frm.backdrop = CreateFrame("Frame", nil, self.Frm, "BackdropTemplate")
+            frm.backdrop:SetBackdrop(AlchemyGPS.Skin:GetBackdrop())
+            frm.backdrop:SetBackdropColor(0, 0, 0, 1)
+            frm.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
             self.GatherFrms[n] = frm
         end
     end
 
     local level = (self.Frm:GetFrameLevel() or 1) + 4
     local px, py = self.PlyrX, self.PlyrY
+    local size = GATHER_ICON_SIZE * (self.GatherIconScale or 1)
     for i, pt in ipairs(pts) do
         local frm = self.GatherFrms[i]
         if frm.svcTex ~= pt.tex then
@@ -1529,15 +1587,25 @@ function MinimapEngine:UpdateGatherIcons()
             frm.svcTex = pt.tex
         end
         frm.gatherDbType, frm.gatherNodeID = pt.dbType, pt.nodeID
-        if self:ClipFrameW(frm, pt.x, pt.y, GATHER_ICON_SIZE, GATHER_ICON_SIZE) then
+        if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
             frm:SetFrameLevel(level)
             local near = px and py
                 and ((pt.x - px) ^ 2 + (pt.y - py) ^ 2) <= GATHER_NEARBY_RANGE_SQ
-            frm.texture:SetAlpha((near and 1 or GATHER_DIM_ALPHA) * (self.GatherOpacity or 1))
+            local alpha = (near and 1 or GATHER_DIM_ALPHA) * (self.GatherOpacity or 1)
+            frm.texture:SetAlpha(alpha)
+            frm.backdrop:ClearAllPoints()
+            frm.backdrop:SetPoint("TOPLEFT", frm, "TOPLEFT", -GATHER_BACKDROP_PAD, GATHER_BACKDROP_PAD)
+            frm.backdrop:SetPoint("BOTTOMRIGHT", frm, "BOTTOMRIGHT", GATHER_BACKDROP_PAD, -GATHER_BACKDROP_PAD)
+            frm.backdrop:SetFrameLevel(math.max(1, level - 1))
+            frm.backdrop:SetAlpha(alpha * (self.GatherBackdropOpacity or DEFAULT_GATHER_BACKDROP_OPACITY))
+            frm.backdrop:Show()
+        else
+            frm.backdrop:Hide()
         end
     end
     for n = #pts + 1, #self.GatherFrms do
         self.GatherFrms[n]:Hide()
+        self.GatherFrms[n].backdrop:Hide()
     end
 end
 
