@@ -3026,3 +3026,63 @@ against the real source's own actual call order if one exists - this
 project's own comment on this exact question had never been verified
 and turned out to be backwards for the only zone type this port
 implements.
+
+**Same-day follow-up: title-bar checkbox buttons for the two debug
+toggles, direct user request** ("give me buttons in the mini map to
+turn each layer on and off" - after being told about the `/gps
+hideart`/`hideterrain` slash commands). Added two bare checkboxes to
+`MinimapWindow.lua`'s title bar, left of the existing Filter button -
+same stock-texture-plus-tooltip style as the Auto-follow checkbox, no
+text label (title bar is already tight). Both read/write
+`MinimapEngine.DebugHideArt`/`DebugHideTerrain` directly rather than a
+new SavedVariables field - these are still the Phase 2/3 isolation-
+testing toggles from the layering fix above, not a new persisted user
+preference, so they intentionally reset to both-on at next login,
+matching the slash commands' own existing behavior. The slash commands
+now also sync the checkbox's checked-state if the window/checkbox
+exist (`syncLayerCheckbox`, nil-guarded the same way `/gps minimap
+hide|show` already guards its own Settings-window refresh), so toggling
+either control keeps the other in sync.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet live-tested.
+
+**Immediate live regression, same day: "my zoom in zoom out buttons are
+gone."** Root cause: `MinimapWindow.lua`'s whole title-bar/zoom-button
+row (zoomIn/zoomOut/settingsBut/followCB/filterBut, now also
+terrainCB/artCB) is parented to `win.Frm`, a SIBLING of `content` (not
+a descendant) - these buttons were bumped to `content:GetFrameLevel() +
+1` specifically to stay drawn above `content`'s own children (its own
+comment already said so). That was safe while Art/Terrain shared
+`content`'s bare level (`+0`, the original bug this whole fix
+addresses). Confirmed live: WoW compares frame LEVEL as a flat, global
+sort key within a shared frame STRATA, regardless of actual parent -
+not scoped to literal sibling sets the way "same parent" phrasing
+might suggest - so once Terrain's level reached `+2` (above this row's
+own `+1`), and Art's reached `+1` (tied with it), both full-window
+background layers started painting over the entire chrome row at
+once. Icons (+3 through +10) were ALREADY above this row's old `+1`
+too, every bit as "wrong" in principle, but never visibly caused this
+because small, sparse icon frames rarely land on the exact pixels a
+button occupies - only a full-window background layer makes the
+collision impossible to miss.
+
+**Fix**: gave the whole chrome row a new `CHROME_LEVEL_OFFSET = 50`
+(replacing the old bare `+1`) - a big, deliberately round margin well
+above MinimapEngine's own current ceiling (Player Marker at +10), so a
+future addition to that internal stack can't silently repeat this
+exact collision. Deployed to the live mirror, verified byte-identical;
+paren/brace-balance checked. Not yet live-tested.
+
+**How to apply**: [[project_alchemy_gps]] - any frame-level offset
+computed relative to a shared baseline (here, `content:GetFrameLevel()`)
+needs to be checked against EVERY other offset computed from that same
+baseline across the whole addon, not just within the one file being
+edited - MinimapEngine.lua's own internal layer stack and
+MinimapWindow.lua's chrome-button row turned out to share one baseline
+without either file's own comments cross-referencing the other's
+numbers. When one side of that shared baseline is a full-window
+background layer, a collision that would be invisible with small
+sparse icons becomes immediately, unmistakably visible - don't assume
+"icons already use a higher offset and nothing broke" means a layer
+ordering is actually safe.

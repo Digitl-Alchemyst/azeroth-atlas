@@ -22,18 +22,34 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
   the new explicit level offsets, report the exact zoom/pan, since it
   would mean a second bug beyond the original shared-level collision.
 
+### Phase 1b — title-bar checkboxes + chrome-level regression (new)
+- [ ] The two new title-bar checkboxes (left of the Filter button) show
+      up, with tooltips "Terrain Texture layer" / "Art Map layer", and
+      toggling either immediately shows/hides that layer live.
+- [ ] Clicking a checkbox and then running the matching slash command
+      (`/gps hideart` / `/gps hideterrain`) keeps the checkbox and the
+      slash command in sync with each other either direction.
+- [ ] **Zoom +/- buttons, the Settings gear, Auto-follow checkbox, and
+      Filter button are all visible and clickable again** at every
+      zoom/pan level — this was a real live regression (reported:
+      "zoom in zoom out buttons are gone") from Phase 1's level change
+      colliding with this row's own old `+1` offset, now fixed via
+      `CHROME_LEVEL_OFFSET = 50`. Re-check this specifically, not just
+      the two new checkboxes.
+
 ### Phase 2 — Terrain layer isolation
-- [ ] `/gps hideterrain` cleanly hides only the Terrain layer (Art Map
-      and all icons unaffected); running it again restores Terrain.
-- [ ] With Terrain isolated (`/gps hideart` + `/gps hideterrain` on,
-      Art also forced off), the earlier screenshots' dark-wedge/
-      missing-tile artifact — is it present with Terrain alone? Note
-      the exact zoom scale and pan position if so (not fixed yet, this
-      phase only characterizes it).
+- [ ] `/gps hideterrain` (or the title-bar Terrain checkbox) cleanly
+      hides only the Terrain layer (Art Map and all icons unaffected);
+      toggling again restores Terrain.
+- [ ] With Terrain isolated (both toggled off), the earlier
+      screenshots' dark-wedge/missing-tile artifact — is it present
+      with Terrain alone? Note the exact zoom scale and pan position if
+      so (not fixed yet, this phase only characterizes it).
 
 ### Phase 3 — Art Map layer isolation
-- [ ] `/gps hideart` cleanly hides only the Art Map layer (Terrain and
-      icons unaffected); running it again restores it.
+- [ ] `/gps hideart` (or the title-bar Art Map checkbox) cleanly hides
+      only the Art Map layer (Terrain and icons unaffected); toggling
+      again restores it.
 - [ ] With Art isolated, pan/zoom across the DETAIL_SCALE threshold —
       confirm Art's own tile grid has no gaps or misaligned tiles of
       its own (e.g. the black wedge visible in the fully-zoomed-out

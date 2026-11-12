@@ -1408,11 +1408,28 @@ local TERRAIN_TILE_LEVEL_OFFSET = 2
 -- two layers at a time to characterize an artifact without the other
 -- layer's own tiles in the way. Same "keep it, don't delete it after
 -- use" treatment as scanblips/diffblips/mmpassengers below.
+--
+-- Build-order step 18 follow-up (2026-11-11): MinimapWindow.lua now
+-- has two title-bar checkboxes (TerrainCB/ArtMapCB) backed by these
+-- exact same two fields, for live testers who'd rather click than
+-- type. Keep both in sync here, same pattern as MinimapWindow.lua's
+-- own `/gps minimap hide|show` refreshing the Settings window's
+-- checkbox - the window may not be open (self.Win nil) or the
+-- checkbox may not exist yet (created in Open(), not at module
+-- enable), so both are nil-guarded rather than assumed present.
+local function syncLayerCheckbox(checkbox, debugHideField)
+    if checkbox then
+        checkbox:SetChecked(not MinimapEngine[debugHideField])
+    end
+end
+
 AlchemyGPS.Core.SlashCommands:Register("hideart", function()
     local Logger = AlchemyGPS.Core.Logger:Get("Map")
     MinimapEngine.DebugHideArt = not MinimapEngine.DebugHideArt
     Logger:info("hideart: Art Map layer is now %s",
         MinimapEngine.DebugHideArt and "FORCED HIDDEN" or "normal")
+    local win = AlchemyGPS.Modules.Map.MinimapWindow
+    syncLayerCheckbox(win and win.ArtMapCB, "DebugHideArt")
 end, "toggle forcing the Art Map (zone/continent overview) layer hidden - map-layering diagnostic")
 
 AlchemyGPS.Core.SlashCommands:Register("hideterrain", function()
@@ -1420,6 +1437,8 @@ AlchemyGPS.Core.SlashCommands:Register("hideterrain", function()
     MinimapEngine.DebugHideTerrain = not MinimapEngine.DebugHideTerrain
     Logger:info("hideterrain: Terrain Texture layer is now %s",
         MinimapEngine.DebugHideTerrain and "FORCED HIDDEN" or "normal")
+    local win = AlchemyGPS.Modules.Map.MinimapWindow
+    syncLayerCheckbox(win and win.TerrainCB, "DebugHideTerrain")
 end, "toggle forcing the Terrain Texture (close-zoom detail tile) layer hidden - map-layering diagnostic")
 
 -- Kept verbatim from Nx.Map:MoveZoneTiles (MapEngine.lua:9533-9690) -

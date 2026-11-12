@@ -257,6 +257,68 @@ function MinimapWindow:Open()
     end)
     self.FilterBut = filterBut
 
+    -- Terrain/Art Map layer toggles (build-order step 18 follow-up,
+    -- 2026-11-11, direct user request for clickable buttons instead of
+    -- typing the `/gps hideart`/`/gps hideterrain` diagnostic slash
+    -- commands those same two flags already backed - see
+    -- MinimapEngine.lua's own header comment above
+    -- ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET). Same bare-
+    -- checkbox-plus-tooltip style as followCB above (no text label -
+    -- title bar is already tight), reading/writing
+    -- MinimapEngine.DebugHideArt/DebugHideTerrain directly rather than
+    -- a new SavedVariables field - these are still the Phase 2/3
+    -- isolation-testing toggles from the map-layering fix, not a new
+    -- persisted user preference, so they intentionally reset to both-
+    -- on (unchecked = "hidden") at next login/reload, same as the
+    -- slash commands already did. Checked = layer shown, matching the
+    -- Filter menu's own checkbox-means-visible convention. Reuses the
+    -- `MinimapEngine` local already declared at the top of this
+    -- function (line 143) rather than redeclaring it.
+
+    local terrainCB = CreateFrame("CheckButton", nil, win.Frm)
+    terrainCB:SetSize(14, 14)
+    terrainCB:SetPoint("RIGHT", filterBut, "LEFT", -6, 0)
+    terrainCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+    terrainCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+    terrainCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+    terrainCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    terrainCB:SetChecked(not MinimapEngine.DebugHideTerrain)
+    terrainCB:SetScript("OnClick", function(cb)
+        MinimapEngine.DebugHideTerrain = not cb:GetChecked()
+    end)
+    terrainCB:SetScript("OnEnter", function(cb)
+        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
+        GameTooltip:SetText("Terrain Texture layer")
+        GameTooltip:AddLine(
+            "Close-zoom real minimap tiles. Uncheck to hide it and see the Art Map layer alone.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    terrainCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self.TerrainCB = terrainCB
+
+    local artCB = CreateFrame("CheckButton", nil, win.Frm)
+    artCB:SetSize(14, 14)
+    artCB:SetPoint("RIGHT", terrainCB, "LEFT", -6, 0)
+    artCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+    artCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+    artCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+    artCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    artCB:SetChecked(not MinimapEngine.DebugHideArt)
+    artCB:SetScript("OnClick", function(cb)
+        MinimapEngine.DebugHideArt = not cb:GetChecked()
+    end)
+    artCB:SetScript("OnEnter", function(cb)
+        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
+        GameTooltip:SetText("Art Map layer")
+        GameTooltip:AddLine(
+            "Coarse continent/zone overview art. Uncheck to hide it and see the Terrain Texture layer alone.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    artCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self.ArtMapCB = artCB
+
     -- Zoom buttons, build-order step 5. Carbonite's own +/- zoom
     -- buttons are Blizzard's native MinimapZoomIn/MinimapZoomOut,
     -- which only make sense for a docked (small, native-replacing)
@@ -316,14 +378,37 @@ function MinimapWindow:Open()
     self.Content = content
 
     -- content (just attached) fills the whole window 0-1 fractionally
-    -- and would otherwise draw over zoomIn/zoomOut/settingsBut at the
-    -- same sibling frame level, since it was created after - keep them
-    -- clickable.
-    zoomIn:SetFrameLevel(content:GetFrameLevel() + 1)
-    zoomOut:SetFrameLevel(content:GetFrameLevel() + 1)
-    settingsBut:SetFrameLevel(content:GetFrameLevel() + 1)
-    followCB:SetFrameLevel(content:GetFrameLevel() + 1)
-    filterBut:SetFrameLevel(content:GetFrameLevel() + 1)
+    -- and would otherwise draw over zoomIn/zoomOut/settingsBut - WoW
+    -- compares frame LEVEL as a flat, global sort key within a shared
+    -- frame STRATA, regardless of which frame is whose actual parent
+    -- (confirmed live, 2026-11-11: this is exactly why these chrome
+    -- buttons, siblings of `content` under `win.Frm`, could still be
+    -- drawn over by `content`'s own CHILDREN - MinimapEngine's internal
+    -- layer stack - once one of those children's level reached or
+    -- passed this row's own level).
+    --
+    -- CHROME_LEVEL_OFFSET was a bare `+1` until build-order step 18's
+    -- map-layering fix gave MinimapEngine's own internal layers
+    -- explicit level offsets of their own (Art Map +1, Terrain Texture
+    -- +2, up through Player Marker +10 - see MinimapEngine.lua's own
+    -- ART_MAP_LEVEL_OFFSET header comment for the full stack) - Terrain
+    -- and Art are full-window background layers (unlike the small,
+    -- sparse icon frames, which rarely land on the exact pixels a
+    -- button occupies), so once either one's level reached this row's
+    -- own `+1`, it visibly painted over every title-bar/zoom button at
+    -- once - reported live as "my zoom in zoom out buttons are gone."
+    -- Fixed by giving this row a big, deliberately round margin well
+    -- above MinimapEngine's own current ceiling (+10), so a future
+    -- addition to that internal stack can't silently repeat this same
+    -- collision - chrome should always just win.
+    local CHROME_LEVEL_OFFSET = 50
+    zoomIn:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    zoomOut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    settingsBut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    followCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    filterBut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    terrainCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    artCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
 
     MinimapEngine:TakeOwnership(win, content)
 
