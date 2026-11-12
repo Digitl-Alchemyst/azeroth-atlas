@@ -3215,3 +3215,466 @@ actually asked for before treating "it now matches Carbonite" as done;
 here the user wanted manual control instead of automatic behavior for
 a layer they're actively iterating on, which only came up once they
 saw the auto-fade live.
+
+## Build-order step 20 (2026-11-11): Art Map continent-level stitching
+
+**Report**: "we are only loading one [zone] at a time and its the
+fully blank version... we want the fully filled in versions of each
+map / look at how carbonite cuts and stitches these maps together into
+one map of all the zones laid out together." Explicit instruction going
+in: "dont mess with the terrain layer."
+
+**Root cause, confirmed by direct reads of both sides, not guessed**:
+`MoveCurZoneTiles` only ever drew `self.Zone`'s own art, which covers
+only that one zone's own world-space extent (`zw`/`zh` from
+`GetWorldZoneInfo`). Once the window/zoom combination needed to show
+more world-space than the current zone covers, there was nothing to
+draw past that zone's own edge - not a blank texture, blank *space*
+beyond one zone's bounds.
+
+Real Carbonite has a genuinely separate mechanism for this
+(`MapEngine.lua:2300-2334`, `InitFrames`'s continent half): a dedicated
+per-continent frame pool (`ContFrms[cont]`), built ONCE at init, with
+each tile's texture set ONCE, permanently, at that init time - never
+re-fetched per zone-change the way the ordinary zone pool is (via
+`UpdateWorldArt`). The texture source itself is gated:
+`Nx.isRetail or (Nx.isCamelot and rootMapID > 1000)` decides whether to
+even try the modern `GetArtLayerTextures` API; for Kalimdor (12) /
+Eastern Kingdoms (13) - both low mapIDs, non-retail - that's false, so
+real Carbonite goes straight to a static per-tile file path built from
+`MapInfo[cont].FileName` (`"Interface\\WorldMap\\"..fileName..fileName..i`).
+A mask table, `ContBlks[cont][i]`, skips tile indices entirely (not
+just hides them) for the deliberately-cropped outer columns.
+
+This port already had everything this needs except the wiring,
+confirmed by reading `Map/Data/NxMapData.lua` directly:
+`MapZones[0] = {12, 13, 2521, 113, 0, -1}` (continent index -> root
+mapID, already correct), `MapWorldInfo[12]`/`[13]` already carry real
+`Scale`/`X`/`Y` anchors, and `MapInfo[1].FileName = "kalimdor_c60"` /
+`MapInfo[2].FileName = "easternkingdoms_c60"` were already set, with a
+comment explicitly noting Forever had to re-export this continent art
+specifically because the modern Map API doesn't serve it on this
+server (same category of gap as the already-confirmed missing
+`Interface\Minimap\...` texture family and missing `MouseIsOver`
+global). `MapInfo[3]` (Zephras Isle, a Forever-custom continent slot)
+has no `FileName` - no continent art exists for it, by design.
+`MoveZoneTiles`'s existing `zone == 0` branch (shared by both sources)
+was already ported verbatim but dead - nothing ever set `self.Zone` to
+0, and critically it only ever computes position/crop math for
+whichever pool is passed in; it never calls `SetTexture` itself in
+either source.
+
+**Fix**:
+- New `InitContinentFrames()` (mirrors `InitTileFrames`'s pattern): for
+  each continent with a `MapInfo[cont].FileName`, builds a static,
+  never-retextured `ContFrms[cont]` pool, skipping tile indices where
+  `ContBlks[cont][i] == 0`, texture baked in once via the same static
+  path real Carbonite uses. Called once at init alongside
+  `InitTileFrames`, same create-once-persist-across-reopen treatment.
+- `MoveCurZoneTiles` now runs its own geometric coverage check before
+  choosing zone-level vs. continent-level art: `neededSpan = max(MapW,
+  MapH) / ScaleDraw` (window's needed world-space span) vs. `max(zw,
+  zh)` (the current zone's own world-space span, from
+  `GetWorldZoneInfo(self.Cont, self.Zone)`). Past that point, draws
+  `MoveZoneTiles(self.Cont, 0, ContFrms[self.Cont], ...)` instead of
+  the zone-level call, hiding whichever pool isn't active. Deliberately
+  a SEPARATE formula from `UpdateMiniFrames`' own dynamic-radius one -
+  not shared code, since Terrain's mechanism is locked in as untouchable
+  (see step 19's own follow-up and
+  [[feedback_alchemy_gps_terrain_no_autofade]]).
+- `self.Cont`/`self.Zone` themselves are never mutated to 0 anywhere -
+  they're read by icons, player-position math, and the title bar, so
+  the zone-vs-continent choice stays entirely local to the Art Map's
+  own draw path.
+- One deliberate deviation from "kept verbatim" in `MoveZoneTiles`'
+  `zone == 0` branch: dropped the `GetArtLayers(rootMapID)` attempt
+  entirely rather than only falling back after it returns nothing - if
+  that call ever succeeded with different dimensions than the static
+  4x3 grid `ContFrms` was actually built with, `tilex`/`tiley` would
+  mismatch the frame pool's real shape. Real Carbonite avoids this by
+  never attempting it at all for non-retail/low mapIDs in the first
+  place (the `Nx.isRetail or (Nx.isCamelot and rootMapID > 1000)` gate
+  above) - this port has no retail/Camelot distinction to model (always
+  the one flavor), so that gate collapses to "never attempt it," made
+  explicit here instead of left to an untested assumption.
+- `UpdateWorldArt` and its `self.MapId`-keyed caching/retry fields are
+  completely untouched - continent art never goes through that
+  function or shares its cache keys, matching real Carbonite's own
+  separate init-time assignment.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet live-tested - see
+`Docs/Testing/Phase13-ContinentArt.md`, including an explicit Terrain
+regression pass since this touches the same per-tick `Update()`
+function Terrain's own gate lives in, immediately adjacent to but not
+overlapping this change.
+
+**How to apply**: [[project_alchemy_gps]] - when a ported function has
+a comment saying a branch is "dead code, never reached," check whether
+the REAL source actually reaches that branch through a totally
+different, separate mechanism (here, a dedicated static init-time
+frame pool) before assuming "just stop skipping it" is the fix - the
+texture-assignment half of this feature was never in the branch itself
+in either source, and would have been missed by only un-deadening the
+existing code path.
+
+## Build-order step 21 (2026-11-11): Zone "revealed" overlay art
+
+**User feedback that triggered this**: live-testing step 20's
+continent backdrop (screenshot `WoWScrnShot_111126_203300.jpg`,
+Eastern Kingdoms) got: *"its the continent map we want the zone maps
+fit together all revealed liek carbonit does but its getting
+somewhere."* The flat continent backdrop itself was correct (real
+Classic-era art, not a bug) but real Carbonite never shows it bare -
+it draws a second layer on top, each recently-visited zone's own
+hand-catalogued "reveal" art, positioned at its real world location,
+dimmed/hidden per sub-region against real exploration data. That
+mechanism - `Nx.Map:UpdateOverlay`/`UpdateZones`/`AddOldMap`
+(`Carbonite/Modules/Map/MapEngine.lua:10045`/`:9831`/`:9698`) - is what
+was still missing.
+
+**Root cause / what was ported**:
+- `Nx.Map.ZoneOverlays[txFolder][regionName] = "oX,oY,txW,txH"` - a
+  hand-authored, 842-line static data table
+  (`Carbonite/Data/camelot/MapData/ExplorationOverlays.lua`) breaking
+  each zone's overlay art into named sub-regions, each a separate file
+  at `Interface\Worldmap\<txFolder>\<regionName><tileIndex>`.
+  `txFolder` comes from `MapWorldInfo[mapId].Overlay` - already
+  populated for ~53 zones in this port's own `NxMapData.lua`. Ported
+  near-verbatim to the new `Map/Data/ExplorationOverlays.lua`, loaded
+  right after `NxMapData.lua` in `Map.xml`.
+- A real exception found and kept, not dropped: every zone in that
+  data uses the "named file" convention EXCEPT `easternplaguelands`,
+  whose 21 regions are keyed by plain numeric or comma-separated
+  Blizzard fileIDs instead (e.g. `["271518,271527,2212703,2212704"]`
+  for a region spanning 4 tiles, one fileID per tile). An earlier pass
+  through this port's own plan assumed the branch that handles this
+  (`arTx`, real source's multi-texture-ID path) was dead code, having
+  only grepped for an UNRELATED convention (underscore-combined-region
+  keys, correctly confirmed at zero occurrences) - re-checking the
+  full data file directly before writing any code found 21 real
+  numeric-keyed entries, all in this one zone. Kept, and ported
+  correctly (confirmed the tiling math already lines up: a 4-fileID
+  comma list matches a region whose `txW,txH` spans exactly 2x2 tiles
+  at 256px each).
+- `UpdateOverlay(mapId, bright, noUnexplored)` - trimmed port.
+  Dropped (confirmed dead/inapplicable for this single-flavor,
+  no-instance/no-battleground port): the modern-instance-canvas early
+  return, `ShouldHideQuelThalasZone`, `IsBattleGroundMap`/
+  `IsMicroDungeon`/`IsInstanceMap` guards (none of these three
+  methods exist in this port at all), `wzone.Phase` (MoP-phasing, not
+  reachable on this server), and the underscore-combined-region
+  branch + `GetCompressedTexturePath` (confirmed zero occurrences).
+  Kept: the `wzone.City` early return, per-region LOD-size skip, the
+  real explored/unexplored dimming logic against
+  `C_MapExplorationInfo.GetExploredMapTextures` (load-bearing default
+  behavior, not an edge case - `NXShowUnexplored` defaults `false` in
+  real Carbonite), the full per-region `bW`/`bH` tiling loop, and (per
+  above) the `arTx` branch. Kept the real source's own caching helpers
+  (`GetParsedOverlay`/`GetCachedLayerInfo`/`GetCachedExploredTextures`)
+  as genuine perf optimizations, not incidental complexity - this loop
+  runs every tick for up to 4 zones' worth of regions at once.
+- `AddOldMap(newMapId)` - maintains `self.MapsDrawnOrder`, a FIFO of
+  recently-visited zones (capped at `ZONE_DRAW_CNT = 3`, real
+  Carbonite's own default), called from `RefreshCurrentZone` right
+  where a zone change is first detected, before `self.MapId` gets
+  overwritten. Caught and fixed one real bug while porting this: the
+  function's own parameter (`newMapId`, the zone about to become
+  current) is used ONLY to strip a stale entry out of the dimmed-zone
+  list - the zone actually APPENDED to that list is `self.MapId` (the
+  zone being LEFT), read from the live field, not the parameter. An
+  earlier pass through this port's own plan had both the function body
+  and its call site passing/using the same single value for both
+  roles, which would have silently appended the wrong zone (the
+  destination instead of the origin) to the dimmed list every time.
+  Confirmed against the real call site
+  (`MapEngine.lua:6239`, `self:AddOldMap(mapId)` with `mapId` the
+  incoming zone, called before `self.MapId` is reassigned) before
+  writing this port's version.
+- `GetWorldZoneScale(mapId)` - direct port, reusing `self.MapWorldInfo`
+  the same way `GetWorldZoneInfo`/`GetWorldPos` already do.
+- New frame pool (`GetOverlayFrame`/`HideExtraOverlayFrames`) - unlike
+  this file's other icon pools (zone-scoped, rebuilt on zone change),
+  this one resets every tick, since the number of overlay regions
+  drawn varies by zone and by how many recently-visited zones are
+  being drawn at once. Ported from real Carbonite's `GetIconNI`/
+  `HideExtraIcons`, this port's own slice of it (that function serves
+  five different icon pools there; only one is needed here).
+- `ClipFrameTL` extended with the real source's two optional trailing
+  params (`texMaxX`, `texMaxY`) - scales computed texcoords for
+  overlay art files that aren't clean powers-of-two. Fully
+  backward-compatible; existing callers (Terrain tiles, Art Map
+  backdrop) never pass these.
+- Frame level: a second correction found while implementing, beyond
+  the `arTx`/`AddOldMap` ones above. This port's own plan asserted
+  "+3 and +8 are free" based on a grep for the literal
+  `GetFrameLevel() + N` pattern - but the gather-node backdrop circle
+  actually claims +3 already, computed as "gather icon's own level
+  minus 1" rather than as its own literal offset, so that grep missed
+  it. There is no integer between Terrain's own `+2` and that `+3`
+  floor, so every icon-pool offset (gather icon, service, quest,
+  goto/corpse trail, goto/corpse dot, player marker) was shifted up by
+  exactly 1 to open up `+3` for the new Overlay layer - same relative
+  order between icons preserved, zero change in how icons relate to
+  each other, and `ART_MAP_LEVEL_OFFSET`/`TERRAIN_TILE_LEVEL_OFFSET`
+  themselves untouched (values and code), per the standing "don't mess
+  with the terrain layer" instruction. New constant
+  `OVERLAY_LEVEL_OFFSET = 3`.
+- `UpdateZoneOverlays()` - new orchestrator (no real-source equivalent
+  by this name; real Carbonite inlines this loop directly in
+  `UpdateZones`). Wired into `Update()`'s existing `DETAIL_SCALE` gate
+  alongside `MoveCurZoneTiles` (build-order step 20), since real
+  Carbonite gates both on the identical `freeOrScale` condition;
+  `HideExtraOverlayFrames()` added to the gate's other two branches
+  (debug-hidden, zoomed-in) so stale overlay frames don't linger,
+  same reasoning as step 20's `HideContinentFrames` there.
+
+**Confirmed NOT touched**: `UpdateMiniFrames`/`HideMiniFrames`/
+`CreateMiniFrame` (reused, not modified)/`TerrainBrightness`/Terrain's
+own constants - zero changes. `MoveCurZoneTiles`/`MoveZoneTiles`/
+`InitContinentFrames` (build-order step 20) - zero changes, this is a
+purely additive layer on top. `ART_MAP_LEVEL_OFFSET`/
+`TERRAIN_TILE_LEVEL_OFFSET` values - zero changes.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet live-tested - see
+`Docs/Testing/Phase14-ZoneOverlays.md`, including an explicit Terrain
+regression pass and an explicit icon-layer relative-ordering check
+(since six icon-pool frame-level constants shifted by +1 this step).
+
+**How to apply**: [[project_alchemy_gps]] - a plan approved in plan
+mode is a direction, not a literal spec to transcribe unchecked;
+implementing it still means re-verifying each factual claim it made
+against the real source/data as each piece gets written, not just
+against what the planning pass grepped for once. This step found two
+such corrections (the `arTx` branch wasn't dead; `AddOldMap`'s
+plan-drafted body had the wrong value going into the FIFO) plus one
+frame-level numbering error (a derived "-1 from another layer" offset
+that a literal-pattern grep couldn't see) - all three were caught by
+re-reading the real source/data directly during implementation rather
+than trusting the plan's own summary of it.
+
+### Same-day follow-up: disable per-region unexplored dimming
+
+User live-tested across zoom tiers: far-out correctly showed the
+continent backdrop, but mid-range zone/overlay art rendered every
+region permanently dimmed/"undiscovered" - even zones long since fully
+explored - and close zoom showed nothing (expected; Terrain's own
+territory there, unrelated to this layer).
+
+Root cause: `UpdateOverlay`'s `unex` dimming pass depends on matching
+each region's `oX,oY,txW,txH` key against real
+`C_MapExplorationInfo.GetExploredMapTextures(mapId)` results. On this
+Forever-flavor private server, that match apparently never succeeds -
+most likely its own exploration tracking doesn't line up closely
+enough with Carbonite's hand-authored Classic-client overlay catalog -
+so every region fell through to the "not explored" branch every time,
+regardless of actual exploration state.
+
+Fix: flipped `SHOW_UNEXPLORED` from `false` (real Carbonite's own
+default) to `true`. This short-circuits `unex` to always stay `nil`,
+so the entire exploration-lookup/oX-shift/dimming pass never runs -
+every region always renders at its full requested brightness (1 for
+the current zone, .8 for recently-visited ones). Matches the user's
+own stated goal ("all revealed") more directly than a dimming pass
+that, on this server, was never actually distinguishing explored from
+unexplored - only ever landing on "unexplored."
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet re-tested after this specific flip.
+
+**How to apply**: [[project_alchemy_gps]] - when a ported mechanic
+depends on a Blizzard API returning data in a shape a private server
+may only partially emulate, don't assume live-testing failures mean
+the port's own logic is wrong before considering that the underlying
+API call itself may simply not behave the same way here. [[feedback_alchemy_gps_terrain_no_autofade]]'s
+same lesson (Terrain: no auto-dimming tied to a computed condition,
+manual brightness only) generalizes to this layer too - an auto-dim
+tied to a condition this server can't reliably report is worse than no
+dimming at all.
+
+### Same-day second follow-up: still "100% unexplored" after the SHOW_UNEXPLORED fix, added temporary diagnostics
+
+User reloaded and re-tested - still reported the overlay art looking
+"100% unexplored." Re-read real Carbonite's `UpdateOverlay` in full
+again: confirmed texture *selection* never depends on explored state
+anywhere in that function (only `arTx`/`wzone.Phase`/`mode` pick the
+filename); the oX shift only ever affects world position and
+brightness. Confirmed the port's `SHOW_UNEXPLORED`/`unex` short-circuit
+logic is structurally identical to the real source and should work as
+intended - meaning the dimming pass likely isn't what's being seen at
+all. Strongest remaining theory: `GetCachedLayerInfo` (depends on
+`C_Map.GetMapArtLayers`, the same modern-API call build-order step 20
+already found unreliable enough to avoid entirely for continent root
+art) is silently returning `nil` for these zones on this server, so
+`UpdateOverlay` returns early before ever reaching the
+`SHOW_UNEXPLORED`-gated code - meaning nothing built in step 21 is
+rendering at all, and what's being seen is just the pre-existing
+zone/continent backdrop (correctly built in step 20), which - lacking
+any bright "revealed" detail on top - reads as "unexplored" to someone
+not thinking in addon-internals terms.
+
+Rather than guess a third time, added temporary diagnostic logging
+(`/gps dbgoverlay` toggle, throttled to one line per ~3s per mapId)
+at every early-return point in `UpdateOverlay` plus a per-call summary
+(regions drawn/clipped/dimmed/bright) - meant to be removed once the
+real cause is confirmed and fixed, not a permanent feature like
+`hideart`/`hideterrain`. Deployed to the live mirror, verified
+byte-identical; paren/brace-balance checked. Waiting on the next
+live-test's chat log output before making another code change.
+
+### Same-day third follow-up: real root cause found - wrong data file ported entirely
+
+User reloaded with `/gps dbgoverlay` on, zoomed to mid-range on
+Hillsbrad Foothills, and shared the chat log:
+
+```
+[Map] dbgoverlay[1424]: no overlays (wzone=true txFolder="hillsbrad_c60" ZoneOverlays=true)
+```
+
+This is definitive, not another theory: `wzone` resolved fine and
+`self.ZoneOverlays` existed as a table, but
+`self.ZoneOverlays["hillsbrad_c60"]` was `nil`. The previous follow-up's
+"GetCachedLayerInfo returning nil" theory was wrong - execution never
+even got that far; `UpdateOverlay`'s very first real lookup
+(`self.ZoneOverlays[txFolder]`) was failing, for every zone, every
+tick, from the moment step 21 first shipped. The `SHOW_UNEXPLORED` flip
+two follow-ups ago was correct in spirit but irrelevant to this bug -
+that code path was never reached in the first place.
+
+Root cause: `Map/Data/ExplorationOverlays.lua` ported the wrong source
+file. `MapWorldInfo[mapId].Overlay` fields in this port's own
+`NxMapData.lua` (ported correctly, matching real Carbonite exactly) use
+suffixed keys like `"hillsbrad_c60"` - but the file this step ported
+its overlay-region data from
+(`Carbonite/Data/camelot/MapData/ExplorationOverlays.lua`, the file
+named and described throughout this step's main entry above) is
+*legacy*, pre-dating this server's own client rebuild, and keys its
+zones WITHOUT that suffix (`"hilsbrad"`). The two naming conventions
+never had any chance of matching - not a one-zone exception (Eastern
+Plaguelands, as this step's main entry assumed) but a wrong-file
+problem affecting literally every zone.
+
+The real, currently-used dataset was hiding in plain sight the whole
+time: inlined directly inside Carbonite's own `Data/camelot/NxMapData.lua`
+(lines 612-1330, right after the `MapWorldInfo` table that file's own
+header for this port already explained), under a comment this step's
+original research pass never read that far to find:
+
+> AUTO-GENERATED for WoW Forever ("camelot") from the wago.tools DB2 of
+> build 1.60.1.69893: generate_overlays.py --cache-dir <db2> --all.
+> Blizzard re-authored every vanilla zone map into
+> interface/worldmap/<zone>_c60, so the legacy name-keyed entries would
+> have drawn the old art on the new maps. Keys here are the fileDataID
+> lists of the overlay tiles and the renderer sets them by ID
+> (MapEngine: arTx path), so no texture folder is involved and nothing
+> has to be extracted from the client.
+
+In other words: this server's client build re-exported every zone's
+worldmap overlay art under new internal Blizzard fileIDs, and real
+Carbonite ships a second, auto-generated `ZoneOverlays` table
+specifically to match it - the file this port originally copied is
+categorically the wrong source for this build, not a rare exception.
+This also means the main entry's "`arTx` is needed only for Eastern
+Plaguelands" framing was an understatement, not wrong exactly but far
+too narrow: the correct dataset uses the numeric-fileID convention for
+every single zone in it (~44, not 1), which is exactly why
+`UpdateOverlay`'s `arTx` branch was kept as a real code path rather
+than dropped - it just turns out to be the ONLY path actually exercised
+by this server's real data, not a rare exception alongside a
+named-file-path majority.
+
+Fix: replaced `Map/Data/ExplorationOverlays.lua`'s entire body with a
+verbatim copy of `NxMapData.lua`'s real `Map.ZoneOverlays` block (lines
+612-1330) - same `<zone>_c60`-suffixed keys, same numeric-fileID
+sub-keys throughout. Kept a handful of entries that break the
+"_c60"-suffix pattern (`hyjal`, `zephrasisle`, `riverlands`,
+`shendralas`) exactly as found - likely zones this build's re-author
+pass didn't touch, or Forever-custom to begin with - still using the
+same numeric-fileID convention as everything else in the block, so no
+code change was needed to support them. Rewrote the file's own header
+comment to explain this real convention instead of the old (wrong)
+"named path except Eastern Plaguelands" framing. No changes needed to
+`UpdateOverlay` itself - its `arTx` branch was already correctly kept
+and already structurally sound; it was simply never being reached
+because the data it was looking up didn't exist under the right keys.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Left `/gps dbgoverlay` in place for one more
+live-test pass (expect "OK txFolder=... regions=N ..." instead of "no
+overlays" in the log) before removing it as planned.
+
+**Live-tested, confirmed working** (2026-11-11, same day): user
+reloaded with `/gps dbgoverlay` on, zoomed to mid-range on Hillsbrad
+Foothills, log showed
+`OK txFolder="hillsbrad_c60" regions=12 tileW=256 tileH=256
+layerW=1002 layerH=668` on every tick - the lookup that was failing
+now succeeds, confirmed by screenshot
+(`WoWScrnShot_111126_221032.jpg`) showing the current zone's revealed
+art actually rendering. User's own words: *"solid check point the
+current zone is rendering discovered mapping now we jsut need to stich
+and show all zones like that."*
+
+### Same-day fourth follow-up: draw every zone on the continent, not just recently-visited ones
+
+User's actual goal was never real Carbonite's default behavior (draw
+the current zone bright, plus a FIFO of up to 3 recently-*visited*
+zones dimmer, gated by genuine visit history) - it's the same "all
+revealed" philosophy that drove the earlier `SHOW_UNEXPLORED = true`
+decision, just one level up: no per-region fog of war AND no per-zone
+visit-history gating either. At continent zoom, every zone belonging
+to that continent should show its own revealed art, stitched together,
+all at once - regardless of whether the player has ever actually been
+there.
+
+Implementation: `UpdateZoneOverlays` no longer iterates
+`self.MapsDrawnOrder` (the recently-visited FIFO) - it now iterates
+`self.MapZones[self.Cont]`, the same static continent-to-zones array
+`FindContinent` already walks and `MoveZoneTiles`' own tiling already
+depends on being accurate. Every zone on the current continent other
+than the one the player is standing in draws at the dimmer `.8`
+brightness; the current zone still draws at full brightness (`1`) on
+top. Confirmed `self.MapsDrawnOrder`/`AddOldMap`/`ZONE_DRAW_CNT` had no
+other callers anywhere in the file before removing them entirely
+(rather than leaving them as dead code) - the FIFO concept is now
+fully superseded, not just unused in one spot.
+
+Performance note: this draws meaningfully more overlay frames per tick
+than the previous current+3-zones cap - roughly one continent's worth
+of zones (around 15-20 for Eastern Kingdoms or Kalimdor) instead of up
+to 4, each with anywhere from a handful to ~27 regions (Stranglethorn
+Vale), some spanning multiple tiles. `GetOverlayFrame`'s pool already
+auto-grows on demand (capped at `MAX_OVERLAY_FRAMES = 1500`, real
+Carbonite's own tested ceiling) and wasn't changed - worth a frame-rate
+sanity check at the worst case (continent zoom, Eastern Kingdoms or
+Kalimdor) per `Phase14-ZoneOverlays.md`'s existing Phase 9.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet live-tested.
+
+**How to apply**: [[project_alchemy_gps]] - this is the second time in
+this one build-order step a Carbonite mechanic's real default behavior
+(exploration/visit-history-gated reveal) turned out to be the wrong
+target entirely for this GPS-style addon's actual goal (show
+everything, unconditionally). [[feedback_alchemy_gps_terrain_no_autofade]]
+established the same pattern for Terrain brightness earlier in this
+project. Worth checking new Carbonite ports against this lens going
+forward: does this mechanic gate on real exploration/visit state, and
+if so, does the user actually want that gate, or did they ask for
+"revealed"/"all shown" from the start?
+
+**How to apply**: [[project_alchemy_gps]] - ground-truth runtime
+diagnostics (a throttled debug log reading the addon's own live state)
+settled this in one data point after two rounds of plausible-but-wrong
+theorizing from re-reading source code alone. When a ported mechanic
+silently no-ops with no visible error, prefer adding a cheap temporary
+log at the exact early-return/lookup point over re-deriving the whole
+call chain by inspection a third time - this is the second time this
+step needed that method (`dbgoverlay`'s own addition, previous
+follow-up, was the first) and the second time it paid off immediately.
+Also: when a data file is ported from a named path with a clear,
+singular reference ("Carbonite/Data/camelot/MapData/X.lua"), that
+specificity can itself be a trap - it reads as authoritative precisely
+because it's the only file with that logical name, when a
+server/build-specific override can live inlined inside a completely
+different file instead.

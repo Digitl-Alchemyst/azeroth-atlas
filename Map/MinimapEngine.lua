@@ -143,6 +143,12 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     if not self.TileFrms then
         self:InitTileFrames()
     end
+    -- Build-order step 20: the continent-art frame pool (one static,
+    -- never-retextured set per continent that has re-exported art) -
+    -- see InitContinentFrames' own header. Same create-once treatment.
+    if not self.ContFrms then
+        self:InitContinentFrames()
+    end
     -- Build-order step 8b's detail-tile pool (see UpdateMiniFrames) -
     -- same "create once, grow on demand, persist across close/reopen"
     -- treatment as TileFrms above.
@@ -1256,9 +1262,12 @@ end
 
 -- Kept verbatim from Nx.Map:InitFrames (MapEngine.lua:2275-2296) - only
 -- the TileFrms pool half; the sibling ContFrms init in the same real
--- function serves the zone==0 continent-overview render path, which is
--- never reached in this addon (nothing here ever sets self.Zone = 0 -
--- see RefreshCurrentZone), so it's left out rather than built unused.
+-- function serves the zone==0 continent-overview render path. That
+-- path used to be dead here (nothing ever set self.Zone = 0 - see
+-- RefreshCurrentZone), so this used to be left out rather than built
+-- unused. Build-order step 20 revives it below as InitContinentFrames
+-- - see that function's own header for why it's a SEPARATE function
+-- rather than extending this one.
 function MinimapEngine:InitTileFrames()
     self.TileFrms = {}
     local f = self.Frm
@@ -1270,6 +1279,83 @@ function MinimapEngine:InitTileFrames()
         t:SetSnapToPixelGrid(false)
         t:SetTexelSnappingBias(0)
         tf.texture = t
+    end
+end
+
+-- Build-order step 20: real Carbonite's own ContFrms half of InitFrames
+-- (MapEngine.lua:2300-2334), adapted rather than ported verbatim. Real
+-- Carbonite keeps ALL continents' frame pools alive simultaneously
+-- because its MoveContinents can show every continent at once (the
+-- "World of Azeroth" selector screen, gated on NXWorldShow - a mode
+-- this addon doesn't implement, see MoveContinents' own research notes
+-- in CHANGELOG.md). This addon only ever shows ONE continent's art at
+-- a time (see MoveCurZoneTiles below), so there's no need for that
+-- screen's own machinery - just a small static pool per continent,
+-- built once and never re-textured.
+--
+-- Unlike TileFrms (re-textured every zone change via UpdateWorldArt),
+-- continent art never changes at runtime, so the texture is set ONCE,
+-- right here, and MoveZoneTiles' existing zone==0 branch only ever
+-- positions/crops these frames afterward - confirmed by reading that
+-- branch in both sources: it has no SetTexture call of its own.
+--
+-- Real Carbonite's own gate for which texture source to use
+-- (`Nx.isRetail or (Nx.isCamelot and rootMapID > 1000)`) is false for
+-- both Kalimdor (12) and Eastern Kingdoms (13) - low, non-retail
+-- mapIDs - so it never even tries the modern C_Map API for these and
+-- goes straight to the static per-tile file path built from
+-- MapInfo[cont].FileName. This addon does the same unconditionally
+-- (no modern-API attempt at all) since MapInfo[cont].FileName is only
+-- ever set for continents that actually have the re-exported static
+-- art (see NxMapData.lua's own comment on why Forever needed to
+-- re-export it) - a continent without FileName (Zephras Isle, index 3)
+-- simply gets no ContFrms pool and MoveCurZoneTiles' coverage check
+-- below never selects it.
+--
+-- ContBlks[cont][i] == 0 means that tile index is part of the
+-- deliberately-cropped outer columns (NxMapData.lua's own comment) -
+-- skipped entirely, not just hidden, same as real Carbonite. frms[i]
+-- stays nil for those indices; MoveZoneTiles' per-tile loop already
+-- null-checks frm before touching it, so a sparse pool here needs no
+-- extra handling there.
+function MinimapEngine:InitContinentFrames()
+    self.ContFrms = {}
+    local f = self.Frm
+    for cont = 1, self.ContCnt or 0 do
+        local info = self.MapInfo and self.MapInfo[cont]
+        local fileName = info and info.FileName
+        if fileName then
+            local mask = self.ContBlks and self.ContBlks[cont]
+            local tilex = info.TileX or 4
+            local tiley = info.TileY or 3
+            self.ContFrms[cont] = {}
+            for i = 1, tilex * tiley do
+                if not mask or mask[i] ~= 0 then
+                    local cf = CreateFrame("Frame", nil, f)
+                    self.ContFrms[cont][i] = cf
+                    local t = cf:CreateTexture()
+                    t:SetAllPoints(cf)
+                    t:SetSnapToPixelGrid(false)
+                    t:SetTexelSnappingBias(0)
+                    cf.texture = t
+                    t:SetTexture("Interface\\WorldMap\\" .. fileName .. "\\" .. fileName .. i)
+                end
+            end
+        end
+    end
+end
+
+-- Hides every continent's ContFrms pool except exceptCont (pass nil to
+-- hide all of them). Called from MoveCurZoneTiles/Update's DETAIL_SCALE
+-- gate whenever Art Map is about to show zone-level art, close-zoomed
+-- art, or is debug-hidden entirely - any of those states must not leave
+-- a previous tick's continent tiles showing underneath.
+function MinimapEngine:HideContinentFrames(exceptCont)
+    if not self.ContFrms then return end
+    for cont, pool in pairs(self.ContFrms) do
+        if cont ~= exceptCont then
+            self:HideZoneTileFrames(pool)
+        end
     end
 end
 
@@ -1403,12 +1489,25 @@ end
 -- UpdateMiniFrames' own header to match the order actually implemented
 -- here. User confirmed Terrain-above-Art as the intended look (detail
 -- peeking through over the broad backdrop), matching the real source.
--- +1/+2 were free (every icon pool already uses +3 and up - gather
--- backdrop +3, gather icon +4, service +5, quest +6, goto/corpse trail
--- +7, goto/corpse dot +9, player marker +10) so these slot in below
--- that floor with zero renumbering elsewhere.
+-- +1/+2 were free when this was first written. Build-order step 21
+-- (zone "revealed" overlay art, below) needed a third slot directly
+-- above Terrain and below every icon layer - but the icon floor
+-- actually started at +3 (gather backdrop, derived as "gather icon
+-- level - 1"), not +4 as a prior pass through this comment assumed;
+-- that prior pass only grepped for the literal
+-- `GetFrameLevel() + N` pattern and missed the backdrop's derived
+-- level. There is no integer between +2 and +3, so every icon-pool
+-- offset below was shifted up by exactly 1 (same relative order
+-- between icons, zero change in how icons relate to each other) to
+-- open up +3 for Overlay. Current layout: Art Map +1, Terrain +2,
+-- Overlay +3 (ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET
+-- themselves untouched, per "don't mess with the terrain layer"),
+-- gather backdrop +4 (still derived, auto-followed the shift), gather
+-- icon +5, service +6, quest +7, goto/corpse trail +8, goto/corpse
+-- dot +10, player marker +11 (+9 unclaimed).
 local ART_MAP_LEVEL_OFFSET = 1
 local TERRAIN_TILE_LEVEL_OFFSET = 2
+local OVERLAY_LEVEL_OFFSET = 3
 
 -- `/gps hideart` / `/gps hideterrain` - toggle self.DebugHideArt/
 -- self.DebugHideTerrain (read in Update()'s zoom-gate block further
@@ -1449,10 +1548,41 @@ AlchemyGPS.Core.SlashCommands:Register("hideterrain", function()
     syncLayerCheckbox(win and win.TerrainCB, "DebugHideTerrain")
 end, "toggle forcing the Terrain Texture (close-zoom detail tile) layer hidden - map-layering diagnostic")
 
+-- Build-order step 21 follow-up (2026-11-11, temporary diagnostic):
+-- live-tested, overlay art still looked "100% unexplored" even after
+-- SHOW_UNEXPLORED was flipped to disable the dimming pass entirely -
+-- meaning either that fix didn't land, or (more likely per a closer
+-- read of real Carbonite) UpdateOverlay is returning early somewhere
+-- BEFORE it ever reaches that logic - GetCachedLayerInfo in
+-- particular depends on the same modern C_Map.GetMapArtLayers API
+-- build-order step 20 already found unreliable enough to avoid for
+-- continent root art. `/gps dbgoverlay` prints (throttled to once per
+-- ~3s per mapId, so it stays readable) exactly which early-return (if
+-- any) UpdateOverlay is hitting for the current/recently-drawn zones.
+-- Meant to be removed once the real cause is confirmed and fixed -
+-- not a permanent feature like hideart/hideterrain above.
+local DebugOverlayLastLog = {}
+local function DebugOverlayLog(mapId, fmt, ...)
+    if not MinimapEngine.DebugOverlay then return end
+    local now = GetTime()
+    if (DebugOverlayLastLog[mapId] or 0) + 3 > now then return end
+    DebugOverlayLastLog[mapId] = now
+    AlchemyGPS.Core.Logger:Get("Map"):info("dbgoverlay[%s]: " .. fmt, mapId, ...)
+end
+
+AlchemyGPS.Core.SlashCommands:Register("dbgoverlay", function()
+    MinimapEngine.DebugOverlay = not MinimapEngine.DebugOverlay
+    AlchemyGPS.Core.Logger:Get("Map"):info("dbgoverlay: %s",
+        MinimapEngine.DebugOverlay and "ON (throttled ~3s/zone)" or "off")
+end, "toggle temporary diagnostic logging for UpdateOverlay's early-return points - build-order step 21 bug hunt")
+
 -- Kept verbatim from Nx.Map:MoveZoneTiles (MapEngine.lua:9533-9690) -
 -- the real tile-grid crop/position/texcoord math. Not approximated;
--- every branch (including the zone==0 continent-overview path, dead
--- code for now per InitTileFrames' comment above) is unchanged.
+-- every branch is unchanged. The zone==0 continent-overview path used
+-- to be dead code here (see InitTileFrames' header above) - build-
+-- order step 20 wires it up via InitContinentFrames/MoveCurZoneTiles,
+-- with one deliberate deviation from "kept verbatim" in that branch's
+-- own tilex/tiley setup (see its comment there for why).
 function MinimapEngine:MoveZoneTiles(cont, zone, frms, alpha, level)
     local zname, zx, zy, zw, zh = self:GetWorldZoneInfo(cont, zone)
     if not zx then
@@ -1463,13 +1593,21 @@ function MinimapEngine:MoveZoneTiles(cont, zone, frms, alpha, level)
     local scale = self.ScaleDraw
     local tilex, tiley, layerInfo
     if zone == 0 then
-        local rootMapID = self.MapZones[0] and self.MapZones[0][cont]
-        local layers = rootMapID and self:GetArtLayers(rootMapID)
-        layerInfo = layers and layers[1]
-        tilex = layerInfo and ceil(layerInfo.layerWidth / layerInfo.tileWidth)
-            or self.MapInfo[cont].TileX or 4
-        tiley = layerInfo and ceil(layerInfo.layerHeight / layerInfo.tileHeight)
-            or self.MapInfo[cont].TileY or 3
+        -- Build-order step 20: real Carbonite only even TRIES the modern
+        -- C_Map layer API here when `Nx.isRetail or (Nx.isCamelot and
+        -- rootMapID > 1000)` (MapEngine.lua:2310-2311) - for Kalimdor
+        -- (12) / Eastern Kingdoms (13) on this non-retail, low-mapID
+        -- flavor that's always false, so it goes straight to the static
+        -- MapInfo[cont].FileName tiling InitContinentFrames already
+        -- baked into ContFrms. Skipping the attempt here too (not just
+        -- falling back after it returns nothing) avoids a real risk:
+        -- if GetArtLayers(rootMapID) ever returned SOME layer info with
+        -- different dimensions than the 4x3 grid ContFrms was actually
+        -- built with, tilex/tiley below would mismatch the frame pool's
+        -- real shape.
+        layerInfo = nil
+        tilex = self.MapInfo[cont].TileX or 4
+        tiley = self.MapInfo[cont].TileY or 3
 
         if self.MapInfo[cont].ZXOff and self.MapInfo[cont].ZYOff then
             zx = zx + self.MapInfo[cont].ZXOff
@@ -1629,13 +1767,45 @@ end
 -- in this same comment as "an explicit non-goal"; that was wrong (see
 -- UpdateMiniFrames below, added 2026-11-10 once a live screenshot
 -- comparison against real Carbonite revealed what it actually is).
+--
+-- Build-order step 20: added the zone-vs-continent choice below. A
+-- single zone's own art only covers that zone's own world-space extent
+-- (zw/zh here) - once the window/zoom combo needs to see MORE world-
+-- space than that on its longer axis, there is nothing past the
+-- zone's edge to draw, which is exactly the "only one zone loads and
+-- it's blank beyond that" symptom this addresses. This is deliberately
+-- its OWN geometric check, not a reuse of UpdateMiniFrames' dynamic-
+-- radius formula below - that one is locked in as Terrain-only and
+-- must not be touched or shared (see this file's TerrainBrightness
+-- comments / CHANGELOG build-order step 19).
 function MinimapEngine:MoveCurZoneTiles()
     if not self.Cont then
         self:HideZoneTileFrames(self.TileFrms)
+        self:HideContinentFrames()
         return
     end
-    self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1,
-        (self.Frm:GetFrameLevel() or 1) + ART_MAP_LEVEL_OFFSET)
+
+    local level = (self.Frm:GetFrameLevel() or 1) + ART_MAP_LEVEL_OFFSET
+    local info = self.MapInfo and self.MapInfo[self.Cont]
+    local fileName = info and info.FileName
+    local contPool = fileName and self.ContFrms and self.ContFrms[self.Cont]
+
+    if contPool then
+        local _, _, _, zw, zh = self:GetWorldZoneInfo(self.Cont, self.Zone)
+        local scaleDraw = self.ScaleDraw
+        if not scaleDraw or scaleDraw <= 0 then scaleDraw = 1 end
+        local neededSpan = max(self.MapW or 0, self.MapH or 0) / scaleDraw
+
+        if zw and zh and neededSpan > max(zw, zh) then
+            self:HideZoneTileFrames(self.TileFrms)
+            self:HideContinentFrames(self.Cont)
+            self:MoveZoneTiles(self.Cont, 0, contPool, self.BackgndAlpha or 1, level)
+            return
+        end
+    end
+
+    self:HideContinentFrames()
+    self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1, level)
 end
 
 ---------------------------------------------------------------------------------------
@@ -1747,7 +1917,13 @@ end
 -- which this engine's own pan-drag - MinimapEngine:OnMouseDown/Up's
 -- Scrolling flag - doesn't track per-frame; a tile narrower than .3px
 -- just hiding outright is harmless here).
-function MinimapEngine:ClipFrameTL(frm, bx, by, w, h)
+--
+-- Build-order step 21: added the real source's two optional trailing
+-- params (texMaxX, texMaxY, MapEngine.lua:11655-11662) - scales the
+-- computed texcoords for overlay art files that aren't clean powers-
+-- of-two (UpdateOverlay, below). Existing callers (Terrain tiles, Art
+-- Map backdrop) never pass these, so they're unaffected.
+function MinimapEngine:ClipFrameTL(frm, bx, by, w, h, texMaxX, texMaxY)
     local scale = self.ScaleDraw
 
     local bw = w * scale
@@ -1799,9 +1975,363 @@ function MinimapEngine:ClipFrameTL(frm, bx, by, w, h)
     frm:SetPoint("TOPLEFT", vx1, -vy1 - self.TitleH)
     frm:SetWidth(w)
     frm:SetHeight(h)
+    if texMaxX and texMaxY then
+        texX1 = texX1 * texMaxX
+        texX2 = texX2 * texMaxX
+        texY1 = texY1 * texMaxY
+        texY2 = texY2 * texMaxY
+    end
     frm.texture:SetTexCoord(texX1, texX2, texY1, texY2)
     frm:Show()
     return true
+end
+
+-- Build-order step 21: generic, auto-growing, reset-every-tick frame
+-- pool for zone "revealed" overlay art (UpdateOverlay, below) - ported
+-- from real Carbonite's GetIconNI/HideExtraIcons (MapEngine.lua:12327/
+-- :12047), this port's own slice of it (that function serves five
+-- different icon pools there; this port only needs the one). Unlike
+-- this file's other icon pools (QuestFrms/GatherFrms/etc, zone-scoped,
+-- rebuilt on zone change) this one is reset every tick because the
+-- number of overlay regions drawn varies by zone and by how many
+-- recently-visited zones are currently being drawn at once.
+local MAX_OVERLAY_FRAMES = 1500 -- real Carbonite's own tested ceiling
+
+function MinimapEngine:GetOverlayFrame(levelAdd)
+    self.OverlayFrms = self.OverlayFrms or {}
+    local frms = self.OverlayFrms
+    local pos = frms.Next or 1
+    if pos > MAX_OVERLAY_FRAMES then pos = MAX_OVERLAY_FRAMES end
+    local f = frms[pos]
+    if not f then
+        f = self:CreateMiniFrame()
+        frms[pos] = f
+    end
+    f:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + OVERLAY_LEVEL_OFFSET + (levelAdd or 0))
+    f.texture:SetVertexColor(1, 1, 1, 1)
+    f.texture:SetTexCoord(0, 1, 0, 1)
+    frms.Next = pos + 1
+    return f
+end
+
+function MinimapEngine:HideExtraOverlayFrames()
+    local frms = self.OverlayFrms
+    if not frms then return end
+    for n = (frms.Next or 1), (frms.Used or 0) do
+        if frms[n] then frms[n]:Hide() end
+    end
+end
+
+-- Kept verbatim from Nx.Map:GetWorldZoneScale (MapEngine.lua:15035-
+--15045) - the BaseMap redirect is dead for this port's own data (no
+-- entry currently sets MapWorldInfo[x].BaseMap) but harmless to keep,
+-- matching GetWorldPos' own already-ported handling of the same field.
+function MinimapEngine:GetWorldZoneScale(mapId)
+    local winfo = self.MapWorldInfo[mapId]
+    if winfo and winfo.BaseMap then
+        winfo = self.MapWorldInfo[winfo.BaseMap]
+    end
+    if winfo and winfo.Scale then
+        return winfo.Scale
+    end
+    return 10.02
+end
+
+-- Build-order step 21: zone "revealed" overlay art (UpdateOverlay,
+-- below) - caches ported verbatim from the real source
+-- (MapEngine.lua:9740-9826). Genuine perf optimizations (avoid
+-- Nx.Split/API calls every frame for a loop that can run for up to
+-- ZONE_DRAW_CNT+1 zones' worth of regions every tick), not incidental
+-- complexity - kept rather than dropped, unlike the dead branches
+-- UpdateOverlay itself drops below.
+local OverlayCache = {
+    layerInfo = {},
+    exploredTextures = {},
+    parsedOverlays = {},
+    lastExploredCheck = {},
+}
+
+local function GetParsedOverlay(txFolder, txName, whxyStr)
+    local cacheKey = txFolder .. txName
+    local cached = OverlayCache.parsedOverlays[cacheKey]
+    if cached then
+        return cached
+    end
+
+    local oX, oY, txW, txH = Nx.Split(",", whxyStr)
+    local arTx
+    if string.find(txName, ",") then
+        arTx = { Nx.Split(",", txName) }
+    elseif tonumber(txName) then
+        arTx = { txName }
+    end
+
+    cached = {
+        oX = tonumber(oX),
+        oY = tonumber(oY),
+        txW = tonumber(txW),
+        txH = tonumber(txH),
+        arTx = arTx,
+        whxyKey = oX .. "," .. oY .. "," .. txW .. "," .. txH,
+    }
+    OverlayCache.parsedOverlays[cacheKey] = cached
+    return cached
+end
+
+function MinimapEngine:GetCachedLayerInfo(mapId)
+    local artMapID = self:GetArtSourceMapID(mapId)
+    local artID = C_Map and C_Map.GetMapArtID and C_Map.GetMapArtID(artMapID) or artMapID
+    local cached = OverlayCache.layerInfo[mapId]
+    if cached and cached.artID == artID then
+        return cached.info
+    end
+
+    local layers = self:GetArtLayers(artMapID)
+    if not layers or not layers[1] then
+        return nil
+    end
+
+    local layerInfo = layers[1]
+    OverlayCache.layerInfo[mapId] = { artID = artID, info = layerInfo }
+    return layerInfo
+end
+
+function MinimapEngine:GetCachedExploredTextures(mapId, forceRefresh)
+    local now = GetTime()
+    local lastCheck = OverlayCache.lastExploredCheck[mapId] or 0
+
+    if not forceRefresh and (now - lastCheck) < 2 and OverlayCache.exploredTextures[mapId] then
+        return OverlayCache.exploredTextures[mapId]
+    end
+
+    local exploredWHXY = {}
+    local explored = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
+        and C_MapExplorationInfo.GetExploredMapTextures(mapId)
+    if explored then
+        for i, ex in ipairs(explored) do
+            local key = ex.offsetX .. "," .. ex.offsetY .. "," .. ex.textureWidth .. "," .. ex.textureHeight
+            exploredWHXY[key] = true
+        end
+    end
+
+    OverlayCache.exploredTextures[mapId] = exploredWHXY
+    OverlayCache.lastExploredCheck[mapId] = now
+    return exploredWHXY
+end
+
+-- Build-order step 21 follow-up (live-tested same day): real
+-- Carbonite's own default here is NXShowUnexplored = false (per-region
+-- dimming against real C_MapExplorationInfo.GetExploredMapTextures
+-- data, matching Classic exploration state). Live-tested on this
+-- server with that default and every region rendered permanently
+-- dimmed/"undiscovered," even for zones long since fully explored -
+-- most likely this Forever-flavor server's own exploration tracking
+-- doesn't line up with Carbonite's hand-authored Classic-client
+-- overlay catalog closely enough for GetCachedExploredTextures' key
+-- match to ever succeed. Flipped to true: this short-circuits `unex`
+-- to always stay nil (see UpdateOverlay below), so every region always
+-- renders at its full requested brightness - no exploration lookup,
+-- no oX-shift, no per-region dimming at all. Matches the user's own
+-- stated goal ("all revealed") better than a dimming pass that was
+-- never actually discriminating explored from unexplored, only
+-- failing to find anything explored.
+local SHOW_UNEXPLORED = true
+local UNEXPLORED_ALPHA = .35
+
+-- Trimmed port of Nx.Map:UpdateOverlay (MapEngine.lua:10045-10236) -
+-- the zone "revealed" overlay art drawn on top of the Art Map
+-- backdrop (continent or zone, build-order step 20) for the current
+-- zone (bright=1) and each recently-visited one (bright=.8, via
+-- self.MapsDrawnOrder/AddOldMap above). Dropped (confirmed dead/
+-- inapplicable for this single-flavor, no-instance/no-battleground
+-- port, same convention as this file's other "explicit non-goal"
+-- branches): the modern-instance-canvas early return,
+-- ShouldHideQuelThalasZone, IsBattleGroundMap/IsMicroDungeon/
+-- IsInstanceMap guards, wzone.Phase (MoP-phasing, not reachable on
+-- this server), and the underscore-combined-region branch +
+-- GetCompressedTexturePath (confirmed zero occurrences in
+-- ExplorationOverlays.lua). KEPT, unlike an earlier pass through this
+-- plan assumed: the arTx/multi-texture-ID branch - confirmed NOT dead,
+-- Eastern Plaguelands' 21 regions are keyed by plain numeric or
+-- comma-separated Blizzard fileIDs instead of named file paths (e.g.
+-- ["271518,271527,2212703,2212704"]), and that branch is what renders
+-- them.
+function MinimapEngine:UpdateOverlay(mapId, bright, noUnexplored)
+    if mapId == nil or mapId == 0 or mapId == -1 then
+        return
+    end
+
+    local wzone = self.MapWorldInfo[mapId]
+    if wzone and wzone.City then
+        DebugOverlayLog(mapId, "wzone.City set, skipping")
+        return
+    end
+    local txFolder = (wzone and wzone.Overlay) or ""
+    local overlays = self.ZoneOverlays and self.ZoneOverlays[txFolder]
+    if not overlays then
+        DebugOverlayLog(mapId, "no overlays (wzone=%s txFolder=%q ZoneOverlays=%s)",
+            tostring(wzone ~= nil), txFolder, tostring(self.ZoneOverlays ~= nil))
+        return
+    end
+
+    local unex
+    if not noUnexplored and (not overlays or not SHOW_UNEXPLORED) then
+        if not (wzone and wzone.Explored) then
+            unex = true
+        end
+    end
+
+    local path = "Interface\\Worldmap\\" .. txFolder .. "\\"
+    local alpha = self.BackgndAlpha or 1
+    local unExAl = UNEXPLORED_ALPHA
+    local exploredWHXY = unex and self:GetCachedExploredTextures(mapId) or {}
+
+    local layerInfo = self:GetCachedLayerInfo(mapId)
+    if not layerInfo then
+        local artMapID = self:GetArtSourceMapID(mapId)
+        DebugOverlayLog(mapId, "no layerInfo (overlays found, txFolder=%q, artMapID=%s, C_Map.GetMapArtLayers=%s)",
+            txFolder, tostring(artMapID),
+            tostring(C_Map and C_Map.GetMapArtLayers ~= nil))
+        return
+    end
+    DebugOverlayLog(mapId, "OK txFolder=%q regions=%d tileW=%s tileH=%s layerW=%s layerH=%s",
+        txFolder, (function() local n=0 for _ in pairs(overlays) do n=n+1 end return n end)(),
+        tostring(layerInfo.tileWidth), tostring(layerInfo.tileHeight),
+        tostring(layerInfo.layerWidth), tostring(layerInfo.layerHeight))
+    local TILE_SIZE_WIDTH = layerInfo.tileWidth
+    local TILE_SIZE_HEIGHT = layerInfo.tileHeight
+    local layerWidth = layerInfo.layerWidth
+    local layerHeight = layerInfo.layerHeight
+    local zoneScale = self:GetWorldZoneScale(mapId)
+    local worldPerPixelX = zoneScale * 100 / layerWidth
+    local worldPerPixelY = zoneScale * 100 / (1.5 * layerHeight)
+
+    local scale = self.ScaleDraw or 1
+    local minVisibleSize = scale < 0.15 and 128 or (scale < 0.3 and 64 or 0)
+
+    local dbgDrawn, dbgClipped, dbgDimmed, dbgBright = 0, 0, 0, 0
+
+    for oName, whxyStr in pairs(overlays) do
+        if oName ~= "dynamic" then
+            local parsed = GetParsedOverlay(txFolder, oName, whxyStr)
+            local oX, oY = parsed.oX, parsed.oY
+            local txW, txH = parsed.txW, parsed.txH
+            local arTx = parsed.arTx
+            local whxyKey = parsed.whxyKey
+
+            if not (txW < minVisibleSize and txH < minVisibleSize) then
+                local lev = 0
+                local brt = bright
+                local txName = path .. oName
+
+                if exploredWHXY[whxyKey] then
+                    oX = oX - 10000
+                end
+
+                if unex then
+                    if oX < 0 then
+                        oX = oX + 10000
+                    else
+                        brt = unExAl
+                        lev = 1
+                    end
+                end
+
+                if brt == unExAl then dbgDimmed = dbgDimmed + 1 else dbgBright = dbgBright + 1 end
+
+                local bW = ceil(txW / TILE_SIZE_WIDTH)
+                local bH = ceil(txH / TILE_SIZE_HEIGHT)
+                local txIndex = 1
+
+                for bY = 0, bH - 1 do
+                    local txPixelH, txFileH
+                    if bY < bH - 1 then
+                        txPixelH, txFileH = TILE_SIZE_HEIGHT, TILE_SIZE_HEIGHT
+                    else
+                        txPixelH = txH % TILE_SIZE_HEIGHT
+                        if txPixelH == 0 then txPixelH = TILE_SIZE_HEIGHT end
+                        txFileH = 16
+                        while txFileH < txPixelH do txFileH = txFileH * 2 end
+                    end
+
+                    for bX = 0, bW - 1 do
+                        local txPixelW, txFileW
+                        if bX < bW - 1 then
+                            txPixelW, txFileW = TILE_SIZE_WIDTH, TILE_SIZE_WIDTH
+                        else
+                            txPixelW = txW % TILE_SIZE_WIDTH
+                            if txPixelW == 0 then txPixelW = TILE_SIZE_WIDTH end
+                            txFileW = 16
+                            while txFileW < txPixelW do txFileW = txFileW * 2 end
+                        end
+
+                        local f = self:GetOverlayFrame(lev)
+                        local wx, wy = self:GetWorldPos(mapId,
+                            (oX + bX * TILE_SIZE_WIDTH) / layerWidth * 100,
+                            (oY + bY * TILE_SIZE_HEIGHT) / layerHeight * 100)
+
+                        if wx and self:ClipFrameTL(f, wx, wy,
+                                txPixelW * worldPerPixelX,
+                                txPixelH * worldPerPixelY,
+                                txPixelW / txFileW,
+                                txPixelH / txFileH) then
+
+                            f.texture:SetColorTexture(1, 0, 0, 0)
+
+                            if arTx then
+                                local textureID = arTx[txIndex]
+                                f.texture:SetTexture(tonumber(textureID) or textureID)
+                            else
+                                f.texture:SetTexture(txName .. txIndex)
+                            end
+                            f.texture:SetVertexColor(brt, brt, brt, alpha)
+                            dbgDrawn = dbgDrawn + 1
+                        else
+                            dbgClipped = dbgClipped + 1
+                        end
+
+                        txIndex = txIndex + 1
+                    end
+                end
+            end
+        end
+    end
+
+    DebugOverlayLog(mapId, "done bright=%s unex=%s dimmedRegions=%d brightRegions=%d drawnTiles=%d clippedTiles=%d",
+        tostring(bright), tostring(unex), dbgDimmed, dbgBright, dbgDrawn, dbgClipped)
+end
+
+-- Build-order step 21 same-day follow-up: user's actual goal was never
+-- real Carbonite's default ("current zone + a FIFO of the last few
+-- visited, matching real exploration") - it's "all revealed," same
+-- philosophy as SHOW_UNEXPLORED above (no per-region fog of war) but
+-- at the zone-stitching level too (no per-zone visit history either).
+-- Dropped the self.MapsDrawnOrder/AddOldMap FIFO entirely (confirmed
+-- unused anywhere else first) in favor of iterating EVERY zone on the
+-- current continent - self.MapZones[self.Cont], the same static
+-- continent->zones list FindContinent already walks, and the same one
+-- MoveZoneTiles' own tiling relies on existing and being accurate.
+-- No real-source equivalent by this name (real Carbonite inlines its
+-- own narrower version of this loop directly in UpdateZones,
+-- MapEngine.lua:9880-9893).
+function MinimapEngine:UpdateZoneOverlays()
+    self.OverlayFrms = self.OverlayFrms or {}
+    self.OverlayFrms.Used = (self.OverlayFrms.Next or 1) - 1
+    self.OverlayFrms.Next = 1
+
+    local zones = self.Cont and self.MapZones and self.MapZones[self.Cont]
+    if zones then
+        for _, zoneId in ipairs(zones) do
+            if zoneId ~= self.MapId then
+                self:UpdateOverlay(zoneId, .8, true)
+            end
+        end
+    end
+    if self.MapId then
+        self:UpdateOverlay(self.MapId, 1)
+    end
+
+    self:HideExtraOverlayFrames()
 end
 
 -- Kept verbatim (flat-view math only) from Nx.Map:UpdateMiniFrames
@@ -2073,7 +2603,7 @@ function MinimapEngine:UpdatePlayerMarker()
     if not frm.texture:GetTexture() then
         AlchemyGPS.UI.StyleOptions:ApplyIcon(frm.texture, "PlayerMarker")
     end
-    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
+    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 11)
     self:ClipFrameW(frm, self.PlyrX, self.PlyrY,
         PLAYER_MARKER_SIZE, PLAYER_MARKER_SIZE, self.PlyrDir)
 end
@@ -2509,7 +3039,7 @@ function MinimapEngine:UpdateServiceIcons()
     end
 
     local StyleOptions = AlchemyGPS.UI.StyleOptions
-    local level = (self.Frm:GetFrameLevel() or 1) + 5
+    local level = (self.Frm:GetFrameLevel() or 1) + 6
     for i, pt in ipairs(pts) do
         local frm = self.SvcFrms[i]
         if frm.svcIconSpec ~= pt.iconSpec then
@@ -2619,7 +3149,7 @@ function MinimapEngine:UpdateQuestIcons()
         end
     end
 
-    local level = (self.Frm:GetFrameLevel() or 1) + 6
+    local level = (self.Frm:GetFrameLevel() or 1) + 7
     for i, pt in ipairs(pts) do
         local frm = self.QuestFrms[i]
         if frm.svcIconSpec ~= pt.iconSpec then
@@ -3080,7 +3610,7 @@ function MinimapEngine:UpdateGatherIcons()
         end
     end
 
-    local level = (self.Frm:GetFrameLevel() or 1) + 4
+    local level = (self.Frm:GetFrameLevel() or 1) + 5
     local px, py = self.PlyrX, self.PlyrY
     local size = GATHER_ICON_SIZE * (self.GatherIconScale or 1)
     for i, pt in ipairs(pts) do
@@ -3879,7 +4409,7 @@ function MinimapEngine:DrawAntTrail(pool, dx, dy, dist, r, g, b, a)
     local stepX, stepY = dx / cnt, dy / cnt
     local scroll = self.ArrowScroll or 0
     local ox, oy = stepX * scroll, stepY * scroll
-    local level = (self.Frm:GetFrameLevel() or 1) + 7
+    local level = (self.Frm:GetFrameLevel() or 1) + 8
     for n = 1, cnt do
         local f = pool[n]
         local wx, wy = self.PlyrX + ox, self.PlyrY + oy
@@ -3973,7 +4503,7 @@ function MinimapEngine:UpdateGoto()
     end
     local dotShown = self:ClipFrameW(self.GotoFrm, self.GotoWX, self.GotoWY, GOTO_ICON_SIZE, GOTO_ICON_SIZE, 0)
     if dotShown then
-        self.GotoFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 9)
+        self.GotoFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
         self.GotoYdLabel:SetText(("%dyd"):format(math.ceil(yards)))
         self.GotoYdLabel:Show()
     else
@@ -4131,7 +4661,7 @@ function MinimapEngine:UpdateCorpseTrack()
     local dotShown = self:ClipFrameW(self.CorpseFrm, wx, wy, CORPSE_ICON_SIZE, CORPSE_ICON_SIZE, 0)
     if dotShown then
         self.CorpseFrm.texture:SetTexCoord(CORPSE_TEX_U1, CORPSE_TEX_U2, CORPSE_TEX_V1, CORPSE_TEX_V2)
-        self.CorpseFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 9)
+        self.CorpseFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
         self.CorpseYdLabel:SetText(("%dyd"):format(math.ceil(dist * YARDS_PER_WORLDUNIT)))
         self.CorpseYdLabel:Show()
     else
@@ -4610,10 +5140,15 @@ function MinimapEngine:Update(elapsed)
     -- new code path.
     if self.DebugHideArt then
         self:HideZoneTileFrames(self.TileFrms)
+        self:HideContinentFrames()
+        self:HideExtraOverlayFrames()
     elseif self.ScaleDraw <= DETAIL_SCALE then
         self:MoveCurZoneTiles()
+        self:UpdateZoneOverlays()
     else
         self:HideZoneTileFrames(self.TileFrms)
+        self:HideContinentFrames()
+        self:HideExtraOverlayFrames()
     end
     if self.DebugHideTerrain then
         self:HideMiniFrames()

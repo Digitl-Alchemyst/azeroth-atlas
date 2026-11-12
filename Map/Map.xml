@@ -7,6 +7,10 @@
          AlchemyGPS.Map alias (build-order step 8) finds it already
          populated, whichever of the two happens to load first. -->
     <Script file="Data\NxMapData.lua" />
+    <!-- Build-order step 21: zone "revealed" overlay region data, pure
+         data, no dependencies - loads alongside NxMapData.lua for the
+         same reason. -->
+    <Script file="Data\ExplorationOverlays.lua" />
     <!-- Build-order step 12 follow-up: zone-name lookup, needed by
          GuideZoneTransition.lua's own conversion loop below (resolves
          blank-named plain zone-border entries to a real destination
