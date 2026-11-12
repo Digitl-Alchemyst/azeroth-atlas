@@ -1537,7 +1537,21 @@ AlchemyGPS.Core.SlashCommands:Register("hideart", function()
         MinimapEngine.DebugHideArt and "FORCED HIDDEN" or "normal")
     local win = AlchemyGPS.Modules.Map.MinimapWindow
     syncLayerCheckbox(win and win.ArtMapCB, "DebugHideArt")
-end, "toggle forcing the Art Map (zone/continent overview) layer hidden - map-layering diagnostic")
+end, "toggle forcing the Art Map (zone overview + revealed overlay) layer hidden - map-layering diagnostic")
+
+-- Build-order step 20 follow-up (2026-11-11): split out of Art Map
+-- into its own independently-togglable layer, direct user request
+-- ("move the continent to its own layer call it base give it a toggle
+-- box too") - see MoveCurZoneTiles' own header comment for how the two
+-- flags now apply independently to their own half of that function.
+AlchemyGPS.Core.SlashCommands:Register("hidebase", function()
+    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+    MinimapEngine.DebugHideBase = not MinimapEngine.DebugHideBase
+    Logger:info("hidebase: Base (continent backdrop) layer is now %s",
+        MinimapEngine.DebugHideBase and "FORCED HIDDEN" or "normal")
+    local win = AlchemyGPS.Modules.Map.MinimapWindow
+    syncLayerCheckbox(win and win.BaseCB, "DebugHideBase")
+end, "toggle forcing the Base (continent backdrop) layer hidden - map-layering diagnostic")
 
 AlchemyGPS.Core.SlashCommands:Register("hideterrain", function()
     local Logger = AlchemyGPS.Core.Logger:Get("Map")
@@ -1778,6 +1792,20 @@ end
 -- radius formula below - that one is locked in as Terrain-only and
 -- must not be touched or shared (see this file's TerrainBrightness
 -- comments / CHANGELOG build-order step 19).
+--
+-- Build-order step 20 follow-up (2026-11-11, "Base" layer split):
+-- the continent backdrop got its own independent toggle
+-- (self.DebugHideBase, title-bar BaseCB) separate from Art Map's
+-- self.DebugHideArt - direct user request ("move the continent to its
+-- own layer call it base give it a toggle box too"). Previously
+-- DebugHideArt being true meant MoveCurZoneTiles never even ran
+-- (Update()'s own gate used it as a top-level branch), which forced
+-- continent hidden too whenever Art Map was off - not actually
+-- independent. Now this function always runs whenever any zone-
+-- overview art COULD show at the current zoom, and applies each flag
+-- only to its own half: DebugHideBase gates the continent-draw branch,
+-- DebugHideArt gates the zone-tile branch. Update()'s own gate no
+-- longer branches on DebugHideArt at all - see its own comment.
 function MinimapEngine:MoveCurZoneTiles()
     if not self.Cont then
         self:HideZoneTileFrames(self.TileFrms)
@@ -1798,14 +1826,22 @@ function MinimapEngine:MoveCurZoneTiles()
 
         if zw and zh and neededSpan > max(zw, zh) then
             self:HideZoneTileFrames(self.TileFrms)
-            self:HideContinentFrames(self.Cont)
-            self:MoveZoneTiles(self.Cont, 0, contPool, self.BackgndAlpha or 1, level)
+            if self.DebugHideBase then
+                self:HideContinentFrames()
+            else
+                self:HideContinentFrames(self.Cont)
+                self:MoveZoneTiles(self.Cont, 0, contPool, self.BackgndAlpha or 1, level)
+            end
             return
         end
     end
 
     self:HideContinentFrames()
-    self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1, level)
+    if self.DebugHideArt then
+        self:HideZoneTileFrames(self.TileFrms)
+    else
+        self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1, level)
+    end
 end
 
 ---------------------------------------------------------------------------------------
@@ -5131,20 +5167,31 @@ function MinimapEngine:Update(elapsed)
     -- ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET above
     -- MoveZoneTiles.)
     --
-    -- Build-order step 18 (2026-11-11, map-layering fix): two debug
-    -- flags let a live tester isolate either layer via /gps hideart /
-    -- /gps hideterrain (Core/SlashCommands.lua registrations further
-    -- down this file) - short-circuit straight to the same hide calls
-    -- the zoom gate already uses, so an isolated layer looks exactly
-    -- like "zoomed past the point this layer would show" rather than a
-    -- new code path.
-    if self.DebugHideArt then
-        self:HideZoneTileFrames(self.TileFrms)
-        self:HideContinentFrames()
-        self:HideExtraOverlayFrames()
-    elseif self.ScaleDraw <= DETAIL_SCALE then
+    -- Build-order step 18 (2026-11-11, map-layering fix): debug flags
+    -- let a live tester isolate a layer via /gps hideart /
+    -- /gps hideterrain / /gps hidebase (Core/SlashCommands.lua
+    -- registrations further down this file) - short-circuit straight
+    -- to the same hide calls the zoom gate already uses, so an
+    -- isolated layer looks exactly like "zoomed past the point this
+    -- layer would show" rather than a new code path.
+    --
+    -- Build-order step 20 follow-up (2026-11-11, "Base" layer split):
+    -- DebugHideArt and DebugHideBase used to share one top-level
+    -- branch here, which meant hiding Art Map always hid the continent
+    -- backdrop too - not actually independent toggles. MoveCurZoneTiles
+    -- now applies both flags internally, to its own zone-tile vs.
+    -- continent branch respectively (see its own header comment), so
+    -- it always runs whenever any zone-overview art could show at the
+    -- current zoom; only the overlay layer (still conceptually part of
+    -- Art Map, not Base - it's the zones' own "revealed" art, not the
+    -- backdrop texture) stays gated here directly on DebugHideArt.
+    if self.ScaleDraw <= DETAIL_SCALE then
         self:MoveCurZoneTiles()
-        self:UpdateZoneOverlays()
+        if self.DebugHideArt then
+            self:HideExtraOverlayFrames()
+        else
+            self:UpdateZoneOverlays()
+        end
     else
         self:HideZoneTileFrames(self.TileFrms)
         self:HideContinentFrames()

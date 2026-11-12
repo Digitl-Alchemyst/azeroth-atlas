@@ -312,12 +312,41 @@ function MinimapWindow:Open()
         GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
         GameTooltip:SetText("Art Map layer")
         GameTooltip:AddLine(
-            "Coarse continent/zone overview art. Uncheck to hide it and see the Terrain Texture layer alone.",
+            "Zone overview art + each zone's revealed overlay. Uncheck to hide it and see the Terrain Texture/Base layers alone.",
             1, 1, 1, true)
         GameTooltip:Show()
     end)
     artCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
     self.ArtMapCB = artCB
+
+    -- Build-order step 20 follow-up (2026-11-11): continent backdrop
+    -- split out of Art Map into its own independently-togglable layer,
+    -- direct user request ("move the continent to its own layer call
+    -- it base give it a toggle box too") - see MinimapEngine.lua's
+    -- MoveCurZoneTiles for how DebugHideArt/DebugHideBase now apply
+    -- independently. Same bare-checkbox-plus-tooltip style as the
+    -- other two, continuing the row leftward.
+    local baseCB = CreateFrame("CheckButton", nil, win.Frm)
+    baseCB:SetSize(14, 14)
+    baseCB:SetPoint("RIGHT", artCB, "LEFT", -6, 0)
+    baseCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+    baseCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+    baseCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+    baseCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    baseCB:SetChecked(not MinimapEngine.DebugHideBase)
+    baseCB:SetScript("OnClick", function(cb)
+        MinimapEngine.DebugHideBase = not cb:GetChecked()
+    end)
+    baseCB:SetScript("OnEnter", function(cb)
+        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
+        GameTooltip:SetText("Base layer")
+        GameTooltip:AddLine(
+            "Flat continent backdrop art, shown when zoomed out past the current zone's own bounds. Uncheck to hide it.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    baseCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self.BaseCB = baseCB
 
     -- Zoom buttons, build-order step 5. Carbonite's own +/- zoom
     -- buttons are Blizzard's native MinimapZoomIn/MinimapZoomOut,

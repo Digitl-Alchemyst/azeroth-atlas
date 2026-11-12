@@ -3663,6 +3663,58 @@ forward: does this mechanic gate on real exploration/visit state, and
 if so, does the user actually want that gate, or did they ask for
 "revealed"/"all shown" from the start?
 
+### Same-day fifth follow-up: split the continent backdrop into its own "Base" layer, with its own toggle
+
+User, after confirming all-zones stitching worked: *"now can we move
+the continent to its own layer call it base give it a toggle box too
+please."* Until now the continent backdrop was bundled inside the Art
+Map layer/toggle (`DebugHideArt`/`ArtMapCB`) alongside the current
+zone's own tile art and the zone overlay stitching - hiding Art Map
+hid all three together.
+
+Implementation:
+- `MoveCurZoneTiles` (`MinimapEngine.lua`) used to be a single
+  zoom-driven choice between "draw the zone's own tiles" and "draw the
+  continent backdrop," with no per-flag gating of either - both only
+  ran at all if `Update()`'s outer `DebugHideArt` branch let the whole
+  function execute. Restructured so the function always runs whenever
+  any zone-overview art could show at the current zoom, and applies
+  two independent flags to its own two branches: the new
+  `self.DebugHideBase` gates the continent-draw branch, the existing
+  `self.DebugHideArt` now gates only the zone-tile branch.
+- `Update()`'s own `DETAIL_SCALE` gate no longer has a separate
+  top-level `DebugHideArt` branch - `MoveCurZoneTiles` handles that
+  internally now. `DebugHideArt` still independently gates
+  `UpdateZoneOverlays`/`HideExtraOverlayFrames` directly in `Update()`,
+  since the overlay (zones' own "revealed" sub-region art) stays
+  conceptually part of Art Map, not Base - the user asked to split out
+  "the continent" (the backdrop texture), not the overlay stitching.
+- New slash command `/gps hidebase`, same pattern as `hideart`/
+  `hideterrain` (toggles `MinimapEngine.DebugHideBase`, logged, kept in
+  sync with its checkbox).
+- New title-bar checkbox `BaseCB` (`MinimapWindow.lua`), continuing the
+  Terrain/Art Map checkbox row leftward, same bare-checkbox-plus-
+  tooltip style, reading/writing `MinimapEngine.DebugHideBase` directly
+  (not a persisted SavedVariables field, matching the other two -
+  resets to on/shown at next login/reload). Art Map's own tooltip text
+  updated to describe its narrower scope now that the continent moved
+  out of it.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked on both files. Not yet live-tested - worth confirming
+all three toggles (Terrain/Art Map/Base) now behave fully
+independently (any one off, the other two unaffected), and that the
+title bar still has room for the third checkbox without crowding the
+Filter button.
+
+**How to apply**: [[project_alchemy_gps]] - when a single function
+makes a zoom-driven choice between two visual layers that later need
+independent user-facing toggles, the fix is usually to keep the
+zoom-driven choice intact but push each toggle's flag down into its
+own branch of that same function, rather than gating the whole
+function from the outside - the latter is what caused Base to be
+inseparable from Art Map in the first place.
+
 **How to apply**: [[project_alchemy_gps]] - ground-truth runtime
 diagnostics (a throttled debug log reading the addon's own live state)
 settled this in one data point after two rounds of plausible-but-wrong
