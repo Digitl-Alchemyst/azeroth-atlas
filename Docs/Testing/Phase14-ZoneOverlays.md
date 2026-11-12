@@ -100,6 +100,56 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       named regions, zoomed out) doesn't introduce a noticeable
       stutter.
 
+### Phase 10 — "Art Map redefined": Overlay now occupies the Art Map slot (added 2026-11-11, sixth follow-up)
+- [ ] Zoom out to single-zone view (not continent) and confirm the
+      current zone's own revealed overlay art still renders correctly
+      - it now shares Art Map's own frame level instead of its
+      previous separate one, with the old flat zone-tile backdrop that
+      used to live there removed entirely.
+- [ ] Toggle the Art Map title-bar checkbox (or `/gps hideart`) off and
+      on - confirm Overlay (not a flat backdrop) is what shows/hides.
+- [x] **Resolved structurally, 2026-11-11 (seventh follow-up)**: at
+      continent zoom, confirm Overlay's "revealed" zone art renders ON
+      TOP of Base's flat backdrop, not hidden behind it. This WAS the
+      one risk flagged in this phase's own previous version (Base and
+      Overlay sharing one frame level) - confirmed live-broken exactly
+      as flagged (Hillsbrad's Durnholde Keep region rendering behind
+      Base, screenshots `WoWScrnShot_111126_231058/102/110/112.jpg`).
+      Base and Art Map/Overlay now sit on separate, guaranteed-distinct
+      frame levels (`CHANGELOG.md`'s "full 5-layer rework" entry), which
+      structurally fixes this rather than relying on creation-order
+      luck - still worth one pass confirming no flat/wrong-colored
+      patches anywhere on a zoomed-out continent view, including
+      Hillsbrad specifically.
+
+### Phase 11 — 5-layer rework: Service Layer collapse + Radar Layer reversal (added 2026-11-11, seventh follow-up)
+- [ ] With a full set of icons visible at once (quest markers, service
+      icons, gather nodes, goto or corpse trail+dot, player marker),
+      confirm every type still renders correctly - they now all share
+      one frame level (Service Layer) instead of each having its own,
+      so order between DIFFERENT icon types at the exact same pixel is
+      no longer guaranteed. Not expected to be visually obvious in
+      normal play (icon types rarely occupy the identical pixel), but
+      worth a specific look if several icons cluster at one spot.
+- [ ] Confirm each gather node's black backdrop still renders correctly
+      BEHIND its own icon (not covering it) - this pairing's own
+      internal ordering is unchanged, just double-check it since
+      Service Layer's overall level moved.
+- [ ] Start tracking a gathering skill (e.g. Find Herbs) near some
+      native minimap blips and confirm the green radar sweep (Radar
+      Layer) now renders ON TOP of this addon's own Service Layer icons
+      (player dot, quest markers, etc.), not hidden beneath them. This
+      is a deliberate reversal of build-order step 17's fix - the
+      opposite of what step 17 fixed is now the INTENDED behavior, not
+      a regression.
+- [ ] With the radar sweep active (same gathering-skill state as
+      above), confirm the title-bar row - zoom in/out, settings, follow,
+      filter, Terrain/Art Map/Base checkboxes - all stay fully visible
+      and clickable. This is the specific regression the chrome-strata
+      fix in the same follow-up exists to prevent; if any chrome control
+      visibly disappears or stops responding to clicks while the sweep
+      is active, report that exactly along with which control(s).
+
 ## What to report back
 
 For each phase above: pass/fail, and for any fail, the exact zoom

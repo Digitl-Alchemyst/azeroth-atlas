@@ -509,7 +509,6 @@ function MinimapEngine:HideLiveBlips()
     self.MMPassengerCheckAt = nil
     mm:Hide()
     self:UpdateLiveBlipRadar(false)
-    self:RestoreIconsFromLivePatch()
 
     -- Restore whatever third-party addon buttons ShowLiveBlips hid
     -- (see its own header) - plain unprotected frames, no combat-
@@ -1084,73 +1083,44 @@ end
 -- this revival's whole point is seeing native blips clearly, not
 -- blending them in).
 -- Build-order step 17, radar-layering follow-up (2026-11-11): this
--- engine's own markers (player dot, gather/service/quest icons) are
--- plain children of self.Frm, which MinimapSyncLayer deliberately
--- keeps BELOW mm's own elevated level - mm has to float above the
--- whole window to read as a true overlay at all, which means
--- everything inside self.Frm's own subtree draws under it too,
--- regardless of each icon's own internal (self.Frm-relative) level
--- offset - confirmed live, user-reported: the radar's opaque sweep
--- made this newly obvious ("get all of that under the yellow dots
--- those seem to be on the bottom").
+-- engine's own markers (player dot, gather/service/quest icons) used
+-- to get raised to a strata ABOVE mm/MMRadar whenever the live patch
+-- was shown, via RaiseIconsAboveLivePatch/RestoreIconsFromLivePatch
+-- below - confirmed live, user-reported at the time: the radar's
+-- opaque sweep made icons disappearing underneath it newly obvious
+-- ("get all of that under the yellow dots those seem to be on the
+-- bottom"). That mechanism established the key technical fact this
+-- follow-up still relies on: frame STRATA is a hard global sort key
+-- that ignores parent/level entirely (unlike frame level, which only
+-- compares directly within shared-parent siblings) - confirmed the
+-- hard way, since a first attempt at reparenting each icon to
+-- UIParent (mm/MMRadar's own parent) so a plain frame-level bump would
+-- be an unambiguous sibling comparison was live-tested BROKEN:
+-- ClipFrameW positions every one of these icons via a 3-arg
+-- `frm:SetPoint("TOPLEFT", vx1, ...)` with no explicit relativeTo
+-- frame, which WoW resolves against the icon's OWN PARENT implicitly -
+-- reparenting to UIParent silently changed what that anchor was
+-- relative to, landing most icons outside ClipFrameW's own bounds
+-- check and hiding them.
 --
--- First attempt reparented each icon to UIParent (mm/MMRadar's own
--- parent) so a plain frame-level bump would be an unambiguous sibling
--- comparison - live-tested BROKEN: ClipFrameW positions every one of
--- these icons via a 3-arg `frm:SetPoint("TOPLEFT", vx1, ...)` with no
--- explicit relativeTo frame (MinimapEngine.lua:1845ish), which WoW
--- resolves against the icon's OWN PARENT implicitly - reparenting to
--- UIParent silently changed what that anchor was relative to, so
--- every icon started positioning against the whole screen's corner
--- instead of the map window's, landing most of them outside ClipFrameW's
--- own bounds check and hiding them (confirmed live: nodes visible far
--- away, gone up close, exactly where the computed point would drift
--- outside the window).
---
--- Fixed version: don't touch parent at all - bump STRATA instead.
--- Frame strata is a hard global sort key that ignores parent/level
--- entirely (unlike frame level, which only compares directly within
--- shared-parent siblings), so this raises the icon above mm/MMRadar
--- with zero effect on anchoring, scale inheritance, or ClipFrameW's
--- own positioning math.
-local function RaiseAboveLivePatch(frm, strata)
-    if frm then frm:SetFrameStrata(strata) end
-end
-
-local function RestoreLivePatchIcon(frm)
-    if frm then frm:SetFrameStrata("MEDIUM") end
-end
-
-function MinimapEngine:RaiseIconsAboveLivePatch(strata)
-    RaiseAboveLivePatch(self.PlyrFrm, strata)
-    for i = 1, #self.GatherFrms do
-        local frm = self.GatherFrms[i]
-        RaiseAboveLivePatch(frm, strata)
-        RaiseAboveLivePatch(frm.backdrop, strata)
-    end
-    for i = 1, #self.SvcFrms do
-        RaiseAboveLivePatch(self.SvcFrms[i], strata)
-    end
-    for i = 1, #self.QuestFrms do
-        RaiseAboveLivePatch(self.QuestFrms[i], strata)
-    end
-end
-
-function MinimapEngine:RestoreIconsFromLivePatch()
-    RestoreLivePatchIcon(self.PlyrFrm)
-    for i = 1, #self.GatherFrms do
-        local frm = self.GatherFrms[i]
-        RestoreLivePatchIcon(frm)
-        RestoreLivePatchIcon(frm.backdrop)
-    end
-    for i = 1, #self.SvcFrms do
-        RestoreLivePatchIcon(self.SvcFrms[i])
-    end
-    for i = 1, #self.QuestFrms do
-        RestoreLivePatchIcon(self.QuestFrms[i])
-    end
-end
-
+-- Build-order step 21 same-day seventh follow-up (2026-11-11, 5-layer
+-- rework): this ordering is now deliberately REVERSED. Direct request/
+-- confirmation: Radar Layer (the live-blip patch below) is layer 5 of
+-- the user's 5-layer spec, above Service Layer (layer 4, this engine's
+-- own icons) - explicitly confirmed even knowing it undoes the step-17
+-- fix above, because Radar Layer's whole purpose is seeing the native
+-- minimap's own live blips clearly, and the always-on Service icons
+-- sitting on top of them defeated that. So: RaiseIconsAboveLivePatch/
+-- RestoreIconsFromLivePatch and their two small helpers are removed
+-- outright - Service icons no longer get touched here at all, they
+-- just stay at their normal strata. Instead, UpdateLiveBlips' own
+-- MinimapSyncLayer call below now passes aboveHost=true, bumping mm
+-- (and MMRadar, which derives its own strata directly from mm's) one
+-- strata tier above the window's own baseline - the exact same proven
+-- mechanism, just pointed the other direction. See MinimapWindow.lua's
+-- chrome-strata fix (same follow-up) for why the title-bar buttons
+-- needed an explicit strata of their own once mm could out-rank the
+-- window's default strata this way.
 function MinimapEngine:UpdateLiveBlips()
     local mm = self.MMFrm
     if not mm then return end
@@ -1189,7 +1159,7 @@ function MinimapEngine:UpdateLiveBlips()
     if shown then
         mm:SetAlpha(LIVE_BLIP_ALPHA)
         self:MinimapUpdateMask()
-        self:MinimapSyncLayer(self.Win.Frm:GetFrameLevel() or 1, 1)
+        self:MinimapSyncLayer(self.Win.Frm:GetFrameLevel() or 1, 1, true)
         self:MinimapDetachFrms()
 
         if self.MMZoomType ~= 1 or self.MMScale ~= self.ScaleDraw then
@@ -1206,12 +1176,10 @@ function MinimapEngine:UpdateLiveBlips()
             end
         end
         self:UpdateLiveBlipRadar(true)
-        self:RaiseIconsAboveLivePatch(MINIMAP_STRATA_ABOVE[mm:GetFrameStrata()] or mm:GetFrameStrata())
     else
         self.MMZoomType = 0
         mm:Hide()
         self:UpdateLiveBlipRadar(false)
-        self:RestoreIconsFromLivePatch()
     end
 end
 
@@ -1234,13 +1202,14 @@ end
 --     level suffixes, fog-of-war "explored overlay" diffing, Classic
 --     old-MapID translation, and Blizzard-WorldMapFrame mouse-vs-
 --     player disambiguation, none of which this addon has any of the
---     surrounding machinery for. UpdateWorldArt below is a fresh,
---     much smaller trigger that calls the exact same real API
---     primitives (GetArtSourceMapID/GetArtLayerTextures) UpdateWorld
---     itself calls for the texture-fetch step - the part that's
---     actually hard to get right (the C_Map shape-guards, the per-
---     flavor art-ID resolution) is still the real code, just without
---     the entangled orchestration around it.
+--     surrounding machinery for. UpdateWorldArt (removed build-order
+--     step 21 same-day sixth follow-up - see its own removal comment)
+--     used to be a fresh, much smaller trigger calling the exact same
+--     real API primitives (GetArtSourceMapID/GetArtLayerTextures)
+--     UpdateWorld itself calls for the texture-fetch step; those two
+--     primitives are still here and still load-bearing (MoveZoneTiles'
+--     own continent/zone sizing math, Overlay's GetCachedLayerInfo),
+--     just no longer feeding a dedicated flat zone-tile backdrop.
 --   - Nx.Map:SetToCurrentZone/SetMapByID/GetCurrentMapId (depend on
 --     self.RMapId, legacy render-pass state tied to the above) - not
 --     ported; RefreshCurrentZone below drives "what to show" from
@@ -1293,7 +1262,8 @@ end
 -- screen's own machinery - just a small static pool per continent,
 -- built once and never re-textured.
 --
--- Unlike TileFrms (re-textured every zone change via UpdateWorldArt),
+-- Unlike TileFrms (never textured now - see UpdateWorldArt's own
+-- removal comment, build-order step 21 same-day sixth follow-up),
 -- continent art never changes at runtime, so the texture is set ONCE,
 -- right here, and MoveZoneTiles' existing zone==0 branch only ever
 -- positions/crops these frames afterward - confirmed by reading that
@@ -1489,25 +1459,68 @@ end
 -- UpdateMiniFrames' own header to match the order actually implemented
 -- here. User confirmed Terrain-above-Art as the intended look (detail
 -- peeking through over the broad backdrop), matching the real source.
--- +1/+2 were free when this was first written. Build-order step 21
--- (zone "revealed" overlay art, below) needed a third slot directly
--- above Terrain and below every icon layer - but the icon floor
--- actually started at +3 (gather backdrop, derived as "gather icon
--- level - 1"), not +4 as a prior pass through this comment assumed;
--- that prior pass only grepped for the literal
--- `GetFrameLevel() + N` pattern and missed the backdrop's derived
--- level. There is no integer between +2 and +3, so every icon-pool
--- offset below was shifted up by exactly 1 (same relative order
--- between icons, zero change in how icons relate to each other) to
--- open up +3 for Overlay. Current layout: Art Map +1, Terrain +2,
--- Overlay +3 (ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET
--- themselves untouched, per "don't mess with the terrain layer"),
--- gather backdrop +4 (still derived, auto-followed the shift), gather
--- icon +5, service +6, quest +7, goto/corpse trail +8, goto/corpse
--- dot +10, player marker +11 (+9 unclaimed).
-local ART_MAP_LEVEL_OFFSET = 1
-local TERRAIN_TILE_LEVEL_OFFSET = 2
-local OVERLAY_LEVEL_OFFSET = 3
+--
+-- Build-order step 21 same-day sixth follow-up (2026-11-11, "Art Map"
+-- redefined as the Overlay layer): the user's own mental model of
+-- "Art Map" was never the flat zone-tile backdrop this offset
+-- originally drew (self.TileFrms, fed by UpdateWorldArt) - it's the
+-- zone "revealed" overlay art (what this file's code calls Overlay).
+-- That follow-up put Overlay on the exact same literal level as Base's
+-- continent backdrop and flagged (rather than fixed) the resulting
+-- same-level sibling-order risk - live screenshots the same day
+-- confirmed it: part of Hillsbrad Foothills' Overlay art (the
+-- Durnholde Keep region) rendered BEHIND Base instead of in front of
+-- it, visible as a flat, undetailed patch where Base's own texture
+-- showed through.
+--
+-- Build-order step 21 same-day SEVENTH follow-up (2026-11-11, full
+-- 5-layer rework): rather than patch that one collision, the user
+-- redefined the whole stack. Direct request: *"there should be 5
+-- parent layers ... 1 The base -> the flat continent backdrop / 2 Art
+-- Map -> Every zone's hand-catalogued 'revealed' sub-region art,
+-- stitched across the whole continent / 3 Terrain Texture -> Real
+-- close-zoom minimap detail tiles / 4 Service Layer -> ... the service
+-- icons quest markers goto and corpse trail corpse dot and the player
+-- marker all live here the gathernodes and their backdrop / 5 Radar
+-- Layer -> the sweeping radar green overlay and our yellow dots for
+-- active gathering nodes ... this is the layer order to get the proper
+-- functionality moving forward from here not that each layer works on
+-- its own."* Confirmed via follow-up: gather-node icons stay in
+-- Service Layer exactly as written (layer 5's "yellow dots" are the
+-- NATIVE Blizzard minimap's own harvest-node blips, picked up through
+-- the Live Blip Radar patch - not this addon's own custom icons,
+-- which are always-visible and separate). Also confirmed: Radar Layer
+-- must render ABOVE Service Layer - see UpdateLiveBlips' own header
+-- comment below for that reversal (it lives outside this file's
+-- self.Frm level stack entirely; it's a frame-strata change, not a
+-- level one).
+--
+-- New scheme: Base, Art Map, and Terrain each now get their OWN
+-- guaranteed-distinct level (BASE_LEVEL_OFFSET/ART_MAP_LEVEL_OFFSET/
+-- TERRAIN_TILE_LEVEL_OFFSET below) - this fully RESOLVES the Base-vs-
+-- Overlay collision above as a side effect, not just mitigates it:
+-- different literal FrameLevels are a deterministic WoW ordering rule,
+-- unlike same-level siblings. Service Layer deliberately collapses
+-- every icon type (previously 7 distinct offsets: gather +5, service
+-- +6, quest +7, goto/corpse trail +8, goto/corpse dot +10, player
+-- marker +11) onto ONE shared SERVICE_LEVEL_OFFSET, per the explicit
+-- "not that each layer works on its own" instruction - same honest
+-- flagging as before: inter-item order WITHIN Service Layer (e.g.
+-- whether the player marker always wins over a quest marker at the
+-- same pixel) is now implementation-defined, accepted rather than
+-- fixed, because the user asked for the simplification knowing that.
+-- Level 4 is deliberately left unnamed/reserved rather than given its
+-- own constant - GatherFrms' own backdrop (:~3722) derives its level
+-- as "icon level - 1" and nothing else uses it; it's an internal
+-- detail of one icon pair, not a user-facing layer, so
+-- SERVICE_LEVEL_OFFSET starts at 5 specifically to leave 4 free for it
+-- (if it instead collapsed straight onto Terrain's level 3, the
+-- backdrop would visually collide with every Terrain tile).
+local BASE_LEVEL_OFFSET = 1
+local ART_MAP_LEVEL_OFFSET = 2
+local TERRAIN_TILE_LEVEL_OFFSET = 3
+-- level 4 reserved: GatherFrms backdrop only (derived, see :~3722)
+local SERVICE_LEVEL_OFFSET = 5
 
 -- `/gps hideart` / `/gps hideterrain` - toggle self.DebugHideArt/
 -- self.DebugHideTerrain (read in Update()'s zoom-gate block further
@@ -1537,7 +1550,7 @@ AlchemyGPS.Core.SlashCommands:Register("hideart", function()
         MinimapEngine.DebugHideArt and "FORCED HIDDEN" or "normal")
     local win = AlchemyGPS.Modules.Map.MinimapWindow
     syncLayerCheckbox(win and win.ArtMapCB, "DebugHideArt")
-end, "toggle forcing the Art Map (zone overview + revealed overlay) layer hidden - map-layering diagnostic")
+end, "toggle forcing the Art Map (zone revealed overlay art) layer hidden - map-layering diagnostic")
 
 -- Build-order step 20 follow-up (2026-11-11): split out of Art Map
 -- into its own independently-togglable layer, direct user request
@@ -1597,6 +1610,19 @@ end, "toggle temporary diagnostic logging for UpdateOverlay's early-return point
 -- order step 20 wires it up via InitContinentFrames/MoveCurZoneTiles,
 -- with one deliberate deviation from "kept verbatim" in that branch's
 -- own tilex/tiley setup (see its comment there for why).
+--
+-- Build-order step 21 same-day sixth follow-up (2026-11-11): the
+-- `zone ~= 0` branch below and the `frms == self.TileFrms` check
+-- further down are now dead code in practice - MoveCurZoneTiles no
+-- longer calls this with zone ~= 0/frms == self.TileFrms at all, since
+-- the flat zone-tile backdrop that call used to draw was removed
+-- outright (see UpdateWorldArt's own removal comment). Left in place
+-- rather than surgically cut, same reasoning as other "kept verbatim"
+-- ported functions in this file: this one is explicitly a direct port
+-- with every branch unchanged, and the zone==0 (continent) branch this
+-- function's real callers now exclusively use is interleaved with the
+-- dead one throughout, not cleanly separable without risking the part
+-- that's still load-bearing.
 function MinimapEngine:MoveZoneTiles(cont, zone, frms, alpha, level)
     local zname, zx, zy, zw, zh = self:GetWorldZoneInfo(cont, zone)
     if not zx then
@@ -1801,19 +1827,29 @@ end
 -- DebugHideArt being true meant MoveCurZoneTiles never even ran
 -- (Update()'s own gate used it as a top-level branch), which forced
 -- continent hidden too whenever Art Map was off - not actually
--- independent. Now this function always runs whenever any zone-
--- overview art COULD show at the current zoom, and applies each flag
--- only to its own half: DebugHideBase gates the continent-draw branch,
--- DebugHideArt gates the zone-tile branch. Update()'s own gate no
--- longer branches on DebugHideArt at all - see its own comment.
+-- independent.
+--
+-- Build-order step 21 same-day sixth follow-up (2026-11-11, "Art Map"
+-- redefined as Overlay): this function's OTHER branch - drawing the
+-- current zone's own flat tile backdrop into self.TileFrms, fed by
+-- UpdateWorldArt - is gone as of this follow-up. The user's own "Art
+-- Map" was always meant to be the zone "revealed" overlay art (see
+-- BASE_LEVEL_OFFSET's own header comment above for the full 5-layer
+-- request), not this flat backdrop, so there's nothing left for
+-- DebugHideArt to gate here - this function is now Base-only (the
+-- continent backdrop decision, now its own BASE_LEVEL_OFFSET as of the
+-- same-day seventh follow-up), despite its name still describing the
+-- removed mechanism. Left unrenamed since every caller/comment already
+-- refers to it by this name and a rename wasn't asked for.
 function MinimapEngine:MoveCurZoneTiles()
+    self:HideZoneTileFrames(self.TileFrms)
+
     if not self.Cont then
-        self:HideZoneTileFrames(self.TileFrms)
         self:HideContinentFrames()
         return
     end
 
-    local level = (self.Frm:GetFrameLevel() or 1) + ART_MAP_LEVEL_OFFSET
+    local level = (self.Frm:GetFrameLevel() or 1) + BASE_LEVEL_OFFSET
     local info = self.MapInfo and self.MapInfo[self.Cont]
     local fileName = info and info.FileName
     local contPool = fileName and self.ContFrms and self.ContFrms[self.Cont]
@@ -1825,7 +1861,6 @@ function MinimapEngine:MoveCurZoneTiles()
         local neededSpan = max(self.MapW or 0, self.MapH or 0) / scaleDraw
 
         if zw and zh and neededSpan > max(zw, zh) then
-            self:HideZoneTileFrames(self.TileFrms)
             if self.DebugHideBase then
                 self:HideContinentFrames()
             else
@@ -1837,11 +1872,6 @@ function MinimapEngine:MoveCurZoneTiles()
     end
 
     self:HideContinentFrames()
-    if self.DebugHideArt then
-        self:HideZoneTileFrames(self.TileFrms)
-    else
-        self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1, level)
-    end
 end
 
 ---------------------------------------------------------------------------------------
@@ -2043,7 +2073,7 @@ function MinimapEngine:GetOverlayFrame(levelAdd)
         f = self:CreateMiniFrame()
         frms[pos] = f
     end
-    f:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + OVERLAY_LEVEL_OFFSET + (levelAdd or 0))
+    f:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + ART_MAP_LEVEL_OFFSET + (levelAdd or 0))
     f.texture:SetVertexColor(1, 1, 1, 1)
     f.texture:SetTexCoord(0, 1, 0, 1)
     frms.Next = pos + 1
@@ -2056,6 +2086,35 @@ function MinimapEngine:HideExtraOverlayFrames()
     for n = (frms.Next or 1), (frms.Used or 0) do
         if frms[n] then frms[n]:Hide() end
     end
+end
+
+-- Build-order step 21 same-day eighth follow-up (2026-11-11): live-
+-- tested broken - toggling the Art Map checkbox off neither hid the
+-- stitched Overlay art nor let it keep panning ("does not turn on and
+-- off with the art map toggle box... when i do turn it off i can no
+-- longer pan the zone stiched map"). Root cause: both gate branches in
+-- Update() below that need to hide Overlay ENTIRELY (DebugHideArt, and
+-- zoomed in past DETAIL_SCALE) were calling HideExtraOverlayFrames
+-- instead - that function only trims the TRAILING EXCESS left over
+-- from UpdateZoneOverlays' own last real draw (frames from its fresh
+-- `Next` up to the PREVIOUS tick's stale `Used` count), not the
+-- currently-drawn set itself. Skipping UpdateZoneOverlays entirely (as
+-- both branches correctly do, to stop redrawing/repositioning) left
+-- `Next` frozen at "last real draw count + 1" and `Used` frozen at an
+-- even older, usually smaller count - so the trim loop's own range
+-- (Next..Used) was empty or near-empty every single tick, hiding
+-- nothing, while the frames themselves never got repositioned again
+-- either (that only happens inside UpdateOverlay, called from
+-- UpdateZoneOverlays) - exactly "stuck visible, stuck in place."
+function MinimapEngine:HideAllOverlayFrames()
+    local frms = self.OverlayFrms
+    if not frms then return end
+    local count = (frms.Next or 1) - 1
+    for n = 1, count do
+        if frms[n] then frms[n]:Hide() end
+    end
+    frms.Used = 0
+    frms.Next = 1
 end
 
 -- Kept verbatim from Nx.Map:GetWorldZoneScale (MapEngine.lua:15035-
@@ -2175,11 +2234,11 @@ local SHOW_UNEXPLORED = true
 local UNEXPLORED_ALPHA = .35
 
 -- Trimmed port of Nx.Map:UpdateOverlay (MapEngine.lua:10045-10236) -
--- the zone "revealed" overlay art drawn on top of the Art Map
--- backdrop (continent or zone, build-order step 20) for the current
--- zone (bright=1) and each recently-visited one (bright=.8, via
--- self.MapsDrawnOrder/AddOldMap above). Dropped (confirmed dead/
--- inapplicable for this single-flavor, no-instance/no-battleground
+-- the zone "revealed" overlay art, now THE Art Map layer itself (see
+-- ART_MAP_LEVEL_OFFSET's own header), drawn on top of Base's continent
+-- backdrop for the current zone (bright=1) and every other zone on the
+-- same continent (bright=.8, via UpdateZoneOverlays below). Dropped
+-- (confirmed dead/inapplicable for this single-flavor, no-instance/no-battleground
 -- port, same convention as this file's other "explicit non-goal"
 -- branches): the modern-instance-canvas early return,
 -- ShouldHideQuelThalasZone, IsBattleGroundMap/IsMicroDungeon/
@@ -2639,7 +2698,7 @@ function MinimapEngine:UpdatePlayerMarker()
     if not frm.texture:GetTexture() then
         AlchemyGPS.UI.StyleOptions:ApplyIcon(frm.texture, "PlayerMarker")
     end
-    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 11)
+    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
     self:ClipFrameW(frm, self.PlyrX, self.PlyrY,
         PLAYER_MARKER_SIZE, PLAYER_MARKER_SIZE, self.PlyrDir)
 end
@@ -3075,7 +3134,7 @@ function MinimapEngine:UpdateServiceIcons()
     end
 
     local StyleOptions = AlchemyGPS.UI.StyleOptions
-    local level = (self.Frm:GetFrameLevel() or 1) + 6
+    local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
     for i, pt in ipairs(pts) do
         local frm = self.SvcFrms[i]
         if frm.svcIconSpec ~= pt.iconSpec then
@@ -3185,7 +3244,7 @@ function MinimapEngine:UpdateQuestIcons()
         end
     end
 
-    local level = (self.Frm:GetFrameLevel() or 1) + 7
+    local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
     for i, pt in ipairs(pts) do
         local frm = self.QuestFrms[i]
         if frm.svcIconSpec ~= pt.iconSpec then
@@ -3637,7 +3696,13 @@ function MinimapEngine:UpdateGatherIcons()
             -- rather than a child texture, since BackdropTemplate
             -- frames don't layer the way CreateMiniFrame's plain
             -- textures do - its own frame LEVEL (set below, each pass)
-            -- is what keeps it behind frm instead.
+            -- is what keeps it behind frm instead. Build-order step 21
+            -- same-day seventh follow-up (5-layer rework): this stays
+            -- derived as "icon level - 1" rather than its own named
+            -- constant - SERVICE_LEVEL_OFFSET was deliberately set to 5
+            -- (not 4) specifically so this lands on the reserved,
+            -- otherwise-unused level 4, clear of Terrain's level 3 -
+            -- see SERVICE_LEVEL_OFFSET's own header comment.
             frm.backdrop = CreateFrame("Frame", nil, self.Frm, "BackdropTemplate")
             frm.backdrop:SetBackdrop(AlchemyGPS.Skin:GetBackdrop())
             frm.backdrop:SetBackdropColor(0, 0, 0, 1)
@@ -3646,7 +3711,7 @@ function MinimapEngine:UpdateGatherIcons()
         end
     end
 
-    local level = (self.Frm:GetFrameLevel() or 1) + 5
+    local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
     local px, py = self.PlyrX, self.PlyrY
     local size = GATHER_ICON_SIZE * (self.GatherIconScale or 1)
     for i, pt in ipairs(pts) do
@@ -3953,90 +4018,22 @@ AlchemyGPS.Core.SlashCommands:Register("mmpassengers", function()
     Logger:info("mmpassengers: %d shown out of %d total descendant(s)", shownCount, n)
 end, "dump only the SHOWN frames/regions under the live Minimap patch, hidden-by-us state (build-order step 17 diagnostic)")
 
--- Trimmed from Nx.Map:UpdateWorld (MapEngine.lua:5945-6147) - see this
--- section's header for what's dropped and why. What's kept is the
--- real texture-fetch/assign core: resolve the art source mapID, fetch
--- its tile textures (with Carbonite's own real MoP-city-map legacy-art
--- fallback preserved), assign them into the TileFrms pool, and cache
--- the result so repeat calls (every Update() tick) are cheap once the
--- zone hasn't actually changed.
-function MinimapEngine:UpdateWorldArt(mapId)
-    if not mapId or mapId == 9000 then return end
-
-    local winfo = self.MapWorldInfo[mapId]
-    if winfo and winfo.BaseMap then
-        winfo = self.MapWorldInfo[winfo.BaseMap]
-    end
-    winfo = winfo or {}
-
-    local artMapID = self:GetArtSourceMapID(mapId)
-    local mapArtID = (C_Map and C_Map.GetMapArtID and C_Map.GetMapArtID(artMapID)) or artMapID
-
-    if self.CurWorldUpdateMapId == mapId and mapArtID == self.CurWorldUpdateArtID then
-        return
-    end
-
-    if self.WorldArtRetryMapId == mapId and self.WorldArtRetryTime
-        and GetTime() < self.WorldArtRetryTime then
-        return
-    end
-
-    local texturesIDs = self:GetArtLayerTextures(artMapID, 1)
-
-    -- Some MoP city maps are valid player maps but intentionally have no
-    -- C_Map art assignment. Carbonite still ships the original 4x3 world-map
-    -- textures for those cities - use them instead of leaving the previous
-    -- zone's tile IDs in this shared frame pool.
-    if (not texturesIDs or not texturesIDs[1]) and winfo.LegacyMapArt then
-        local layers = self:GetArtLayers(artMapID)
-        local layerInfo = layers and layers[1]
-        local tilex = layerInfo and ceil(layerInfo.layerWidth / layerInfo.tileWidth) or winfo.TileX or 4
-        local tiley = layerInfo and ceil(layerInfo.layerHeight / layerInfo.tileHeight) or winfo.TileY or 3
-        local legacyBase = "Interface\\WorldMap\\" .. winfo.LegacyMapArt .. "\\" .. winfo.LegacyMapArt
-        texturesIDs = {}
-        for tileIndex = 1, tilex * tiley do
-            texturesIDs[tileIndex] = legacyBase .. tileIndex
-        end
-    end
-
-    if not texturesIDs or not texturesIDs[1] then
-        self:HideZoneTileFrames(self.TileFrms, true)
-        -- Do not cache a failed art request - Blizzard can populate map art
-        -- after loading/phase changes, and the next update must retry it.
-        self.CurWorldUpdateMapId = nil
-        self.CurWorldUpdateArtID = nil
-        self.WorldArtRetryMapId = mapId
-        self.WorldArtRetryTime = GetTime() + 1
-        return
-    end
-
-    local numtiles = min(#texturesIDs, 150)
-    for i = 1, numtiles do
-        if self.TileFrms[i] and self.TileFrms[i].texture then
-            self.TileFrms[i].texture:SetTexture(texturesIDs[i])
-            if self.TileFrms[i].texture.SetSnapToPixelGrid then
-                self.TileFrms[i].texture:SetSnapToPixelGrid(false)
-                self.TileFrms[i].texture:SetTexelSnappingBias(0)
-            end
-        end
-    end
-    for tileIndex = numtiles + 1, 150 do
-        local frm = self.TileFrms[tileIndex]
-        if frm then
-            frm:Hide()
-            if frm.texture then frm.texture:SetTexture(nil) end
-        end
-    end
-
-    -- Commit the cache only after the requested art was installed - caching
-    -- a nil texture response is what previously made a random old zone
-    -- persist (same reasoning as the real source's own comment).
-    self.CurWorldUpdateMapId = mapId
-    self.CurWorldUpdateArtID = mapArtID
-    self.CurWorldTileCount = numtiles
-    self.WorldArtRetryMapId = nil
-    self.WorldArtRetryTime = nil
-end
+-- Build-order step 21 same-day sixth follow-up (2026-11-11): removed
+-- outright, not just stopped calling - this function's entire purpose
+-- was fetching/assigning the current zone's flat tile backdrop into
+-- self.TileFrms (Nx.Map:UpdateWorld, MapEngine.lua:5945-6147, trimmed),
+-- and nothing draws from TileFrms anymore now that "Art Map" means the
+-- Overlay layer instead (see ART_MAP_LEVEL_OFFSET's own header comment
+-- and MoveCurZoneTiles' above). Direct user request: "get rid of
+-- whatever lives there now." self.CurWorldUpdateMapId/CurWorldUpdateArtID/
+-- CurWorldTileCount/WorldArtRetryMapId/WorldArtRetryTime (this
+-- function's own cache-state fields) are now unused too, left as
+-- harmless unset table fields rather than hunted down individually -
+-- none of them are read anywhere except inside this now-deleted
+-- function and MoveZoneTiles' own `frms == self.TileFrms` special case
+-- (dead in practice since nothing calls MoveZoneTiles with TileFrms
+-- anymore - see MoveZoneTiles' own header for why that one branch was
+-- left in place rather than surgically cut out of a verbatim port).
 
 ---------------------------------------------------------------------------------------
 -- "What map should we show" - new glue, not a direct port (see this
@@ -4445,7 +4442,7 @@ function MinimapEngine:DrawAntTrail(pool, dx, dy, dist, r, g, b, a)
     local stepX, stepY = dx / cnt, dy / cnt
     local scroll = self.ArrowScroll or 0
     local ox, oy = stepX * scroll, stepY * scroll
-    local level = (self.Frm:GetFrameLevel() or 1) + 8
+    local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
     for n = 1, cnt do
         local f = pool[n]
         local wx, wy = self.PlyrX + ox, self.PlyrY + oy
@@ -4539,7 +4536,7 @@ function MinimapEngine:UpdateGoto()
     end
     local dotShown = self:ClipFrameW(self.GotoFrm, self.GotoWX, self.GotoWY, GOTO_ICON_SIZE, GOTO_ICON_SIZE, 0)
     if dotShown then
-        self.GotoFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
+        self.GotoFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
         self.GotoYdLabel:SetText(("%dyd"):format(math.ceil(yards)))
         self.GotoYdLabel:Show()
     else
@@ -4697,7 +4694,7 @@ function MinimapEngine:UpdateCorpseTrack()
     local dotShown = self:ClipFrameW(self.CorpseFrm, wx, wy, CORPSE_ICON_SIZE, CORPSE_ICON_SIZE, 0)
     if dotShown then
         self.CorpseFrm.texture:SetTexCoord(CORPSE_TEX_U1, CORPSE_TEX_U2, CORPSE_TEX_V1, CORPSE_TEX_V2)
-        self.CorpseFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + 10)
+        self.CorpseFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
         self.CorpseYdLabel:SetText(("%dyd"):format(math.ceil(dist * YARDS_PER_WORLDUNIT)))
         self.CorpseYdLabel:Show()
     else
@@ -4979,13 +4976,13 @@ function MinimapEngine:Update(elapsed)
     self.MapH = self.Frm:GetHeight()
 
     -- Build-order step 8: resolve/refresh the real world-art canvas.
-    -- Both calls are cheap no-ops once the zone hasn't changed and its
-    -- art is already fetched - see RefreshCurrentZone/UpdateWorldArt's
-    -- own comments.
+    -- This call is a cheap no-op once the zone hasn't changed - see
+    -- RefreshCurrentZone's own comments. (UpdateWorldArt used to be
+    -- called here too, feeding the now-removed flat zone-tile backdrop
+    -- - see its own removal comment, build-order step 21 same-day
+    -- sixth follow-up.)
     self:RefreshCurrentZone()
     if self.Cont then
-        self:UpdateWorldArt(self.MapId)
-
         -- Live player world position, replacing build-order step 4's
         -- fixed-at-canvas-center stand-in. Formula corrected 2026-11-09
         -- after a live screenshot showed the rendered art badly
@@ -5179,23 +5176,23 @@ function MinimapEngine:Update(elapsed)
     -- DebugHideArt and DebugHideBase used to share one top-level
     -- branch here, which meant hiding Art Map always hid the continent
     -- backdrop too - not actually independent toggles. MoveCurZoneTiles
-    -- now applies both flags internally, to its own zone-tile vs.
-    -- continent branch respectively (see its own header comment), so
-    -- it always runs whenever any zone-overview art could show at the
-    -- current zoom; only the overlay layer (still conceptually part of
-    -- Art Map, not Base - it's the zones' own "revealed" art, not the
-    -- backdrop texture) stays gated here directly on DebugHideArt.
+    -- now handles only the Base/continent decision internally (gated on
+    -- DebugHideBase), so it always runs whenever continent art could
+    -- show at the current zoom; Art Map itself - now defined as the
+    -- Overlay layer, see ART_MAP_LEVEL_OFFSET's own header comment for
+    -- the full "Art Map redefined" story - is gated directly here on
+    -- DebugHideArt instead, independent of Base's own decision.
     if self.ScaleDraw <= DETAIL_SCALE then
         self:MoveCurZoneTiles()
         if self.DebugHideArt then
-            self:HideExtraOverlayFrames()
+            self:HideAllOverlayFrames()
         else
             self:UpdateZoneOverlays()
         end
     else
         self:HideZoneTileFrames(self.TileFrms)
         self:HideContinentFrames()
-        self:HideExtraOverlayFrames()
+        self:HideAllOverlayFrames()
     end
     if self.DebugHideTerrain then
         self:HideMiniFrames()

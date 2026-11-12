@@ -312,7 +312,7 @@ function MinimapWindow:Open()
         GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
         GameTooltip:SetText("Art Map layer")
         GameTooltip:AddLine(
-            "Zone overview art + each zone's revealed overlay. Uncheck to hide it and see the Terrain Texture/Base layers alone.",
+            "Each zone's own revealed overlay art, stitched across the continent. Uncheck to hide it and see the Terrain Texture/Base layers alone.",
             1, 1, 1, true)
         GameTooltip:Show()
     end)
@@ -418,18 +418,19 @@ function MinimapWindow:Open()
     --
     -- CHROME_LEVEL_OFFSET was a bare `+1` until build-order step 18's
     -- map-layering fix gave MinimapEngine's own internal layers
-    -- explicit level offsets of their own (Art Map +1, Terrain Texture
-    -- +2, up through Player Marker +10 - see MinimapEngine.lua's own
-    -- ART_MAP_LEVEL_OFFSET header comment for the full stack) - Terrain
-    -- and Art are full-window background layers (unlike the small,
-    -- sparse icon frames, which rarely land on the exact pixels a
-    -- button occupies), so once either one's level reached this row's
-    -- own `+1`, it visibly painted over every title-bar/zoom button at
-    -- once - reported live as "my zoom in zoom out buttons are gone."
-    -- Fixed by giving this row a big, deliberately round margin well
-    -- above MinimapEngine's own current ceiling (+10), so a future
-    -- addition to that internal stack can't silently repeat this same
-    -- collision - chrome should always just win.
+    -- explicit level offsets of their own (now, as of build-order step
+    -- 21's 5-layer rework: Base +1, Art Map +2, Terrain Texture +3,
+    -- Service Layer +5 - see MinimapEngine.lua's own BASE_LEVEL_OFFSET
+    -- header comment for the full stack) - Terrain and Art/Base are
+    -- full-window background layers (unlike the small, sparse icon
+    -- frames, which rarely land on the exact pixels a button occupies),
+    -- so once one of them's level reached this row's own `+1`, it
+    -- visibly painted over every title-bar/zoom button at once -
+    -- reported live as "my zoom in zoom out buttons are gone." Fixed by
+    -- giving this row a big, deliberately round margin well above
+    -- MinimapEngine's own current ceiling (+5), so a future addition to
+    -- that internal stack can't silently repeat this same collision -
+    -- chrome should always just win.
     local CHROME_LEVEL_OFFSET = 50
     zoomIn:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
     zoomOut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
@@ -438,6 +439,35 @@ function MinimapWindow:Open()
     filterBut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
     terrainCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
     artCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    baseCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+
+    -- Build-order step 21 same-day seventh follow-up (2026-11-11,
+    -- 5-layer rework): a SEPARATE collision risk from the frame-level
+    -- one above, discovered while wiring Radar Layer (the live-blip
+    -- patch, MinimapEngine.lua's mm/MMRadar) to sit above Service
+    -- Layer per direct request. mm/MMRadar are ordered against
+    -- everything in this window via frame STRATA, not level (they're
+    -- parented to UIParent, not win.Frm - see MinimapEngine.lua's
+    -- UpdateLiveBlips header for why). Making Radar Layer win now bumps
+    -- mm one strata tier above win.Frm's own baseline strata (typically
+    -- "MEDIUM", UI/Window.lua:1419) whenever a gathering skill is
+    -- tracked - i.e. up to "HIGH". This chrome row had no strata of its
+    -- own before now (it only ever needed the frame-level fix above,
+    -- since nothing previously out-ranked win.Frm's strata), so without
+    -- this it would vanish under the green sweep exactly like the
+    -- frame-level bug above, just through strata instead of level.
+    -- Fixed the same way MinimapEngine's own icon-vs-patch ordering was
+    -- fixed back in step 17: strata ignores parent/level entirely, so
+    -- explicitly setting chrome to "HIGH" guarantees it stays on top
+    -- regardless of what strata Radar Layer reaches.
+    zoomIn:SetFrameStrata("HIGH")
+    zoomOut:SetFrameStrata("HIGH")
+    settingsBut:SetFrameStrata("HIGH")
+    followCB:SetFrameStrata("HIGH")
+    filterBut:SetFrameStrata("HIGH")
+    terrainCB:SetFrameStrata("HIGH")
+    artCB:SetFrameStrata("HIGH")
+    baseCB:SetFrameStrata("HIGH")
 
     MinimapEngine:TakeOwnership(win, content)
 

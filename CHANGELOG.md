@@ -3715,6 +3715,95 @@ own branch of that same function, rather than gating the whole
 function from the outside - the latter is what caused Base to be
 inseparable from Art Map in the first place.
 
+### Same-day sixth follow-up: "Art Map" redefined as the Overlay layer; old flat zone-tile backdrop removed
+
+User's own words: *"layer 1* art map is what layer zone overlay (layer
+3) should be the zone overlay is what i am calling the art map so move
+the zone overlay to 1* the same as the art map, and get rid of
+whatever lives there now ... at the end the zone overlay should be
+able to be toggled on and off by the current art map check box."*
+Committed the prior "Base" split first (`5f6d2c5`) as an explicit
+safety checkpoint before this one, per the user's own request.
+
+What "lived there" (slot 1, `ART_MAP_LEVEL_OFFSET`, for the
+single-zone-zoom case) was `self.TileFrms` - a flat, mostly-plain tile
+backdrop of the current zone's own worldmap art, fed every tick by
+`UpdateWorldArt` (a trimmed port of `Nx.Map:UpdateWorld`'s texture-
+fetch core). The user's own mental model of "Art Map" was never this -
+it's the zone "revealed" overlay art (what this file's code already
+called Overlay), which until now sat one level higher at its own
+`OVERLAY_LEVEL_OFFSET = 3`.
+
+Implementation:
+- `OVERLAY_LEVEL_OFFSET` removed as a separate constant. `GetOverlayFrame`
+  now computes its level from `ART_MAP_LEVEL_OFFSET` directly - the
+  most literal reading of "the same as Art Map": there's only one
+  constant now, not two holding equal values by coincidence.
+- `UpdateWorldArt` deleted outright (not just stopped calling) - its
+  entire purpose was fetching/assigning textures into `TileFrms`, and
+  nothing draws from `TileFrms` any more. Its call site in `Update()`
+  removed too. Its own cache-state fields
+  (`CurWorldUpdateMapId`/`CurWorldUpdateArtID`/`CurWorldTileCount`/
+  `WorldArtRetryMapId`/`WorldArtRetryTime`) are now unused but left as
+  harmless unset table fields rather than hunted down individually.
+- `MoveCurZoneTiles` lost its entire zone-tile branch - it's now
+  Base-only (just the continent-backdrop decision). Left unrenamed
+  despite no longer matching its own name (every caller/comment already
+  refers to it this way; a rename wasn't asked for).
+- `MoveZoneTiles`'s own `zone ~= 0` branch and its `frms ==
+  self.TileFrms` special case are now dead code in practice (nothing
+  calls it that way any more) but deliberately NOT surgically cut out -
+  this function is explicitly "kept verbatim, every branch unchanged"
+  from the real source, and the dead branch is interleaved with the
+  zone==0 (continent) branch that's still load-bearing, not cleanly
+  separable without risking it.
+- Icon-pool frame-level offsets (gather backdrop +4 through player
+  marker +11) were NOT renumbered back down even though +3 is now
+  fully unclaimed - folding Overlay back into +1 doesn't free anything
+  those offsets need, and renumbering every one of them for no
+  functional gain isn't worth the risk of a transcription slip.
+- Title-bar `ArtMapCB` tooltip and the `/gps hideart` description
+  string updated to describe Overlay ("each zone's own revealed
+  overlay art, stitched across the continent") instead of the removed
+  flat backdrop. DebugHideArt/ArtMapCB already gated Overlay
+  independently of the old zone-tile drawing as of the previous
+  follow-up (the Base split) - that half of the request was already
+  satisfied going in.
+
+**Known risk, flagged rather than silently accepted**: Base's own
+continent backdrop (`ContFrms`) and Overlay now sit at the literal
+same `FrameLevel` (both `ART_MAP_LEVEL_OFFSET`), and the two genuinely
+co-occur - Overlay stitches "revealed" zone art on top of Base's flat
+backdrop at the same continent-zoom range. This is the exact "same
+FrameLevel, implementation-defined sibling order" situation build-order
+step 18 already had to fix once (Art-vs-Terrain). Implemented literally
+as asked rather than adding a small protective level offset, since
+`ContFrms` are created once up front (`InitContinentFrames`, at window
+open) while `OverlayFrms` are created/grown lazily starting the first
+tick after that - in practice this should make Overlay's frames
+consistently the newer same-level siblings and render on top, but
+it's not a documented Blizzard guarantee. If live-testing shows Overlay
+rendering BEHIND Base instead of on top of it, the fix is a small
+explicit `levelAdd` bump via `GetOverlayFrame`'s existing parameter.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet live-tested - specifically needs confirming
+(1) the current zone's own overlay art still renders correctly now
+that it shares Art Map's slot, (2) the Art Map checkbox now toggles
+Overlay on/off as expected, and (3) Overlay visibly renders ON TOP of
+Base rather than behind it, per the risk noted above.
+
+**How to apply**: [[project_alchemy_gps]] - the user's own naming for
+a layer can diverge from what the code happens to call it, and when
+that happens the fix is to follow the user's naming, not relitigate
+it - "Art Map" meant the overlay art to the user from the start, even
+though the code had already settled on calling that layer "Overlay"
+and giving a different, older mechanism the "Art Map" name. Also:
+removing a now-pointless per-tick API call (UpdateWorldArt) is worth
+doing at the same time as removing its only consumer, not left as
+"harmless dead weight" - it was still doing real work (C_Map calls,
+texture assignment) every tick for a result nothing read.
+
 **How to apply**: [[project_alchemy_gps]] - ground-truth runtime
 diagnostics (a throttled debug log reading the addon's own live state)
 settled this in one data point after two rounds of plausible-but-wrong
@@ -3730,3 +3819,195 @@ specificity can itself be a trap - it reads as authoritative precisely
 because it's the only file with that logical name, when a
 server/build-specific override can live inlined inside a completely
 different file instead.
+
+### Same-day seventh follow-up: full 5-layer rework (Base/Art Map/Terrain each get their own level; Service Layer collapsed; Radar Layer moved above it)
+
+The previous follow-up's flagged risk materialized: live screenshots
+(`WoWScrnShot_111126_231058/102/110/112.jpg`) showed part of Hillsbrad
+Foothills' Overlay art - the Durnholde Keep region - rendering BEHIND
+Base's continent backdrop instead of on top of it, visible as a flat,
+undetailed reddish-brown patch where Base's own texture showed through.
+User's diagnosis, verbatim: *"you missed putting it on the art map
+layer part of it is below the base part of it above."*
+
+Rather than patch that one collision, the user redefined the whole
+stack. Direct request, verbatim: *"there should be 5 parent layers
+this is for just the map this doesnt count the base window it all sits
+in or its buttons or controls / 1 The base -> the flat continent
+backdrop / 2 Art Map -> Every zone's hand-catalogued 'revealed'
+sub-region art, stitched across the whole continent / 3 Terrain
+Texture -> Real close-zoom minimap detail tiles / 4 Service Layer ->
+layers 4-7 the service icons quest markers goto and corpse trail
+corpse dot and the player marker all live here the gathernodes and
+their backdrop / 5 Radar Layer -> the sweeping radar green overlay and
+our yellow dots for active gathering nodes / this is the layer order
+to get the proper functionality moving forward from here not that each
+layer works on its own."*
+
+Two genuine ambiguities surfaced before implementing, both resolved by
+direct follow-up questions rather than guessed at (this touches a part
+of the code - the live-blip radar - that already caused one live
+regression once, build-order step 17, when reparenting was tried
+carelessly):
+
+- **Where do gather-node icons belong?** Layer 4's own description
+  names them, but layer 5's "yellow dots" sounded like it might too.
+  User confirmed layer 4 is correct as literally written: the custom
+  gather-node icons + black backdrop (sourced from WoWHead data) are
+  always-visible and belong to Service Layer. Layer 5's "yellow dots"
+  are the NATIVE Blizzard minimap's own harvest-node blips, picked up
+  specifically through the Live Blip Radar patch - separate from this
+  addon's own icons, and only visible while a gathering skill (e.g.
+  Find Herbs) is actively tracked.
+- **Should Radar Layer really render above Service Layer?** That
+  reverses build-order step 17's fix, which deliberately raised this
+  addon's own icons ABOVE the live-blip sweep after a user report that
+  they were getting hidden underneath it. Asked directly, with that
+  tradeoff spelled out; user confirmed: *"Yes, reverse it."* Radar
+  Layer's whole purpose is seeing live native blips clearly, and the
+  always-on Service icons sitting on top of them defeated that.
+
+**Implementation, `MinimapEngine.lua`:**
+- New level scheme, each a guaranteed-distinct `FrameLevel` (different
+  literal levels are a deterministic WoW ordering rule, unlike
+  same-level siblings - this is what actually fixes the Base-vs-Overlay
+  collision, not just avoids it going forward): `BASE_LEVEL_OFFSET = 1`
+  (new - Base no longer shares a level with anything),
+  `ART_MAP_LEVEL_OFFSET = 2` (was 1), `TERRAIN_TILE_LEVEL_OFFSET = 3`
+  (was 2), level 4 left deliberately unnamed/reserved, `SERVICE_LEVEL_OFFSET
+  = 5` (new).
+- `MoveCurZoneTiles` (Base's own draw function since the previous
+  follow-up) now uses `BASE_LEVEL_OFFSET` instead of borrowing
+  `ART_MAP_LEVEL_OFFSET`. `GetOverlayFrame` and Terrain's own tile
+  function needed no code changes - they inherit their constants' new
+  values automatically.
+- Service Layer collapses 7 previously-distinct icon offsets onto ONE
+  shared `SERVICE_LEVEL_OFFSET`, per the explicit "not that each layer
+  works on its own" instruction: player marker (was +11), service
+  icons (+6), quest markers (+7), goto/corpse trail arrows (+8),
+  goto dot (+10), corpse dot (+10), gather-node icons (+5) all now
+  share level 5. **Flagged, not fixed, same honest treatment as the
+  Base/Overlay risk before it**: inter-item order WITHIN Service Layer
+  (e.g. whether the player marker wins over a quest marker at the same
+  pixel) is now implementation-defined - accepted because the user
+  asked for the simplification knowing that, not because it's provably
+  safe.
+- GatherFrms' own backdrop (`level - 1`, unchanged code) needed no
+  edit - `SERVICE_LEVEL_OFFSET` was deliberately set to 5, not 4,
+  specifically so this still lands on the reserved level 4, clear of
+  Terrain's level 3. Collapsing icons straight onto Terrain's old level
+  would have made every gather-node backdrop visually collide with
+  Terrain's own tiles.
+- Radar Layer reversal: `RaiseIconsAboveLivePatch`/
+  `RestoreIconsFromLivePatch` and their two small helpers (which used
+  to bump Service icons to a strata above the live-blip patch) are
+  removed outright, including their call sites in `UpdateLiveBlips` and
+  `HideLiveBlips`. Instead, `UpdateLiveBlips`'s existing
+  `MinimapSyncLayer` call now passes `aboveHost = true` - a parameter
+  that function already had, previously always left `nil` - bumping
+  `mm` (and `MMRadar`, which derives its own strata directly from
+  `mm:GetFrameStrata()`) one strata tier above the window's own
+  baseline strata whenever the live-blip patch is shown. Same proven
+  strata mechanism this file already established in step 17, just
+  pointed the other direction.
+
+**Implementation, `MinimapWindow.lua`:**
+- Reading `MinimapSyncLayer`'s strata math against `UI/Window.lua`'s
+  default window strata (`"MEDIUM"`) surfaced a real, concrete
+  regression the reversal above would otherwise cause: once Radar Layer
+  can reach `"HIGH"` strata, it would also cover the title-bar chrome
+  (zoom/settings/checkbox row), which had no explicit strata of its own
+  and inherited the window's plain `"MEDIUM"` - the exact "my zoom
+  buttons are gone" class of bug `CHROME_LEVEL_OFFSET` was already
+  written once to prevent, just through strata instead of frame level.
+  Fixed by explicitly setting all title-bar chrome to `"HIGH"` strata,
+  so it always wins regardless of what strata Radar Layer reaches.
+- Incidental one-line fix while touching this exact block: `baseCB`
+  (added in the earlier same-day "Base" split follow-up) was missing
+  from the `CHROME_LEVEL_OFFSET` frame-level loop entirely - added
+  there too, alongside the new strata line.
+- Updated the block's own stale comment (still described the old
+  `+1`/`+10` offsets) to match the new scheme.
+
+Also resolves, as a side effect of deleting the raise/restore
+mechanism entirely: a previously-flagged, never-fixed gap noted in this
+same changelog (`RaiseIconsAboveLivePatch`/`RestoreIconsFromLivePatch`
+never touched `GotoFrm`/`CorpseFrm`) is now moot - nothing in Service
+Layer gets touched by live-blip state any more, so there's no longer a
+subset of icons that could inconsistently miss the raise.
+
+Balance-checked, deployed to the live mirror, verified byte-identical.
+Not yet live-tested - needs confirming: (1) Hillsbrad's Overlay art,
+including the previously-broken Durnholde Keep region, now renders
+fully on top of Base with no flat/wrong-colored patches; (2) all
+Service Layer icon types still render correctly relative to each
+other now sharing one level; (3) activating a gathering skill shows
+the green radar sweep on top of Service icons, not hidden beneath
+them (the deliberate reversal); (4) the title-bar zoom/settings/
+checkbox row stays fully visible and clickable while the radar sweep
+is active.
+
+**How to apply**: [[project_alchemy_gps]] - when a flagged risk in a
+previous entry actually materializes live, the fix isn't necessarily
+to patch that one spot; check whether the user wants to redefine the
+surrounding structure instead, since a point patch can leave the same
+risk category elsewhere in the same file. Also: when a requested
+change would reverse a previous, already-live-tested fix (here, step
+17's icons-above-radar), surface the tradeoff explicitly and get
+confirmation rather than silently either keeping the old behavior or
+applying the new one - both answers were legitimate depending on what
+Radar Layer is actually for, and only the user could resolve that.
+Also: reasoning through a cross-hierarchy strata change by actually
+reading the other side's defaults (`UI/Window.lua`'s `"MEDIUM"`
+fallback) surfaced a real second-order regression (chrome buttons)
+before it ever reached live testing - worth the extra read every time
+a strata value is about to change, not just frame levels.
+
+### Same-day eighth follow-up: Art Map toggle didn't hide Overlay, and froze its pan position instead
+
+Live-tested, user-reported: *"the zone overlay stiched map does not
+turn on and off with the art map toggle box how ever when i do turn it
+off i can no longer pan the zone stiched map, everything else appears
+to be in order."*
+
+Root cause: both places `Update()`'s `DETAIL_SCALE` gate needs to hide
+Overlay ENTIRELY - the `DebugHideArt` branch, and the zoomed-in-past-
+`DETAIL_SCALE` `else` branch - were calling `HideExtraOverlayFrames()`,
+not a function built for this. That function only trims the TRAILING
+EXCESS left over from `UpdateZoneOverlays`' own last real draw: it
+hides frames from its freshly-reset `Next` up through the PREVIOUS
+tick's stale `Used` count - the handful of frames a shrinking draw no
+longer needs. Both gate branches correctly skip calling
+`UpdateZoneOverlays` itself (to stop redrawing/repositioning while
+hidden), but that also means `Next` stays frozen at "last real draw
+count + 1" and `Used` stays frozen at an even older, usually smaller
+count from the draw before that - so `HideExtraOverlayFrames`' own
+trim range (`Next..Used`) was empty or near-empty on every single tick
+once either branch took over. Nothing got hidden, and since
+repositioning only happens inside `UpdateOverlay` (itself only called
+from `UpdateZoneOverlays`), the frames never moved again either -
+exactly "stuck visible, stuck in place," matching both halves of the
+report at once.
+
+Fix: new `HideAllOverlayFrames()` (`MinimapEngine.lua`, right after
+`HideExtraOverlayFrames`) hides every frame from `1` through
+`Next - 1` - the actual currently-drawn set, not the stale trim range -
+then resets `Used = 0` and `Next = 1` so the bookkeeping is clean
+either for the next tick (a no-op loop, since nothing gets drawn while
+hidden) or for `UpdateZoneOverlays` to resume cleanly once re-enabled.
+Both gate branches in `Update()` now call this instead of
+`HideExtraOverlayFrames`; `HideExtraOverlayFrames` itself is untouched
+and still correctly used for its original purpose, internally, at
+`UpdateZoneOverlays`' own end.
+
+Balance-checked, deployed to the live mirror, verified byte-identical.
+
+**How to apply**: [[project_alchemy_gps]] - a frame-pool's own
+"trim the excess" helper (built for shrinking an active redraw) is not
+interchangeable with "hide everything" (for when the redraw is skipped
+entirely) even though both end in the same `:Hide()` calls - the first
+depends on being called every tick right after a fresh draw to have a
+meaningful range to trim, and silently does nothing once that
+assumption breaks. When a toggle needs to fully suppress a per-tick
+drawing function, give it its own dedicated hide-everything path rather
+than reusing that function's own internal cleanup step.

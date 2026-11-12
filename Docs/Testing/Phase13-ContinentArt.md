@@ -3,6 +3,19 @@
 Build-order step 20, 2026-11-11. Full history in `CHANGELOG.md` — this
 doc is the checklist only.
 
+**Superseded (2026-11-11, same day, build-order step 21 sixth
+follow-up)**: the "zone-level Art Map tiles" this doc tests
+(`self.TileFrms`/`UpdateWorldArt`) were removed outright - "Art Map"
+now means the Overlay layer (see `Phase14-ZoneOverlays.md` and
+`CHANGELOG.md`'s "Art Map redefined" entry), and the continent-level
+half of this doc is now covered by Base's own toggle/checklist instead.
+Phases 1, 2, 3, 6 below (anything about the zone-tile-vs-continent
+hand-off) no longer apply - there is no zone-tile art left to hand off
+from. Phases 4, 5, 7 (continent swap on border crossing, Zephras Isle
+fallback, Terrain regression) still describe real Base behavior and
+remain valid, just read "Base" wherever this doc says "Art Map" /
+"continent art."
+
 ## Still needs confirming
 
 Everything below is **NOT YET LIVE-TESTED** — deployed to the live
