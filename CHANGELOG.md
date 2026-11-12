@@ -2927,3 +2927,102 @@ chosen together relative to the ACTUAL radius it'll render at (not
 picked independently) - the gap at the outer edge is
 `radius * angleBetweenSegments(radians)`, and that needs to stay below
 the segment's own thickness or neighboring spokes visibly separate.
+
+## Build-order step 18 (2026-11-11): map layering fix - Terrain Texture and Art Map layers given explicit, non-colliding frame levels
+
+User reported (via three reference screenshots at different zoom/pan
+positions around Thousand Needles) that the terrain tiles and the
+zone/continent map art rendered inconsistently relative to each other
+- which one appeared "on top" shifted unpredictably with zoom and pan.
+User's own framing, confirmed correct by reading the code: this needed
+splitting into five explicit, independently-manageable layers moved
+through frame z-space ("strata") - Terrain Texture, Art Map, Icons
+(already correct), Gathering Radar (already correct), and a final
+Terrain<->Art blend (explicitly deferred to last).
+
+**Root cause, confirmed by direct read of `MinimapEngine.lua`, not
+guessed**: `TileFrms` (Art Map layer, drawn by `MoveZoneTiles`/
+`MoveCurZoneTiles`) and `MiniFrms` (Terrain Texture layer, drawn by
+`UpdateMiniFrames`) are both direct children of the same `self.Frm` and
+were both assigned the EXACT SAME frame level with zero relative offset
+- `MoveCurZoneTiles` passed bare `self.Frm:GetFrameLevel() or 1`, and
+`UpdateMiniFrames` independently computed the identical expression.
+WoW only guarantees a stable draw order for same-level sibling frames
+via an internal, implementation-defined order tied to creation/show
+history - with 150 Art tiles and a separately-growing Terrain pool,
+both independently Hidden/Shown every tick at every zoom/pan, that
+order isn't stable. This is the direct explanation for "different
+results at different zooms/pans." The two layers only ever actually
+collide in one zoom band - Art is gated off entirely past
+`DETAIL_SCALE` (zoomed in), while Terrain always renders regardless of
+zoom - so the bug only ever showed up zoomed out past that threshold,
+exactly where the reference screenshots sit.
+
+**Stacking order, resolved by checking real Carbonite's own source
+rather than trusting this port's own existing comment** (which asserted
+Art draws on top of Terrain - turned out to be an unverified claim,
+never actually checked against the real call order). Read
+`Carbonite/Modules/Map/MapEngine.lua:9886-9894` directly: for an
+ORDINARY zone (the only zone type this simplified port implements - no
+City-map special-casing), real Carbonite's own per-tick order is
+`MoveCurZoneTiles()` then `UpdateMiniFrames()`, both drawing through a
+shared, incrementing `self.Level` counter - so Terrain (drawn second)
+ends up the TOP layer there, the opposite of what this port's own
+comment claimed. (Real Carbonite only reverses this for City maps
+specifically - a branch this port never reaches.) Presented both
+options to the user with a visual preview; user picked Terrain-above-
+Art, matching the real source and the shape of the content (Terrain is
+a small patch around the view center, Art is the whole window, so
+"detail peeking through over the broad backdrop" reads as correct).
+
+**Fix**: two new named constants in `MinimapEngine.lua`,
+`ART_MAP_LEVEL_OFFSET = 1` and `TERRAIN_TILE_LEVEL_OFFSET = 2`, applied
+in `MoveCurZoneTiles`/`UpdateMiniFrames` respectively (both relative to
+`self.Frm:GetFrameLevel()`, same convention every icon pool already
+uses). +1/+2 were free - every icon pool already starts at +3 (gather
+backdrop +3, gather icon +4, service +5, quest +6, goto/corpse trail
++7, goto/corpse dot +9, player marker +10), so nothing else needed
+renumbering. The two new constants are declared just above
+`MoveZoneTiles`, NOT down near `DETAIL_SCALE` where `UpdateMiniFrames`'
+own section starts - `MoveCurZoneTiles` is defined earlier in the file
+and Lua locals aren't visible to code written before their declaration
+in the same chunk, a forward-reference trap this project has hit once
+before (build-order step 9h-9k's "nil constant" note). Corrected the
+stale "Art drawn on top of it" claims in both the `UpdateMiniFrames`
+header comment and `Update()`'s own zoom-gate comment to state the
+real, now-implemented order.
+
+**Also added**: `/gps hideart`/`/gps hideterrain` diagnostic slash
+commands (same family as `scanblips`/`diffblips`/`mmpassengers`),
+toggling `self.DebugHideArt`/`self.DebugHideTerrain`, read in
+`Update()`'s zoom-gate block to force-isolate either layer for live
+testing without the other layer's tiles in the way - kept in the file
+permanently, same as the other diagnostic commands.
+
+**Confirmed unchanged, by design**: the Icon layer's own explicit
+level offsets (+3 and up) and the Gathering Radar layer's own frame-
+STRATA-based mechanism (`MinimapSyncLayer`/`RaiseIconsAboveLivePatch`)
+are a completely different axis from this fix - neither needed any
+code change, only a live regression-test pass (see
+`Docs/Testing/Phase11-MapLayering.md`).
+
+**Flagged, not fixed this round**: `RaiseIconsAboveLivePatch`/
+`RestoreIconsFromLivePatch` never touch `GotoFrm`/`CorpseFrm`/
+`GotoTrailFrms`/`CorpseTrailFrms` - a goto or corpse trail active at the
+same moment as the live-blip radar patch may render underneath the
+radar sweep. Real, pre-existing, out of scope for this fix.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked (no Lua interpreter available in this environment).
+Not yet live-tested - see `Docs/Testing/Phase11-MapLayering.md`.
+
+**How to apply**: [[project_alchemy_gps]] - when two sibling frame
+pools need a deterministic stacking order and share the same parent,
+give each its own explicit frame-level offset rather than relying on
+WoW's same-level sibling draw order, which is implementation-defined
+and not stable across independent Hide/Show cycling. Before asserting
+"layer X draws on top of layer Y" from an in-code comment, check it
+against the real source's own actual call order if one exists - this
+project's own comment on this exact question had never been verified
+and turned out to be backwards for the only zone type this port
+implements.

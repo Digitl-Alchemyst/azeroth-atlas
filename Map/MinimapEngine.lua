@@ -1365,6 +1365,63 @@ function MinimapEngine:GetWorldPos(mapId, x, y)
     return anchorX + (x or 50) * winfo.Scale, anchorY + (y or 50) * winfo.Scale / 1.5
 end
 
+-- Build-order step 18 (2026-11-11, map-layering fix): explicit, non-
+-- colliding frame-level offsets for the Art Map layer (TileFrms,
+-- MoveZoneTiles/MoveCurZoneTiles below) and the Terrain Texture layer
+-- (MiniFrms, UpdateMiniFrames further down) - previously both drew at
+-- the exact same `self.Frm:GetFrameLevel()` with no relative offset,
+-- so WoW's implementation-defined same-level sibling draw order
+-- decided which one won in the one zoom band where both show (zoomed
+-- out past DETAIL_SCALE) - confirmed as the root cause of "different
+-- results at different zooms/pans" reported live via screenshot
+-- comparison. Declared here, ahead of MoveZoneTiles/MoveCurZoneTiles,
+-- rather than down near DETAIL_SCALE where UpdateMiniFrames' own
+-- section starts - Lua locals aren't visible to code written earlier
+-- in the same chunk, and MoveCurZoneTiles (below) needed this before
+-- UpdateMiniFrames' section does; this project has hit that exact
+-- forward-reference trap once before (see CHANGELOG.md, build-order
+-- step 9h-9k's "nil constant" note).
+--
+-- Verified against real Carbonite (Carbonite/Modules/Map/MapEngine.lua
+-- :9886-9894): for an ORDINARY zone (the only zone type this
+-- simplified port implements - no City-map special-casing), the real
+-- per-tick order is MoveCurZoneTiles() then UpdateMiniFrames(), and
+-- both draw through a shared, incrementing self.Level counter - so
+-- Terrain (drawn second) ends up one level ABOVE Art there. (Real
+-- Carbonite only reverses this for City maps specifically, a branch
+-- this port never reaches.) This port's own header comment used to
+-- assert the opposite ("Art ALSO drawn on top of it") - that was
+-- written without checking the real call order; corrected at
+-- UpdateMiniFrames' own header to match the order actually implemented
+-- here. User confirmed Terrain-above-Art as the intended look (detail
+-- peeking through over the broad backdrop), matching the real source.
+-- +1/+2 were free (every icon pool already uses +3 and up - gather
+-- backdrop +3, gather icon +4, service +5, quest +6, goto/corpse trail
+-- +7, goto/corpse dot +9, player marker +10) so these slot in below
+-- that floor with zero renumbering elsewhere.
+local ART_MAP_LEVEL_OFFSET = 1
+local TERRAIN_TILE_LEVEL_OFFSET = 2
+
+-- `/gps hideart` / `/gps hideterrain` - toggle self.DebugHideArt/
+-- self.DebugHideTerrain (read in Update()'s zoom-gate block further
+-- down this file), letting a live tester force-isolate one of these
+-- two layers at a time to characterize an artifact without the other
+-- layer's own tiles in the way. Same "keep it, don't delete it after
+-- use" treatment as scanblips/diffblips/mmpassengers below.
+AlchemyGPS.Core.SlashCommands:Register("hideart", function()
+    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+    MinimapEngine.DebugHideArt = not MinimapEngine.DebugHideArt
+    Logger:info("hideart: Art Map layer is now %s",
+        MinimapEngine.DebugHideArt and "FORCED HIDDEN" or "normal")
+end, "toggle forcing the Art Map (zone/continent overview) layer hidden - map-layering diagnostic")
+
+AlchemyGPS.Core.SlashCommands:Register("hideterrain", function()
+    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+    MinimapEngine.DebugHideTerrain = not MinimapEngine.DebugHideTerrain
+    Logger:info("hideterrain: Terrain Texture layer is now %s",
+        MinimapEngine.DebugHideTerrain and "FORCED HIDDEN" or "normal")
+end, "toggle forcing the Terrain Texture (close-zoom detail tile) layer hidden - map-layering diagnostic")
+
 -- Kept verbatim from Nx.Map:MoveZoneTiles (MapEngine.lua:9533-9690) -
 -- the real tile-grid crop/position/texcoord math. Not approximated;
 -- every branch (including the zone==0 continent-overview path, dead
@@ -1551,7 +1608,7 @@ function MinimapEngine:MoveCurZoneTiles()
         return
     end
     self:MoveZoneTiles(self.Cont, self.Zone, self.TileFrms, self.BackgndAlpha or 1,
-        self.Frm:GetFrameLevel() or 1)
+        (self.Frm:GetFrameLevel() or 1) + ART_MAP_LEVEL_OFFSET)
 end
 
 ---------------------------------------------------------------------------------------
@@ -1576,14 +1633,29 @@ end
 -- zoom level, in every branch - it's always live from the moment the
 -- window opens. The NXDetailScale threshold only ever decides whether
 -- the COARSE zone-overview layer (MoveCurZoneTiles, above) is ALSO
--- drawn on top of it (zoomed out) or cleared (zoomed in); this
--- engine's Update() mirrors exactly that, not an either/or swap
--- between the two layers (an earlier version of this code wrongly
--- treated it as one, gating UpdateMiniFrames itself behind the same
--- threshold - confirmed wrong live, 2026-11-10: it meant detail tiles
--- only ever turned on once already zoomed in far enough that a single
--- ~107-world-unit tile exceeded the whole window, i.e. "stuck showing
--- one square, no update on pan").
+-- drawn (zoomed out) or cleared (zoomed in); this engine's Update()
+-- mirrors exactly that, not an either/or swap between the two layers
+-- (an earlier version of this code wrongly treated it as one, gating
+-- UpdateMiniFrames itself behind the same threshold - confirmed wrong
+-- live, 2026-11-10: it meant detail tiles only ever turned on once
+-- already zoomed in far enough that a single ~107-world-unit tile
+-- exceeded the whole window, i.e. "stuck showing one square, no update
+-- on pan").
+--
+-- CORRECTED 2026-11-11 (map-layering fix): this comment used to say
+-- the zone-overview layer draws "on top of" this one. That was never
+-- actually checked against real Carbonite's own per-tick call order,
+-- and both layers used to share one literal frame level with no
+-- relative offset anyway (the real root cause of a separately-reported
+-- "inconsistent at different zooms/pans" bug - see
+-- ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET above MoveZoneTiles).
+-- Checking the real source (MapEngine.lua:9886-9894) shows the
+-- opposite for an ordinary zone (the only kind this port implements):
+-- UpdateMiniFrames (this layer) is called AFTER MoveCurZoneTiles and
+-- both draw through a shared incrementing level counter, so TERRAIN
+-- ends up the TOP layer where both show, not Art - now implemented
+-- that way below via TERRAIN_TILE_LEVEL_OFFSET > ART_MAP_LEVEL_OFFSET,
+-- confirmed with the user as the intended look.
 --
 -- View3D (Carbonite's tilted 3D relief mode) is an explicit non-goal
 -- throughout this addon (ZoomController.lua's own header) - both
@@ -1727,7 +1799,7 @@ function MinimapEngine:UpdateMiniFrames()
     basey = basey + miniY * scale
 
     local al = self.BackgndAlpha or 1
-    local level = self.Frm:GetFrameLevel() or 1
+    local level = (self.Frm:GetFrameLevel() or 1) + TERRAIN_TILE_LEVEL_OFFSET
     local frmNum = 1
     local wy = basey
 
@@ -4431,20 +4503,37 @@ function MinimapEngine:Update(elapsed)
     -- detail-tile layer is always live, following pan/zoom
     -- continuously from the very first tick. ScaleDraw <= DETAIL_SCALE
     -- only ever decides whether the COARSE zone-overview art is ALSO
-    -- drawn on top of it (zoomed out: self:MoveCurZoneTiles()) or
-    -- cleared (zoomed in: real source's "MoveCurZoneTiles(true)" -
-    -- this engine's own equivalent is HideZoneTileFrames). The
-    -- previous version of this block treated the two layers as a
-    -- mutually-exclusive switch and only ever turned detail tiles on
-    -- once already zoomed in far enough that a single ~107-world-unit
-    -- tile exceeds the whole window - exactly the "one frozen square"
-    -- symptom reported live.
-    if self.ScaleDraw <= DETAIL_SCALE then
+    -- drawn (zoomed out: self:MoveCurZoneTiles()) or cleared (zoomed
+    -- in: real source's "MoveCurZoneTiles(true)" - this engine's own
+    -- equivalent is HideZoneTileFrames). The previous version of this
+    -- block treated the two layers as a mutually-exclusive switch and
+    -- only ever turned detail tiles on once already zoomed in far
+    -- enough that a single ~107-world-unit tile exceeds the whole
+    -- window - exactly the "one frozen square" symptom reported live.
+    -- (Which one draws on top where both show is now an explicit
+    -- frame-level offset, not an artifact of draw order here - see
+    -- ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET above
+    -- MoveZoneTiles.)
+    --
+    -- Build-order step 18 (2026-11-11, map-layering fix): two debug
+    -- flags let a live tester isolate either layer via /gps hideart /
+    -- /gps hideterrain (Core/SlashCommands.lua registrations further
+    -- down this file) - short-circuit straight to the same hide calls
+    -- the zoom gate already uses, so an isolated layer looks exactly
+    -- like "zoomed past the point this layer would show" rather than a
+    -- new code path.
+    if self.DebugHideArt then
+        self:HideZoneTileFrames(self.TileFrms)
+    elseif self.ScaleDraw <= DETAIL_SCALE then
         self:MoveCurZoneTiles()
     else
         self:HideZoneTileFrames(self.TileFrms)
     end
-    self:UpdateMiniFrames()
+    if self.DebugHideTerrain then
+        self:HideMiniFrames()
+    else
+        self:UpdateMiniFrames()
+    end
 
     -- Build-order step 9a: independent of both tile layers - see
     -- UpdatePlayerMarker's own header.
