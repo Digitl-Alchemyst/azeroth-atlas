@@ -41,6 +41,21 @@
 -- applied live to MinimapEngine.GatherBackdropOpacity on every slider
 -- move.
 --
+-- Row 7 (build-order step 19 follow-up, 2026-11-11): a brightness
+-- slider for the Terrain Texture layer (MinimapEngine:UpdateMiniFrames'
+-- own texture:SetVertexColor call) - added after the dynamic-coverage
+-- fix's first version auto-faded this layer out once its coverage cap
+-- was exceeded, and the user explicitly didn't want that ("no fading,
+-- always bright by default... expose that variable as a slider... so
+-- i have control of it"). Same persisted-value/live-apply shape as
+-- row 1's Tile Map Brightness (0-100%, same "no over-brightening past
+-- natural color" range), but a SEPARATE, independent control rather
+-- than sharing row 1's value - Terrain and Art Map are different
+-- layers the user may want to balance differently, and row 1 already
+-- existed and worked a certain way before this request. Persisted as
+-- AlchemyGPS.db.profile.TerrainBrightness, applied live to
+-- MinimapEngine.TerrainBrightness on every slider move.
+--
 -- Rows 5/6 (build-order step 10, 2026-11-11): "Set Goto Here" and
 -- "Clear Goto" - real Carbonite's own right-click menu has these same
 -- two items (Menu_OnGoto/Menu_OnClearGoto, MapEngine.lua:3968-3975),
@@ -83,6 +98,10 @@ local MIN_GATHER_SCALE, MAX_GATHER_SCALE = 0.5, 3
 
 local DEFAULT_GATHER_BACKDROP_OPACITY = 0.7
 local MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY = 0, 1
+
+local DEFAULT_TERRAIN_BRIGHTNESS = 1
+-- Same "0-100% only" reasoning as row 1's MIN_BRIGHTNESS/MAX_BRIGHTNESS.
+local MIN_TERRAIN_BRIGHTNESS, MAX_TERRAIN_BRIGHTNESS = 0, 1
 
 local menu
 
@@ -154,11 +173,21 @@ local function applyGatherBackdropOpacity(value)
     end
 end
 
+local function applyTerrainBrightness(value)
+    if AlchemyGPS.db and AlchemyGPS.db.profile then
+        AlchemyGPS.db.profile.TerrainBrightness = value
+    end
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if MinimapEngine then
+        MinimapEngine.TerrainBrightness = value
+    end
+end
+
 local function create()
     if menu then return menu end
 
     menu = CreateFrame("Frame", "AlchemyGPSMapContextMenu", UIParent, "BackdropTemplate")
-    menu:SetSize(220, 310)
+    menu:SetSize(220, 372)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -260,6 +289,24 @@ local function create()
     end)
     menu.backdropSlider = backdropSlider
 
+    local terrainLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    terrainLabel:SetPoint("TOP", menu, "TOP", 0, -300)
+    terrainLabel:SetText("Terrain Brightness")
+
+    local terrainSlider = CreateFrame("Slider", "AlchemyGPSTerrainBrightnessSlider", menu, "OptionsSliderTemplate")
+    terrainSlider:SetPoint("TOP", menu, "TOP", 0, -324)
+    terrainSlider:SetWidth(180)
+    terrainSlider:SetMinMaxValues(MIN_TERRAIN_BRIGHTNESS, MAX_TERRAIN_BRIGHTNESS)
+    terrainSlider:SetValueStep(0.05)
+    terrainSlider:SetObeyStepOnDrag(true)
+    _G[terrainSlider:GetName() .. "Low"]:SetText("0%")
+    _G[terrainSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_TERRAIN_BRIGHTNESS * 100))
+    _G[terrainSlider:GetName() .. "Text"]:SetText("")
+    terrainSlider:SetScript("OnValueChanged", function(_, value)
+        applyTerrainBrightness(value)
+    end)
+    menu.terrainSlider = terrainSlider
+
     -- Dismiss on an outside click WITHOUT an intercepting frame: a
     -- full-screen clickable Button over UIParent sat above Blizzard's
     -- own protected action bars and tripped "AlchemyGPS has been
@@ -308,6 +355,10 @@ function MapContextMenu:Open()
     local gatherBackdropOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.GatherBackdropOpacity) or DEFAULT_GATHER_BACKDROP_OPACITY
     m.backdropSlider:SetValue(gatherBackdropOpacity)
+
+    local terrainBrightness = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.TerrainBrightness) or DEFAULT_TERRAIN_BRIGHTNESS
+    m.terrainSlider:SetValue(terrainBrightness)
 
     local x, y = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()

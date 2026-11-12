@@ -3086,3 +3086,132 @@ background layer, a collision that would be invisible with small
 sparse icons becomes immediately, unmistakably visible - don't assume
 "icons already use a higher offset and nothing broke" means a layer
 ordering is actually safe.
+
+## Build-order step 19 (2026-11-11): Terrain layer dynamic coverage radius + geometric fade
+
+User reported (via ten screenshots at varying zoom/pan/window size
+around Thousand Needles) that the Terrain Texture layer's tiles "cut
+in and out" - rendering only some tiles at some zoom/pan/window-size
+combinations - and asked to be able to show the entire continent/world
+seamlessly when the window is sized/zoomed for it, using Carbonite
+knowledge as far as it goes ("take extra care in this step as its
+critical").
+
+**Root cause**: `UpdateMiniFrames`'s tile-grid radius (`DETAIL_RADIUS`,
+hardcoded 6) was a FIXED ~640x640-world-unit coverage square,
+independent of window size or zoom - whenever the window's actual
+visible world extent (`MapW`/`MapH` / `ScaleDraw`) exceeded that fixed
+square (any sufficiently zoomed-out and/or large window - both
+explicitly supported: `ScrollScale.MIN_SCALE = 0.015`, live window/map
+resize), coverage ran out before the window's edges, with no fade of
+any kind to hide it. Which tiles happened to fall inside vs. outside
+that fixed square as pan/zoom/window size changed is exactly the "cut
+in and out" symptom.
+
+**Checked real Carbonite's own equivalent first** (`Modules/Map/
+MapEngine.lua:10296-10542`) - its flat-view radius (`self.MiniBlks`) is
+ALSO fixed (read once from a user slider, `Nx.db.profile.Map.
+DetailSize`, min 2/max 40/default 6, confirmed "REQUIRES RELOAD" via
+its own tooltip in `OptionsEngine.lua:925-964`) - real Carbonite does
+not solve this geometrically either. What masks the same theoretical
+gap there is a scale-threshold alpha fade computed inside
+`UpdateMiniFrames` itself (`alphaRange = NXDetailScale*.35`, hide below
+`NXDetailScale - alphaRange`, fade up to it) - tuned around a zoom
+value that happens to coincide with where Carbonite's own fixed,
+rarely-resized window's coverage runs short, not a fix for a resizable
+window needing more coverage at the same zoom. This port had never
+ported that fade at all - the in-file comment claiming it was correctly
+skipped (reasoning from "no caller passes an alphaPer argument") was
+based on a flawed trace; Carbonite's `alphaPer` is computed internally
+from `self.LOpts`/`self.ScaleDraw`, not received as a parameter.
+Corrected that comment as part of this fix.
+
+**Fix, two parts**:
+1. `blks` is now computed every tick from the window's actual visible
+   extent (`max(MapW, MapH) / ScaleDraw / scale`), capped at
+   `MAX_DETAIL_RADIUS = 40` (reusing Carbonite's own shipped slider
+   max - an already battle-tested ceiling, 1600 tiles worst case) and
+   floored at `MIN_DETAIL_RADIUS = 2` (Carbonite's own slider min),
+   with a `DETAIL_SAFETY_MARGIN = 2` to absorb the existing centering
+   rounding at the grid's edges.
+2. When the needed coverage exceeds the cap, Terrain now fades its own
+   alpha out smoothly (`DETAIL_FADE_OVERSHOOT = 2.0` - full alpha at
+   the cap, zero by double the cap's tile budget) instead of showing a
+   hard-edged square, letting the Art Map layer (unchanged, already
+   covers the full zone/continent) show through underneath seamlessly.
+   Below full fade-out, skips the tile loop entirely via
+   `HideMiniFrames()`, same perf pattern as Carbonite's own early
+   return.
+
+The existing tile-pool growth (`CreateMiniFrame` on demand) and
+trailing hide loop needed no change - both already recompute fresh
+from each tick's own `need`, confirmed correct for a shrinking `blks`
+tick-to-tick, not just a growing one. `HideMiniFrames`/`ClipFrameTL`
+unchanged.
+
+**Confirmed unchanged, by design**: `/gps hideart`/`hideterrain` and
+the title-bar checkboxes (Phase 11) still short-circuit from the
+outside exactly as before; icon layer and gathering-radar strata
+mechanism untouched; the Art Map layer's own tiling untouched (a
+Terrain<->Art blend remains a separate, deferred future step, not this
+one).
+
+**Performance note**: worst case `MAX_DETAIL_RADIUS = 40` is up to 1600
+tile frames/textures - the exact number real Carbonite ships as a real,
+user-reachable slider max, so it's inherited from a mature addon's own
+tested ceiling, but has NOT been independently profiled in this port's
+own render path. Watch for frame-rate complaints specifically at
+extreme zoom-out during live testing.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked (no Lua interpreter available in this environment).
+Not yet live-tested - see `Docs/Testing/Phase12-TerrainCoverage.md`.
+
+**How to apply**: [[project_alchemy_gps]] - when porting a ported
+addon's "this value is fixed/hardcoded, matching the real source"
+pattern, check whether the REAL source's own fixed value is masked by
+a second mechanism (here, an internal fade) tuned around assumptions
+that don't hold for this port's own differences (a resizable window
+vs. Carbonite's effectively-fixed one) before assuming "matches the
+real source" means "solves the same problem here."
+
+**Same-day follow-up: the auto-fade itself wasn't wanted.** User
+confirmed the dynamic-radius fix above worked (screenshot: the entire
+Kalimdor continent fully covered, no gaps, at an appropriate zoom) -
+but zooming out one more step triggered the new coverage-cap fade, and
+the user didn't want that: "I dont want this to happen on the terrain
+only layer, no fading, always bright by default, but you can expose
+that variable as a slider in my right click menu... so i have control
+of it for moving forward with future steps."
+
+**Fix**: removed `DETAIL_FADE_OVERSHOOT` and the whole ratio/alphaPer
+fade computation from `UpdateMiniFrames` entirely - this layer no
+longer auto-dims itself for any reason. The window-size-aware `blks`
+computation from the fix above is unchanged and stays (that part was
+confirmed working, not what was objected to). In its place, a plain
+user-controlled brightness value: `self.TerrainBrightness` (default 1,
+seeded from the saved profile at module init, same pattern as the
+existing `self.BackgndAlpha` seeding right above it in the same
+function), multiplied into each tile's alpha with nothing else. Added
+a new, INDEPENDENT "Terrain Brightness" slider to `MapContextMenu.lua`
+(0-100%, same range convention as the existing "Tile Map Brightness"
+row) - deliberately a separate control from that existing row rather
+than reusing it, since Terrain and Art Map are different layers the
+user may want to balance differently, and the existing row already had
+its own established behavior before this request.
+
+Deployed to the live mirror, verified byte-identical; paren/brace-
+balance checked. Not yet live-tested - update
+`Docs/Testing/Phase12-TerrainCoverage.md`'s Phase 3 checklist (which
+previously tested FOR the fade) to instead confirm Terrain stays at
+full/manually-set brightness at every zoom with no automatic dimming,
+and confirm the new slider persists across /reload.
+
+**How to apply**: [[project_alchemy_gps]] - porting a mechanism
+straight from real Carbonite (here, its scale-based alpha fade) and
+getting it technically working is not the same as it being wanted in
+this port - confirm a new automatic behavior against what the user
+actually asked for before treating "it now matches Carbonite" as done;
+here the user wanted manual control instead of automatic behavior for
+a layer they're actively iterating on, which only came up once they
+saw the auto-fade live.

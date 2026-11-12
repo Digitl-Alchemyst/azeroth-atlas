@@ -129,6 +129,14 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.GatherBackdropOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.GatherBackdropOpacity) or 0.7
 
+    -- Same pattern again, for the Terrain Texture layer's own
+    -- brightness slider (MapContextMenu.lua, build-order step 19
+    -- follow-up) - independent of BackgndAlpha above (that one is Art
+    -- Map's own), seeded here so a value chosen via the right-click
+    -- menu survives /reload.
+    self.TerrainBrightness = (AlchemyGPS.db and AlchemyGPS.db.profile
+        and AlchemyGPS.db.profile.TerrainBrightness) or 1
+
     -- Build-order step 8: the zone-art tile frame pool. Created once
     -- (persists across close/reopen, same as the pan/zoom state below -
     -- recreating it would just leak the old 150 frames).
@@ -1683,26 +1691,37 @@ end
 -- above).
 ---------------------------------------------------------------------------------------
 
--- How far out (in 256px tile blocks) to tile in each direction from
--- the current view center. Real Carbonite exposes this as a user
--- slider (Nx.db.profile.Map.DetailSize, default 6) this addon has no
--- settings UI for - hardcoded at that same default instead, same
--- "disclosed trim" pattern as FIT_MARGIN elsewhere in this file.
-local DETAIL_RADIUS = 6
+-- Maximum tile-grid side length (in scale-sized world tiles) the
+-- Terrain layer will ever build in one direction, no matter how
+-- large the window or how far zoomed out - caps worst-case tile
+-- count at MAX_DETAIL_RADIUS^2. Reuses real Carbonite's own shipped
+-- Nx.db.profile.Map.DetailSize slider's real MAX (OptionsEngine.lua:
+-- 925-964) - an already-battle-tested ceiling, not a guess - and its
+-- MIN as a floor so a very-zoomed-in tick never collapses to an
+-- unusably small grid.
+--
+-- UNLIKE the old fixed DETAIL_RADIUS this replaces (and unlike real
+-- Carbonite's own self.MiniBlks, which is also fixed, read once from
+-- that same slider - see UpdateMiniFrames' own header for why that
+-- never mattered for Carbonite's fixed-size window but does here),
+-- the actual grid side length used each tick is computed dynamically
+-- in UpdateMiniFrames from the window's current size and zoom - this
+-- is only the ceiling on that computation.
+local MAX_DETAIL_RADIUS = 40
+local MIN_DETAIL_RADIUS = 2
+
+-- Extra tiles added on each axis beyond the exact math, to absorb
+-- UpdateMiniFrames' own miniX/miniY floor(...+.5) centering rounding -
+-- without this, a hairline gap could appear at the window's edge on
+-- whichever side that rounding happened to shrink.
+local DETAIL_SAFETY_MARGIN = 2
 
 -- Zoom-scale threshold controlling ONLY the zone-overview layer above
 -- (MoveCurZoneTiles vs. HideZoneTileFrames in Update(), below) - real
 -- Carbonite's NXDetailScale, hardcoded here at its real default 4,
--- same reasoning as DETAIL_RADIUS above. Does NOT gate UpdateMiniFrames
--- itself (see that function's own header comment - it's unconditional,
--- every tick, every zoom level). Real Carbonite's UpdateMiniFrames
--- does take its own optional alphaPer fade-in parameter, but traced
--- through every one of UpdateZones' real call sites and confirmed
--- it's always invoked with zero arguments there - the fade parameter
--- exists for a different, unported caller (the View3D/tilted-relief
--- branch's own transition), not for this one - so UpdateMiniFrames
--- below skips that parameter entirely and always draws at full
--- BackgndAlpha, matching every reachable real call site exactly.
+-- same reasoning as MAX_DETAIL_RADIUS above. Unrelated to
+-- UpdateMiniFrames below - that one no longer fades on this or any
+-- other zoom value (see that function's header).
 local DETAIL_SCALE = 4
 
 function MinimapEngine:CreateMiniFrame()
@@ -1789,9 +1808,46 @@ end
 -- (MapEngine.lua:10296-10535+). miniT/basex/basey come from
 -- GetMiniInfo (Map/Data/MinimapRuntime.lua). Called every tick,
 -- unconditionally, at every zoom level (see Update()'s call site and
--- the DETAIL_SCALE comment above for why this is NOT zoom-gated) -
--- full BackgndAlpha, no fade-in parameter needed for the reason
--- explained there.
+-- the DETAIL_SCALE comment above for why this is NOT zoom-gated).
+--
+-- Build-order step 19 (2026-11-11, terrain coverage fix): the tile
+-- grid's side length (`blks`) is now computed fresh every tick from
+-- the window's ACTUAL visible world-space extent (self.MapW/MapH /
+-- self.ScaleDraw), not a fixed constant.
+--
+-- Previously this used a fixed blks (the old DETAIL_RADIUS = 6, real
+-- Carbonite's own fixed self.MiniBlks equivalent), giving a FIXED
+-- ~640x640-world-unit coverage square regardless of window size or
+-- zoom. Confirmed live (user screenshots, zoomed/panned around
+-- Thousand Needles at varying window sizes): whenever the window's
+-- visible world extent (MapW or MapH / ScaleDraw) exceeded that fixed
+-- square - any sufficiently zoomed-out and/or large undocked window,
+-- both explicitly supported by this addon (ScrollScale.lua's
+-- MIN_SCALE=0.015 floor, live window/map resize) - the fixed square
+-- stopped reaching the window's edges, producing a sharp visible gap
+-- wherever coverage ran out. Which tiles happened to fall inside vs.
+-- outside that fixed square as pan/zoom/window size changed is
+-- exactly the "tiles cut in and out" symptom reported.
+--
+-- Build-order step 19 follow-up, same day: that fix's first version
+-- also added an automatic scale-based alpha FADE once the window/zoom
+-- combination's needed coverage exceeded MAX_DETAIL_RADIUS (mirroring
+-- real Carbonite's own internal NXDetailScale-pivoted fade,
+-- MapEngine.lua:10334-10343,10480) - confirmed live (whole-Kalimdor
+-- screenshot, then one more zoom-out step) that this auto-fade is NOT
+-- wanted here: explicit user instruction, "no fading, always bright
+-- by default." Removed entirely - this layer never auto-dims itself
+-- for any reason now, matching the pre-fade behavior, just with the
+-- window-size-aware `blks` from the fix above kept. Brightness is
+-- instead a plain user-controlled value (self.TerrainBrightness,
+-- default 1 = fully bright), exposed as its own "Terrain Brightness"
+-- slider in MapContextMenu.lua - same persisted-value/live-apply
+-- pattern as that file's existing "Tile Map Brightness" row for the
+-- Art Map layer (BackgndBrightness/BackgndAlpha), just a separate,
+-- independent control rather than sharing that one - the user asked
+-- for control over "that variable" specifically "moving forward with
+-- future steps," which calls for Terrain's own dial, not reuse of
+-- Art's.
 function MinimapEngine:UpdateMiniFrames()
     local miniT, basex, basey = self:GetMiniInfo(self.MapId)
     if not miniT then
@@ -1803,7 +1859,18 @@ function MinimapEngine:UpdateMiniFrames()
     -- kept verbatim (256 * the real source's own magic constant,
     -- MapEngine.lua:10387).
     local scale = 256 * 0.416767770014
-    local blks = DETAIL_RADIUS
+
+    local scaleDraw = self.ScaleDraw
+    if not scaleDraw or scaleDraw <= 0 then scaleDraw = 1 end
+    local mapExtent = max(self.MapW or 0, self.MapH or 0)
+
+    -- Exact tile count (no margin yet) needed to span the window's
+    -- LARGER dimension at the current zoom.
+    local neededRaw = mapExtent / scaleDraw / scale
+
+    local blks = min(MAX_DETAIL_RADIUS,
+        max(MIN_DETAIL_RADIUS, ceil(neededRaw) + DETAIL_SAFETY_MARGIN))
+
     local miniX = floor((self.MapPosXDraw - basex) / scale - blks / 2 + .5)
     local miniY = floor((self.MapPosYDraw - basey) / scale - blks / 2 + .5)
 
@@ -1817,7 +1884,7 @@ function MinimapEngine:UpdateMiniFrames()
     basex = basex + miniX * scale
     basey = basey + miniY * scale
 
-    local al = self.BackgndAlpha or 1
+    local al = self.TerrainBrightness or 1
     local level = (self.Frm:GetFrameLevel() or 1) + TERRAIN_TILE_LEVEL_OFFSET
     local frmNum = 1
     local wy = basey
