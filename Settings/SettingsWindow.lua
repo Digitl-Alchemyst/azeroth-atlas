@@ -25,6 +25,11 @@
 -- three the same way the live icons do, via StyleOptions:ApplyIconSpec
 -- (see that function's own comment in UI/StyleOptions.lua).
 --
+-- Quest companion (2026-11-15): a third tab, "Quests", between the two
+-- - on/off switches for the tracker window, the routing arrow, hiding
+-- Blizzard's tracker, and what the map's pickup pins include. See
+-- buildQuests below and Quest/Quest.lua's DEFAULTS.
+--
 -- Adapted from AlchemyNavigation/Modules/Settings/SettingsWindow.lua
 -- (same General-tab structure; the per-cluster button toggles that
 -- file already tried and cut don't apply here - this addon never had
@@ -112,6 +117,118 @@ local function buildGeneral(content)
         local MinimapWindow = AlchemyGPS:GetModule("MinimapWindow", true)
         if MinimapWindow then MinimapWindow:Open() end
     end)
+end
+
+---------------------------------------------------------------------------------------
+-- Quests tab (quest companion, 2026-11-15)
+---------------------------------------------------------------------------------------
+
+-- Every option here is a plain on/off stored through the Quest
+-- module's own Core:Opt/SetOpt (see Quest/Quest.lua) - SetOpt fires
+-- the EventBus message each piece listens for, so a click takes
+-- effect at once with no per-option wiring in this file.
+local QUEST_OPTIONS = {
+    { key = "TrackerShown",     label = "Show quest tracker" },
+    { key = "TrackerLocked",    label = "Lock quest tracker (no drag or resize)" },
+    { key = "HideBlizzTracker", label = "Hide Blizzard's quest tracker" },
+    { gap = true },
+    { key = "ArrowShown",       label = "Show quest arrow" },
+    { key = "ArrowLocked",      label = "Lock quest arrow (click-through)" },
+    { key = "AutoTrack",        label = "Auto-track the closest quest" },
+    { key = "RouteTrail",       label = "Show the route trail on the map" },
+    { gap = true },
+    { key = "TrackerGroupByZone", label = "Tracker: group quests by zone / dungeon" },
+    { key = "TrackerCollapsed",   label = "Tracker: rolled up to its title bar" },
+    { key = "TrackerItemButtons", label = "Tracker: buttons for usable quest items" },
+    { gap = true },
+    { key = "ShowQuestAreas",   label = "Map: shade the areas where quests are done" },
+    { key = "ShowPatrolPaths",  label = "Map: draw the path a wandering quest NPC walks" },
+    { key = "ShowLowLevel",     label = "Map: show low-level (gray) quests to pick up" },
+    { key = "ShowEventQuests",  label = "Map: show holiday/event quests to pick up" },
+    { gap = true },
+    { key = "SuperTrackSync",   label = "Keep Blizzard's tracked quest in step" },
+}
+
+local function buildQuests(panel)
+    -- Scrolls, like the Style tab: there are more options than fit.
+    local scroll = Widget.CreateScrollFrame(panel, "AlchemyGPSQuestOptionsScroll")
+    scroll:SetPoint("TOPLEFT", 0, 0)
+    scroll:SetPoint("BOTTOMRIGHT", -24, 0)
+    local content = scroll.ScrollChild
+    content:SetWidth(340)       -- window 380, less its insets and the scroll bar
+
+    local Core = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Core
+    if not Core then
+        local msg = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        msg:SetPoint("TOPLEFT", 8, -10)
+        msg:SetText("The quest module failed to load.")
+        content:SetHeight(40)
+        return
+    end
+
+    local y = -6
+    for _, opt in ipairs(QUEST_OPTIONS) do
+        if opt.gap then
+            y = y - 10
+        else
+            local key = opt.key
+            addCheckbox(content, y, opt.label,
+                function() return Core:Opt(key) end,
+                function(value) Core:SetOpt(key, value) end)
+            y = y - 26
+        end
+    end
+
+    y = y - 8
+    local trackAll = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    trackAll:SetSize(150, 22)
+    trackAll:SetPoint("TOPLEFT", 4, y)
+    trackAll:SetText("Track all quests")
+    trackAll:SetScript("OnClick", function()
+        local State = AlchemyGPS.Modules.Quest.State
+        if State then State:WatchAll() end
+    end)
+
+    local list = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    list:SetSize(150, 22)
+    list:SetPoint("TOPLEFT", 162, y)
+    list:SetText("Open the quest list")
+    list:SetScript("OnClick", function()
+        local List = AlchemyGPS.Modules.Quest.List
+        if List then List:Toggle() end
+    end)
+
+    local unhide = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    unhide:SetSize(308, 22)
+    unhide:SetPoint("TOPLEFT", 4, y - 26)
+    local function unhideLabel()
+        local Pins = AlchemyGPS.Modules.Quest.Pins
+        local n = Pins and Pins:NumHidden() or 0
+        unhide:SetText(n > 0 and ("Show the %d hidden quest%s on the map again"):format(n, n == 1 and "" or "s")
+            or "No quests hidden from the map")
+        unhide:SetEnabled(n > 0)
+    end
+    unhide:SetScript("OnClick", function()
+        local Pins = AlchemyGPS.Modules.Quest.Pins
+        if Pins then Pins:UnhideAll() end
+        unhideLabel()
+    end)
+    unhide:SetScript("OnShow", unhideLabel)
+    unhideLabel()
+    y = y - 26
+
+    local hint = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", 4, y - 30)
+    hint:SetWidth(330)
+    hint:SetJustifyH("LEFT")
+    hint:SetText("Tracker: click a quest to route to it, right-click to collapse, "
+        .. "Shift-click to untrack. Click a zone heading to fold it, Shift-click it to "
+        .. "untrack the whole zone. Right-click a quest pin on the map to hide one of its quests.\n\n"
+        .. "Quest item hotkey: Key Bindings > Alchemy GPS > \"Use the nearest quest's item\", "
+        .. "or type /gps quest key F.\n\n"
+        .. "Quest map pins are toggled from the map's Filter button.")
+
+    content:SetHeight(-y + 30 + 130)
 end
 
 ---------------------------------------------------------------------------------------
@@ -280,6 +397,11 @@ local function buildStyle(panel)
         function(id)
             AlchemyGPS.Skin:Set(id)
             if win then win:ApplySkin() end
+            -- The quest tracker is built on the same small-window
+            -- chrome as this window, so Skin:ResetWindows can't reach
+            -- it either.
+            local Tracker = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Tracker
+            if Tracker and Tracker.Win then Tracker.Win:ApplySkin() end
         end)
 
     for _, cat in ipairs(AlchemyGPS.UI.StyleOptions.Categories) do
@@ -314,6 +436,12 @@ local function create()
     stylePanel:SetPoint("TOPLEFT", 0, -30)
     stylePanel:SetPoint("BOTTOMRIGHT", 0, 0)
 
+    local questsPanel = CreateFrame("Frame", nil, win.content)
+    questsPanel:SetPoint("TOPLEFT", 0, -30)
+    questsPanel:SetPoint("BOTTOMRIGHT", 0, 0)
+
+    local panels = { general = generalPanel, quests = questsPanel, style = stylePanel }
+
     local tabBar = AlchemyGPS.UI.TabBar:New{
         parent = win.content,
         name = "AlchemyGPSSettingsTabs",
@@ -321,22 +449,21 @@ local function create()
         anchor = { point = "TOPLEFT", x = 0, y = 0 },
         tabs = {
             { id = "general", label = "General" },
+            { id = "quests",  label = "Quests" },
             { id = "style",   label = "Style" },
         },
         selected = "general",
         onSelect = function(_, id)
-            if id == "style" then
-                generalPanel:Hide()
-                stylePanel:Show()
-            else
-                stylePanel:Hide()
-                generalPanel:Show()
+            for panelId, panel in pairs(panels) do
+                if panelId == id then panel:Show() else panel:Hide() end
             end
         end,
     }
     stylePanel:Hide()
+    questsPanel:Hide()
 
     buildGeneral(generalPanel)
+    buildQuests(questsPanel)
     buildStyle(stylePanel)
 
     AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(win, UIParent, { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 })
@@ -370,3 +497,10 @@ end
 AlchemyGPS.Core.SlashCommands:Register("settings", function()
     SettingsWindow:Toggle()
 end, "open the settings window")
+
+-- Quest options also change from outside this window (the tracker's
+-- own close and Auto buttons, /gps quest ...); keep the Quests tab's
+-- checkboxes honest when they do.
+AlchemyGPS.Core.EventBus:Subscribe("QUEST_OPTION_CHANGED", function()
+    if win then SettingsWindow:Refresh() end
+end)

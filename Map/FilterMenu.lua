@@ -71,7 +71,15 @@ local FILTERS = {
     { key = "ZoneTransition",  label = "Zone Transitions" },
     { key = "GuardFlag",       label = "Guard Directions" },
     { key = "SpiritHealer",    label = "Spirit Healers" },
+    -- Quest companion (2026-11-15): the three quest pin roles
+    -- (Quest/QuestPins.lua). Turn-in markers existed before this but
+    -- had no filter row of their own.
+    { key = "QuestGiver",      label = "Quest Givers" },
+    { key = "QuestObjective",  label = "Quest Objectives" },
+    { key = "QuestTurnIn",     label = "Quest Turn-ins" },
 }
+
+local QUEST_FILTERS = { QuestGiver = true, QuestObjective = true, QuestTurnIn = true }
 
 local ROW_HEIGHT = 22
 -- Widened from 170 (build-order step 9l) - "Dungeon/Raid Entrances" is
@@ -95,6 +103,9 @@ local function SetFilterOn(key, on)
     if key == "Gathering" or key == "Treasure" then
         MinimapEngine:RefreshGatherIcons()
         MinimapEngine:UpdateGatherIcons()
+    elseif QUEST_FILTERS[key] then
+        MinimapEngine:RefreshQuestIcons()
+        MinimapEngine:UpdateQuestIcons()
     else
         MinimapEngine:RefreshServiceIcons()
         MinimapEngine:UpdateServiceIcons()

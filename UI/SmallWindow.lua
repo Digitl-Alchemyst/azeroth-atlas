@@ -64,6 +64,13 @@ end
 --   minWidth / minHeight / maxWidth / maxHeight  number  Resize bounds.
 --   onResizeStop function  Called once when a resize drag ends.
 --   strata    string  Frame strata.
+--   noEscClose bool   Don't register for ESC-to-close. For a window that
+--                      is part of the HUD (the quest tracker) rather
+--                      than a panel the player opens and dismisses.
+--   onClose   function  Called when the close button is clicked, after
+--                      the window hides - lets the owner record that the
+--                      player closed it, which a bare Hide can't tell
+--                      apart from the UI being hidden.
 function Window:Create(spec)
     spec = spec or {}
     local f = Widget.CreateFrame(spec.parent or UIParent, spec.name)
@@ -92,7 +99,11 @@ function Window:Create(spec)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetSize(20, 20)
     close:SetPoint("TOPRIGHT", -4, -4)
-    close:SetScript("OnClick", function() f:Hide() end)
+    close:SetScript("OnClick", function()
+        f:Hide()
+        if spec.onClose then spec.onClose(f) end
+    end)
+    f.closeButton = close
 
     -- Content frame. Insets here are "the edges" - the container
     -- border/title-bar margin that stays visible around the content
@@ -112,7 +123,7 @@ function Window:Create(spec)
 
     -- ESC support: register so the default UISpecialFrames stack
     -- closes us, same as every other Blizzard panel.
-    if spec.name then
+    if spec.name and not spec.noEscClose then
         tinsert(UISpecialFrames, spec.name)
     end
 

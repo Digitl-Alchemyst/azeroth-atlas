@@ -67,6 +67,43 @@ StyleOptions.Categories = {
             { id = "Question", label = "Question",  tex = MAP_GFX .. "IconQuestion" },
         },
     },
+    -- Quest companion (2026-11-15): the two pin roles added alongside
+    -- the turn-in icon above, and the routing arrow. Defaults are this
+    -- addon's own bundled art rather than a Blizzard path - guessed
+    -- Blizzard texture paths have been this project's most repeated bug,
+    -- and these files are already proven to load (the goto marker and
+    -- trail arrows come from the same folder). The objective options are
+    -- all greyscale art, so they take the per-quest tint QuestPins.lua
+    -- applies; the lighter ones (Circle, Ring) show it most vividly.
+    {
+        key = "QuestGiverIcon", label = "Quest Giver Icon",
+        options = {
+            { id = "Exclaim",  label = "Exclaim (default)", tex = MAP_GFX .. "IconExclaim" },
+            { id = "ExclaimB", label = "Exclaim B",         tex = MAP_GFX .. "IconExclaimB" },
+            { id = "Blizzard", label = "Blizzard",          tex = "Interface\\GossipFrame\\AvailableQuestIcon" },
+        },
+    },
+    {
+        key = "QuestObjectiveIcon", label = "Quest Objective Icon",
+        options = {
+            { id = "QTarget",    label = "Q-Target (default)", tex = MAP_GFX .. "IconQTarget" },
+            { id = "Circle",     label = "Circle",             tex = MAP_GFX .. "IconCircle" },
+            { id = "CircleFade", label = "Circle Fade",        tex = MAP_GFX .. "IconCircleFade" },
+            { id = "Ring",       label = "Ring",               tex = MAP_GFX .. "IconRing" },
+        },
+    },
+    -- Carbonite's own five arrow styles (HUDEngine.lua's HUD.TexNames:
+    -- "", "Chip", "Gloss", "Glow", "Neon").
+    {
+        key = "HUDArrow", label = "Quest Arrow",
+        options = {
+            { id = "Plain", label = "Plain (default)", tex = MAP_GFX .. "HUDArrow" },
+            { id = "Chip",  label = "Chip",            tex = MAP_GFX .. "HUDArrowChip" },
+            { id = "Gloss", label = "Gloss",           tex = MAP_GFX .. "HUDArrowGloss" },
+            { id = "Glow",  label = "Glow",            tex = MAP_GFX .. "HUDArrowGlow" },
+            { id = "Neon",  label = "Neon",            tex = MAP_GFX .. "HUDArrowNeon" },
+        },
+    },
     -- Build-order step 14: real citations below are all from
     -- Leatrix_Maps.lua's own POIIcons table (:4055-4070) and the real
     -- texcoord rectangles its SetupIcon (:4112-4126) crops from

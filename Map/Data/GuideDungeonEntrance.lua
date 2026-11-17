@@ -62,7 +62,12 @@ local RAW_INSTANCES = {
     { "Naxxramas",                    1423, 40.0,  25.8 },
     { "Molten Core",                  1428, 20.70, 33.33 },
     { "Ruins of Ahn'Qiraj",           1451, 29.1,  93.8 },
-    { "Onyxia's Lair",                70,   52.41, 76.39 },
+    -- Carbonite's Zones.lua lists this one under owner map 70, which isn't
+    -- a zone id on this client (every other row is 14xx), so the flag
+    -- never showed. 52.41, 76.39 is the lair's entrance in Dustwallow
+    -- Marsh, 1445 here. Tools/gen_quest_data.py applies the same fix to
+    -- QuestData.Instances and checks the two lists stay identical.
+    { "Onyxia's Lair",                1445, 52.41, 76.39 },
     { "Blackwing Lair",               1428, 20.70, 35.33 },
     { "Temple of Ahn'Qiraj",          1451, 29.1,  93.8 },
     { "Zul'Gurub",                    1434, 67.2,  32.8 },

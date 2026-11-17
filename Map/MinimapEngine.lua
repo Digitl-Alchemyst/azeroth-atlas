@@ -202,6 +202,11 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     -- UpdateCorpseTrack's own header for the rest.
     self.CorpseTrailFrms = self.CorpseTrailFrms or {}
 
+    -- Quest companion (2026-11-15): a third trail pool, for the routed
+    -- quest destination (see UpdateQuestRoute) - independent of the
+    -- two above for the same reason they are independent of each other.
+    self.QuestTrailFrms = self.QuestTrailFrms or {}
+
     -- PlyrX/Y are overwritten every tick once Update() resolves a real
     -- zone (build-order step 8's RefreshCurrentZone/live-position
     -- block) - this is just a safe fallback for the handful of ticks
@@ -3201,17 +3206,71 @@ function MinimapEngine:HideQuestFrames()
     end
 end
 
--- Only shows quests already in the player's log that are flagged
--- complete (ready to turn in) - see this section's header for why an
--- in-progress objective marker isn't included in this first pass.
+local function QuestFrameOnEnter(frm)
+    local pt = frm.questPt
+    local QuestPins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    if pt and pt.label and QuestPins then
+        QuestPins:ShowTooltip(frm, pt)
+    end
+end
+
+local function QuestFrameOnLeave()
+    GameTooltip:Hide()
+end
+
+local function QuestFrameOnMouseUp(frm, button)
+    local pt = frm.questPt
+    local QuestPins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    if button == "LeftButton" and pt and QuestPins then
+        QuestPins:OnClick(pt)
+    elseif button == "RightButton" and pt and QuestPins and QuestPins.OnRightClick then
+        QuestPins:OnRightClick(frm, pt)
+    end
+end
+
+-- Quest companion (2026-11-15): this section grew from turn-in markers
+-- only to the three roles Carbonite's own QuestPin.lua defines -
+-- turn-in, objective, and giver ("a quest I could pick up here"). The
+-- second finding in this section's header no longer blocks the giver
+-- role: Carbonite.Quests' bundled data turned out to carry every
+-- giver's map id and coordinates in this client's own uiMapID scheme,
+-- already merged from Questie's database, so nothing needs Questie's
+-- private ZoneDB after all (ported as Quest/Data/*.lua).
+--
+-- What goes on the map is decided in Quest/QuestPins.lua - it knows
+-- about the quest log, the bundled database and the current route.
+-- This file still owns the frames and draws them exactly as before:
+-- the same CreateMiniFrame pool, the same fixed-size ClipFrameW point
+-- clip. A point may now also carry a size, a tint, tooltip lines and a
+-- click target; a point with none of those draws as the old turn-in
+-- marker did.
+--
 -- Called on zone change (RefreshCurrentZone) and on a time throttle
 -- from Update() below, since quest state (unlike the static mailbox/
--- innkeeper data) can change without a zone change at all.
+-- innkeeper data) can change without a zone change at all. QuestPins
+-- also zeroes QuestRefreshAt when quest state or the route changes, so
+-- the map doesn't wait out that throttle after a turn-in.
 function MinimapEngine:RefreshQuestIcons()
     local pts = {}
     self.QuestPts = pts
     local mapId = self.MapId
-    if not mapId or not C_QuestLog or not C_QuestLog.GetQuestsOnMap then return end
+    if not mapId then return end
+
+    local QuestPins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    if QuestPins and QuestPins.Collect then
+        local ok, err = pcall(QuestPins.Collect, QuestPins, self, pts)
+        if not ok and self.QuestPinError ~= err then
+            -- Report a failure once, not on every refresh tick.
+            self.QuestPinError = err
+            AlchemyGPS.Core.Logger:Get("Map"):error("quest pins failed: %s", tostring(err))
+        end
+        return
+    end
+
+    -- The Quest module didn't load: fall back to the original turn-in-
+    -- only markers, straight from Blizzard's live POI list, so a problem
+    -- over there can't take away what this map already had.
+    if not C_QuestLog or not C_QuestLog.GetQuestsOnMap then return end
 
     local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, mapId)
     if not ok or type(quests) ~= "table" then return end
@@ -3240,7 +3299,15 @@ function MinimapEngine:UpdateQuestIcons()
 
     if #self.QuestFrms < #pts then
         for n = #self.QuestFrms + 1, #pts do
-            self.QuestFrms[n] = self:CreateMiniFrame()
+            local frm = self:CreateMiniFrame()
+            -- Same hover/click wiring as the service and gather pools;
+            -- what the tooltip says and what a click does is QuestPins'
+            -- business, read from frm.questPt (set fresh every pass).
+            frm:EnableMouse(true)
+            frm:SetScript("OnEnter", QuestFrameOnEnter)
+            frm:SetScript("OnLeave", QuestFrameOnLeave)
+            frm:SetScript("OnMouseUp", QuestFrameOnMouseUp)
+            self.QuestFrms[n] = frm
         end
     end
 
@@ -3251,8 +3318,16 @@ function MinimapEngine:UpdateQuestIcons()
             AlchemyGPS.UI.StyleOptions:ApplyIconSpec(frm.texture, pt.iconSpec)
             frm.svcIconSpec = pt.iconSpec
         end
-        if self:ClipFrameW(frm, pt.x, pt.y, QUEST_ICON_SIZE, QUEST_ICON_SIZE) then
+        frm.questPt = pt
+        local size = pt.size or QUEST_ICON_SIZE
+        if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
             frm:SetFrameLevel(level)
+            -- Frames are pooled across roles: always set the tint, so
+            -- an untinted pin never inherits the last quest's colour.
+            frm.texture:SetVertexColor(pt.r or 1, pt.g or 1, pt.b or 1, 1)
+            -- Same reason: a low-level pickup pin is drawn gray, and
+            -- the next pin to use this frame must not stay that way.
+            frm.texture:SetDesaturated(pt.desat and true or false)
         end
     end
     for n = #pts + 1, #self.QuestFrms do
@@ -3278,7 +3353,12 @@ function MinimapEngine:ApplyStyleChange(key)
 
     if key == "TrailArrow" then
         local spec = StyleOptions:GetOption("TrailArrow")
-        for _, pool in ipairs({ self.GotoTrailFrms, self.CorpseTrailFrms }) do
+        -- A plain numeric loop, not ipairs over a table literal: a pool
+        -- that doesn't exist yet would be a nil hole and end ipairs
+        -- early, skipping the pools after it.
+        local pools = { self.GotoTrailFrms, self.CorpseTrailFrms, self.QuestTrailFrms }
+        for n = 1, 3 do
+            local pool = pools[n]
             if pool then
                 for _, f in ipairs(pool) do
                     StyleOptions:ApplyIconSpec(f.texture, spec)
@@ -3289,13 +3369,25 @@ function MinimapEngine:ApplyStyleChange(key)
         if self.GotoFrm then
             StyleOptions:ApplyIcon(self.GotoFrm.texture, "GotoMarker")
         end
+        if self.QuestRouteFrm then
+            StyleOptions:ApplyIcon(self.QuestRouteFrm.texture, "GotoMarker")
+        end
     elseif key == "PlayerMarker" then
         if self.PlyrFrm then
             StyleOptions:ApplyIcon(self.PlyrFrm.texture, "PlayerMarker")
         end
-    elseif key == "QuestIcon" then
-        self:RefreshQuestIcons()
-        self:UpdateQuestIcons()
+    elseif key == "QuestIcon" or key == "QuestGiverIcon" or key == "QuestObjectiveIcon" then
+        -- self.Frm: the Style tab can be used before the map window has
+        -- ever been opened, when there are no icon pools to update yet.
+        if self.Frm then
+            self:RefreshQuestIcons()
+            self:UpdateQuestIcons()
+        end
+    elseif key == "HUDArrow" then
+        -- Not a map icon at all - the Quest module's floating arrow -
+        -- but StyleOptions:SetChoice has this one notification hook.
+        local HUD = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.HUD
+        if HUD then HUD:ApplyStyle() end
     elseif key == "DungeonEntrance" or key == "ZoneTransition"
         or key == "FlightMaster" or key == "SpiritHealer" then
         self:RefreshServiceIcons()
@@ -4705,6 +4797,68 @@ function MinimapEngine:UpdateCorpseTrack()
 end
 
 ---------------------------------------------------------------------------------------
+-- Quest companion (2026-11-15): the routed quest destination on the
+-- map - a marker where the Quest module's arrow is leading, and an ant
+-- trail to it. Real Carbonite draws its quest target through the same
+-- DrawTracking primitive as a plain goto (MapEngine.lua:9007); this is
+-- that, as a third independent consumer of DrawAntTrail beside Goto and
+-- Corpse - its own pool, so all three can show at once.
+--
+-- The destination itself comes from Quest/QuestRouting.lua
+-- (Routing.Target, already in this engine's world space). Tinted gold
+-- so it reads apart from a manual goto's untinted trail and the corpse
+-- trail's red. Nothing is drawn while the player is standing inside the
+-- objective's own area (Target.inside) - there is no "there" to lead
+-- to - or when the destination is on another continent, where this
+-- engine's shared world space doesn't reach.
+---------------------------------------------------------------------------------------
+
+local QUEST_ROUTE_ICON_SIZE = 18
+local QUEST_ROUTE_R, QUEST_ROUTE_G, QUEST_ROUTE_B = 1, 0.82, 0.2
+
+function MinimapEngine:HideQuestRouteFrames()
+    if self.QuestRouteFrm then self.QuestRouteFrm:Hide() end
+    if self.QuestRouteYdLabel then self.QuestRouteYdLabel:Hide() end
+    for i = 1, #self.QuestTrailFrms do
+        self.QuestTrailFrms[i]:Hide()
+    end
+end
+
+-- Called every tick from Update(), alongside UpdateGoto/UpdateCorpseTrack.
+function MinimapEngine:UpdateQuestRoute()
+    local Quest = AlchemyGPS.Modules.Quest
+    local t = Quest and Quest.Routing and Quest.Routing.Target
+    if not t or not self.Cont or t.cont ~= self.Cont or t.inside
+        or (Quest.Core and Quest.Core:Opt("RouteTrail") == false) then
+        self:HideQuestRouteFrames()
+        return
+    end
+
+    local dx = t.x - self.PlyrX
+    local dy = t.y - self.PlyrY
+    local dist = (dx * dx + dy * dy) ^ .5
+
+    if not self.QuestRouteFrm then
+        self.QuestRouteFrm = self:CreateMiniFrame()
+        AlchemyGPS.UI.StyleOptions:ApplyIcon(self.QuestRouteFrm.texture, "GotoMarker")
+        local lbl = self.QuestRouteFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        lbl:SetPoint("BOTTOM", self.QuestRouteFrm, "TOP", 0, 2)
+        self.QuestRouteYdLabel = lbl
+    end
+
+    if self:ClipFrameW(self.QuestRouteFrm, t.x, t.y, QUEST_ROUTE_ICON_SIZE, QUEST_ROUTE_ICON_SIZE, 0) then
+        self.QuestRouteFrm.texture:SetVertexColor(QUEST_ROUTE_R, QUEST_ROUTE_G, QUEST_ROUTE_B, 1)
+        self.QuestRouteFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
+        self.QuestRouteYdLabel:SetText(("%dyd"):format(math.ceil(dist * YARDS_PER_WORLDUNIT)))
+        self.QuestRouteYdLabel:Show()
+    else
+        self.QuestRouteYdLabel:Hide()
+    end
+
+    self:DrawAntTrail(self.QuestTrailFrms, dx, dy, dist, QUEST_ROUTE_R, QUEST_ROUTE_G, QUEST_ROUTE_B, 1)
+end
+
+---------------------------------------------------------------------------------------
 -- Diagnostic overlay, originally built for the build-order step 4
 -- live-widget-blend bug (mask renders, terrain stays blank). Kept as
 -- a permanent debug aid rather than torn out - shown/hidden by the
@@ -5221,6 +5375,8 @@ function MinimapEngine:Update(elapsed)
     end
     self:UpdateGoto()
     self:UpdateCorpseTrack()
+    -- Quest companion: marker + trail to the routed quest destination.
+    self:UpdateQuestRoute()
 
     -- Build-order step 9b: repositions already-resolved static service
     -- icons for the current pan/zoom - see UpdateServiceIcons' own
@@ -5242,6 +5398,18 @@ function MinimapEngine:Update(elapsed)
         self:RefreshQuestIcons()
     end
     self:UpdateQuestIcons()
+
+    -- Shaded quest areas and patrol lines, under the pins. What to draw
+    -- and how is Quest/QuestOverlay.lua's business; it reads this
+    -- engine's pan/zoom and skips the work when neither has changed.
+    local QuestOverlay = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Overlay
+    if QuestOverlay and QuestOverlay.Draw then
+        local ok, err = pcall(QuestOverlay.Draw, QuestOverlay, self)
+        if not ok and self.QuestOverlayError ~= err then
+            self.QuestOverlayError = err
+            AlchemyGPS.Core.Logger:Get("Map"):error("quest overlay failed: %s", tostring(err))
+        end
+    end
 
     -- Build-order step 9e: gathering-node field. Repositioned on its
     -- own 0.1s throttle, not every tick - see UpdateGatherIcons'

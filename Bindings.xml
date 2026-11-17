@@ -1,0 +1,6 @@
+<Bindings>
+    <!-- Clicks the hidden secure button Quest\QuestItems.lua keeps aimed
+         at the item of the nearest tracked quest. The menu text is set
+         there (BINDING_HEADER_ALCHEMYGPS / BINDING_NAME_...). -->
+    <Binding name="CLICK AlchemyGPSQuestItemNearest:LeftButton" header="ALCHEMYGPS" category="ADDONS" />
+</Bindings>

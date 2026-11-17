@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Alchemy GPS
-## Notes: Minimap module, built by porting Carbonite's real undocked-map code. See the build plan.
+## Notes: Map window and questing companion (tracker, quest pins, routing arrow), built by porting Carbonite's real code.
 ## Author: Digital Alchemyst
 ## Version: 0.1.0-dev
 ## SavedVariables: AlchemyGPSDB
@@ -31,4 +31,9 @@ Locales\Locales.xml
 Util\Util.xml
 UI\UI.xml
 Map\Map.xml
+# Questing companion (tracker window, quest map pins, routing arrow).
+# After Map: it places everything through the map engine's world
+# coordinates. Before Settings only by convention - the Settings
+# window reaches it at click time, not at load.
+Quest\Quest.xml
 Settings\Settings.xml
