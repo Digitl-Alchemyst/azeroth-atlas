@@ -137,6 +137,10 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.TerrainBrightness = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.TerrainBrightness) or 1
 
+    -- 2026-11-16: layer on/off switches now live in Settings > Map and
+    -- persist (they used to be session-only title-bar debug toggles).
+    self:LoadLayerSettings()
+
     -- Build-order step 8: the zone-art tile frame pool. Created once
     -- (persists across close/reopen, same as the pan/zoom state below -
     -- recreating it would just leak the old 150 frames).
@@ -1524,8 +1528,18 @@ end
 local BASE_LEVEL_OFFSET = 1
 local ART_MAP_LEVEL_OFFSET = 2
 local TERRAIN_TILE_LEVEL_OFFSET = 3
--- level 4 reserved: GatherFrms backdrop only (derived, see :~3722)
-local SERVICE_LEVEL_OFFSET = 5
+-- 2026-11-16: City / Dungeon map layer (UpdateAreaMap) - a city's or
+-- dungeon's own art map, above Terrain and below the Service layer
+-- (explicit user request). Everything from here up moved one level.
+local CITY_LEVEL_OFFSET = 4
+-- level 5 reserved: GatherFrms backdrop only (derived as icon level - 1)
+local SERVICE_LEVEL_OFFSET = 6
+-- 2026-11-16: the player marker sits above everything the map draws -
+-- in the overlay strata (MinimapWindow.OVERLAY_STRATA, the same tier
+-- the live-blip radar reaches) and well above it on level. Chrome is
+-- at +50 in that same strata, so buttons still win.
+local PLAYER_LEVEL_OFFSET = 30
+MinimapEngine.SERVICE_LEVEL_OFFSET = SERVICE_LEVEL_OFFSET
 
 -- `/gps hideart` / `/gps hideterrain` - toggle self.DebugHideArt/
 -- self.DebugHideTerrain (read in Update()'s zoom-gate block further
@@ -1542,10 +1556,17 @@ local SERVICE_LEVEL_OFFSET = 5
 -- checkbox - the window may not be open (self.Win nil) or the
 -- checkbox may not exist yet (created in Open(), not at module
 -- enable), so both are nil-guarded rather than assumed present.
-local function syncLayerCheckbox(checkbox, debugHideField)
-    if checkbox then
-        checkbox:SetChecked(not MinimapEngine[debugHideField])
+-- 2026-11-16: those title-bar checkboxes moved to Settings > Map and
+-- the switches persist now - a slash-command toggle saves the new state
+-- (SetLayerShown) and refreshes the Settings window's checkboxes.
+local LAYER_KEY_FOR_FIELD = { DebugHideArt = "Art", DebugHideBase = "Base", DebugHideTerrain = "Terrain" }
+local function syncLayerCheckbox(_, debugHideField)
+    local key = LAYER_KEY_FOR_FIELD[debugHideField]
+    if key then
+        MinimapEngine:SetLayerShown(key, not MinimapEngine[debugHideField])
     end
+    local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+    if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
 end
 
 AlchemyGPS.Core.SlashCommands:Register("hideart", function()
@@ -1847,7 +1868,8 @@ end
 -- removed mechanism. Left unrenamed since every caller/comment already
 -- refers to it by this name and a rename wasn't asked for.
 function MinimapEngine:MoveCurZoneTiles()
-    self:HideZoneTileFrames(self.TileFrms)
+    -- (TileFrms now belongs to the City / Dungeon map layer -
+    -- UpdateAreaMap - and is no longer cleared here.)
 
     if not self.Cont then
         self:HideContinentFrames()
@@ -1877,6 +1899,787 @@ function MinimapEngine:MoveCurZoneTiles()
     end
 
     self:HideContinentFrames()
+end
+
+---------------------------------------------------------------------------------------
+-- 2026-11-16: persisted layer switches (Settings > Map). The engine
+-- still reads its long-standing DebugHide* fields every tick; these
+-- functions just load them from / save them to
+-- AlchemyGPS.db.profile.MapLayers. Missing key = shown, same
+-- "absent means on" convention as MapFilters.
+---------------------------------------------------------------------------------------
+
+local LAYER_FIELDS = {
+    Base    = "DebugHideBase",
+    Art     = "DebugHideArt",
+    Terrain = "DebugHideTerrain",
+    City    = "HideCityArt",
+    Dungeon = "HideDungeonArt",
+}
+
+function MinimapEngine:LoadLayerSettings()
+    local layers = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapLayers or {}
+    for key, field in pairs(LAYER_FIELDS) do
+        self[field] = layers[key] == false
+    end
+end
+
+function MinimapEngine:IsLayerShown(key)
+    local layers = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapLayers
+    return not layers or layers[key] ~= false
+end
+
+function MinimapEngine:SetLayerShown(key, on)
+    local field = LAYER_FIELDS[key]
+    if not field then return end
+    if AlchemyGPS.db and AlchemyGPS.db.profile then
+        AlchemyGPS.db.profile.MapLayers = AlchemyGPS.db.profile.MapLayers or {}
+        AlchemyGPS.db.profile.MapLayers[key] = on and true or false
+    end
+    self[field] = not on
+end
+
+---------------------------------------------------------------------------------------
+-- 2026-11-16: dungeon maps. Instances aren't in Carbonite's static zone
+-- catalog (NxMapData.lua), so the engine used to draw nothing inside
+-- one. Each dungeon floor the player enters is now registered as a
+-- zone of its own on a made-up continent (DUNGEON_CONT), placed far
+-- away from the real continents' world coordinates. After that, every
+-- existing piece - zoom, pan, auto-follow, the player marker, gotos -
+-- works on it unchanged, and UpdateAreaMap draws the floor's own map
+-- art (the same Blizzard map art the dungeon's world map uses, read
+-- with C_Map.GetMapArtLayerTextures - the approach
+-- ForeverDungeonJournal's MapArtFinder already proves works on this
+-- client).
+--
+-- Size: if the client reports the floor's size in yards
+-- (C_Map.GetMapWorldSize) it is converted to this engine's world units
+-- (4.575 yards each, the constant used throughout this file);
+-- otherwise a typical dungeon size is assumed. That only affects the
+-- zoom level the floor opens at and the yard readouts, not where
+-- anything is drawn on the floor's map.
+---------------------------------------------------------------------------------------
+
+local DUNGEON_CONT = 99
+MinimapEngine.DUNGEON_CONT = DUNGEON_CONT
+local DUNGEON_DEFAULT_SCALE = 1.5   -- ~690 yards across
+
+function MinimapEngine:RegisterInstanceMap(mapId)
+    if not mapId or mapId == 0 then return nil end
+    local inInstance, instType = IsInInstance()
+    if not inInstance or (instType ~= "party" and instType ~= "raid") then
+        return nil
+    end
+
+    local scale = DUNGEON_DEFAULT_SCALE
+    if C_Map and C_Map.GetMapWorldSize then
+        local ok, w = pcall(C_Map.GetMapWorldSize, mapId)
+        if ok and type(w) == "number" and w > 10 then
+            scale = w / 4.575 / 100
+        end
+    end
+
+    self.MapInfo[DUNGEON_CONT] = self.MapInfo[DUNGEON_CONT]
+        or { X = 100000, Y = 100000, Name = "Instance" }
+    local winfo = self.MapWorldInfo[mapId] or {}
+    winfo.Scale = scale
+    winfo.X = 0
+    winfo.Y = 0
+    winfo.Dungeon = true
+    if not winfo.Name then
+        local info = C_Map.GetMapInfo and C_Map.GetMapInfo(mapId)
+        winfo.Name = info and info.name
+    end
+    self.MapWorldInfo[mapId] = winfo
+
+    self.MapZones[DUNGEON_CONT] = self.MapZones[DUNGEON_CONT] or {}
+    local list = self.MapZones[DUNGEON_CONT]
+    for _, id in ipairs(list) do
+        if id == mapId then return DUNGEON_CONT end
+    end
+    list[#list + 1] = mapId
+    return DUNGEON_CONT
+end
+
+---------------------------------------------------------------------------------------
+-- 2026-11-16: dungeon floors (levels) and WoW Forever's own dungeons.
+--
+-- A dungeon is a list of floors, built once per instance/floor change
+-- by ResolveDungeonMap and kept in self.DungeonFloors:
+--   { mapId, name, spec, posMap }
+-- Every floor is registered as its own zone on DUNGEON_CONT at the
+-- same origin, so whichever floor is being looked at is drawn in the
+-- same space.
+--
+-- Two sources of floors:
+--   1. The client's own dungeon maps - the floor the player is on and
+--      its siblings from C_Map's map group (Blizzard's own world-map
+--      floor dropdown reads the same list). Art and positions come
+--      from the client.
+--   2. WoW Forever's new dungeons (The Drowned City, Krol'dok
+--      Stronghold, ...), which have no map art in the client. Leatrix
+--      Maps ships art for them; when that addon is installed, its art
+--      file is drawn here (read from its folder, not copied - the art
+--      is third-party work Leatrix uses with permission). CUSTOM_ART
+--      below is Leatrix_Maps.lua's own dungeonArt rows for them. These
+--      floors get made-up map ids (CUSTOM_FLOOR_BASE + instance * 10 +
+--      floor). The player is placed on one only when the client
+--      reports a map of its own for that dungeon (posMap).
+--
+-- The floor shown is the player's (PlayerFloor) unless the user picked
+-- another with the level bar on the map (ViewFloor; MinimapWindow's
+-- UpdateLevelBar). The player marker and party dots only show on the
+-- floor they are on.
+---------------------------------------------------------------------------------------
+
+local CUSTOM_FLOOR_BASE = 900000
+local LEATRIX_ART = "Interface\\AddOns\\Leatrix_Maps\\Leatrix_Maps_Dungeon_Art"
+local LEATRIX_ATLAS_W, LEATRIX_ATLAS_H = 2048, 4096
+-- [instance id] = { { x, y, h (default 683), file suffix, name }, ... }
+local CUSTOM_ART = {
+    [2959] = { { x = 0, y = 1368, name = "City of Dalaran (1)" },
+               { x = 1024, y = 1368, name = "City of Dalaran (2)" } },
+    [2998] = { { x = 0, y = 2060 } },                  -- Excavation Site: Wetlands
+    [2999] = { { x = 1024, y = 2060 } },               -- Ruins of Lordaeron
+    [3065] = { { x = 0, y = 2752 } },                  -- The Hall of Thanes
+    [2970] = { { x = 0, y = 0, file = "8" } },         -- The Drowned City
+    [3039] = { { x = 1024, y = 0, file = "8" } },      -- Krol'dok Stronghold
+    [2994] = { { x = 0, y = 684, file = "8" } },       -- Alcaz Prison
+    [3001] = { { x = 1024, y = 2736, file = "7" } },   -- The Shaper's Terrace
+}
+local NO_FLOORS = {}
+
+local leatrixState
+local function leatrixInstalled()
+    if leatrixState == nil then
+        leatrixState = false
+        local getInfo = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
+        if getInfo then
+            local ok, name, _, _, _, reason = pcall(getInfo, "Leatrix_Maps")
+            leatrixState = ok and name ~= nil and reason ~= "MISSING" or false
+        end
+        if _G.LeaMapsDB ~= nil or _G.LeaMapsLC ~= nil then leatrixState = true end
+    end
+    return leatrixState
+end
+
+local function readable(v)
+    return v ~= nil and not (issecretvalue and issecretvalue(v))
+end
+
+-- Forever Dungeon Journal (2026-11-16, user pointed at it): its
+-- FDJ.DUNGEON_MAPS holds every Forever dungeon's level art (with more
+-- levels than Leatrix - The Drowned City's Atal'Byzal, Blackmaw Hold's
+-- six) plus boss, entrance and level-exit positions on that art
+-- (DungeonPins.lua draws those). Read live from the addon, so its
+-- updates arrive here without copying anything. Only dungeons whose
+-- every level is its own texture are taken; the classic ones FDJ draws
+-- from the client's own tiles come from the client here too.
+function MinimapEngine:GetFDJDungeon(instanceID)
+    local fdj = _G.FDJ or _G.ForeverDungeonJournal_NS
+    if type(fdj) ~= "table" or type(fdj.DUNGEON_MAPS) ~= "table" then return nil end
+    local name = instanceID and type(fdj.INSTANCE_ID_TO_DUNGEON) == "table"
+        and fdj.INSTANCE_ID_TO_DUNGEON[instanceID]
+    if type(name) ~= "string" then return nil end
+    local data = fdj.DUNGEON_MAPS[name]
+    if not data then
+        local alt = name:match("^The (.+)$") or ("The " .. name)
+        data, name = fdj.DUNGEON_MAPS[alt], alt
+    end
+    if type(data) ~= "table" or type(data.floors) ~= "table" or not data.floors[1] then return nil end
+    for _, f in ipairs(data.floors) do
+        if type(f) ~= "table" or type(f.texture) ~= "string" then return nil end
+    end
+    return data, name
+end
+
+-- FDJ's entry and level for one of the game's dungeon maps (the classic
+-- dungeons, whose levels FDJ keys by uiMapID; wings such as "Scarlet
+-- Monastery: Library" are entries of their own): data, level, entry name.
+local fdjByClientMap = {}
+function MinimapEngine:GetFDJForClientMap(mapId)
+    local fdj = _G.FDJ or _G.ForeverDungeonJournal_NS
+    if type(fdj) ~= "table" or type(fdj.DUNGEON_MAPS) ~= "table" or not mapId then return nil end
+    local hit = fdjByClientMap[mapId]
+    if hit == nil then
+        hit = false
+        for name, data in pairs(fdj.DUNGEON_MAPS) do
+            local floors = type(data) == "table" and type(data.floors) == "table" and data.floors or {}
+            for i, f in ipairs(floors) do
+                if type(f) == "table" and f.uiMapID == mapId then
+                    hit = { data, i, name }
+                    break
+                end
+            end
+            if hit then break end
+        end
+        fdjByClientMap[mapId] = hit
+    end
+    if hit then return hit[1], hit[2], hit[3] end
+    return nil
+end
+
+-- The game's world map tiles of a dungeon map (12 of them, 4 across 3
+-- down), by its legacy map file (NxMapData's migration table, e.g.
+-- WailingCaverns floor 1 -> Interface\WorldMap\WailingCaverns\
+-- WailingCaverns1_1..12). This client returns no art for dungeon maps
+-- through C_Map (2026-11-16, Wailing Caverns), but the files are there -
+-- Forever Dungeon Journal draws from the same paths.
+local function legacyTiles(mapId)
+    local Map = AlchemyGPS.Map
+    if not Map or not Map.GetLegacyMapInfo then return nil end
+    local ok, _, floorNum, mapFile = pcall(Map.GetLegacyMapInfo, Map, mapId)
+    if not ok or type(mapFile) ~= "string" then return nil end
+    local base = "Interface\\WorldMap\\" .. mapFile .. "\\" .. mapFile
+        .. ((floorNum and floorNum > 0) and floorNum or "") .. "_"
+    local tiles = {}
+    for n = 1, 12 do tiles[n] = base .. n end
+    return tiles
+end
+
+-- Art specs: which file, and which rectangle of it (0-1 texcoords) is
+-- the level's map.
+local function fdjSpec(name, i, f)
+    return { path = f.texture, u1 = 0, u2 = f.texRight or 1, v1 = 0, v2 = f.texBottom or 1,
+        fdjName = name, fdjFloor = i }
+end
+
+local function leatrixSpec(s)
+    local h = s.h or 683
+    return {
+        path = LEATRIX_ART .. (s.file or ""),
+        u1 = (s.x + .5) / LEATRIX_ATLAS_W, u2 = (s.x + 1024 - .5) / LEATRIX_ATLAS_W,
+        v1 = (s.y + .5) / LEATRIX_ATLAS_H, v2 = (s.y + h - .5) / LEATRIX_ATLAS_H,
+    }
+end
+
+-- An outdoor zone in the static catalog (as opposed to a dungeon floor).
+function MinimapEngine:IsOutdoorMap(mapId)
+    local cont = mapId and self:FindContinent(mapId)
+    return cont ~= nil and cont ~= DUNGEON_CONT
+end
+
+local function registerFloor(self, mapId, name, spec, posMap, blank)
+    local scale = DUNGEON_DEFAULT_SCALE
+    local sizeMap = posMap or (not spec and mapId)
+    if sizeMap and C_Map and C_Map.GetMapWorldSize then
+        local ok, w = pcall(C_Map.GetMapWorldSize, sizeMap)
+        if ok and type(w) == "number" and w > 10 then scale = w / 4.575 / 100 end
+    end
+    self.MapInfo[DUNGEON_CONT] = self.MapInfo[DUNGEON_CONT]
+        or { X = 100000, Y = 100000, Name = "Instance" }
+    local winfo = self.MapWorldInfo[mapId] or {}
+    winfo.Scale, winfo.X, winfo.Y, winfo.Dungeon = scale, 0, 0, true
+    winfo.CustomArt, winfo.PosMap, winfo.Blank = spec, posMap, blank
+    if name and name ~= "" then
+        winfo.Name = name
+    elseif not winfo.Name and not spec then
+        local info = C_Map.GetMapInfo and C_Map.GetMapInfo(mapId)
+        winfo.Name = info and info.name
+    end
+    self.MapWorldInfo[mapId] = winfo
+    self.MapZones[DUNGEON_CONT] = self.MapZones[DUNGEON_CONT] or {}
+    local list = self.MapZones[DUNGEON_CONT]
+    for _, id in ipairs(list) do
+        if id == mapId then return end
+    end
+    list[#list + 1] = mapId
+end
+
+-- A client map that is a dungeon floor: Blizzard's map types Dungeon
+-- (4), Micro (5) and Orphan (6). Not the world, a continent or a zone -
+-- inside The Drowned City the client reports no map for the player and
+-- falls back to 947, the whole world (first live test, 2026-11-16).
+local function isDungeonMapType(mapId)
+    if not mapId or mapId == 0 or not C_Map.GetMapInfo then return false end
+    local ok, info = pcall(C_Map.GetMapInfo, mapId)
+    local t = ok and info and info.mapType
+    return type(t) == "number" and t >= 4
+end
+
+function MinimapEngine:BuildDungeonFloors(instanceID, playerMap)
+    local dungeonMap = playerMap and playerMap ~= 0 and not self:IsOutdoorMap(playerMap)
+        and isDungeonMapType(playerMap) and playerMap or nil
+    local floors
+    if dungeonMap then
+        floors = {}
+        local members
+        if C_Map.GetMapGroupID and C_Map.GetMapGroupMembersInfo then
+            local ok, group = pcall(C_Map.GetMapGroupID, dungeonMap)
+            if ok and readable(group) and group then
+                local ok2, list = pcall(C_Map.GetMapGroupMembersInfo, group)
+                if ok2 and type(list) == "table" and #list > 0 then members = list end
+            end
+        end
+        if members then
+            for _, m in ipairs(members) do
+                if m.mapID then floors[#floors + 1] = { mapId = m.mapID, name = m.name } end
+            end
+        end
+        if #floors == 0 then floors[1] = { mapId = dungeonMap } end
+        local art = self:GetArtLayerTextures(dungeonMap, 1)
+        if art and art[1] then return floors end
+    end
+    -- 2026-11-16: the game names no map inside the instance - a classic
+    -- one's own maps, from the room data's list (DungeonRooms.lua).
+    local listed = not dungeonMap and self.GetInstanceClientFloors and self:GetInstanceClientFloors(instanceID)
+    if listed and listed[1] then
+        local art = self:GetArtLayerTextures(listed[1], 1)
+        floors = {}
+        for i, id in ipairs(listed) do
+            local info = C_Map.GetMapInfo and C_Map.GetMapInfo(id)
+            local name = info and info.name
+            if art and art[1] then
+                floors[i] = { mapId = id, name = name }
+            elseif i <= 9 then
+                -- No art from C_Map: FDJ's own picture of this level if it
+                -- has one (Wailing Caverns' full original cave), else the
+                -- game's tiles. clientMap: the room data and FDJ's bosses
+                -- know the level by this id.
+                local data, level, fdjName = self:GetFDJForClientMap(id)
+                local f = data and data.floors[level]
+                local spec
+                if f and type(f.texture) == "string" then
+                    spec = fdjSpec(fdjName, level, f)
+                else
+                    local tiles = legacyTiles(id)
+                    spec = tiles and { tiles = tiles, fdjName = fdjName, fdjFloor = level }
+                end
+                if spec then
+                    spec.clientMap = id
+                    local wing = fdjName and fdjName:match(": (.+)$")
+                    floors[#floors + 1] = { mapId = CUSTOM_FLOOR_BASE + instanceID * 10 + i,
+                        name = wing or (f and f.label) or name, spec = spec }
+                end
+            end
+        end
+        if floors[1] then return floors end
+        floors = nil
+    end
+    local fdjData, fdjName = self:GetFDJDungeon(instanceID)
+    if fdjData then
+        local custom = {}
+        for i, f in ipairs(fdjData.floors) do
+            custom[i] = {
+                mapId = CUSTOM_FLOOR_BASE + instanceID * 10 + i,
+                name = f.label or (#fdjData.floors > 1 and ("Level " .. i)) or fdjName,
+                spec = fdjSpec(fdjName, i, f),
+                posMap = (#fdjData.floors == 1) and dungeonMap or nil,
+            }
+        end
+        return custom
+    end
+    local spec = instanceID and CUSTOM_ART[instanceID]
+    if spec and leatrixInstalled() then
+        local custom = {}
+        for i, s in ipairs(spec) do
+            custom[i] = {
+                mapId = CUSTOM_FLOOR_BASE + instanceID * 10 + i, name = s.name, spec = leatrixSpec(s),
+                posMap = (#spec == 1) and dungeonMap or nil,
+            }
+        end
+        return custom
+    end
+    if not floors and instanceID and (spec or (AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
+            and AlchemyGPS.QuestData.Instances[instanceID])) then
+        floors = { { mapId = CUSTOM_FLOOR_BASE + instanceID * 10 + 1, blank = true,
+            name = select(1, GetInstanceInfo()), posMap = dungeonMap } }
+    end
+    return floors
+end
+
+-- Called from RefreshCurrentZone every tick. Inside a dungeon: the map
+-- id of the floor to treat as the player's zone. Otherwise nil.
+function MinimapEngine:ResolveDungeonMap(rawMap)
+    local inInstance, instType = IsInInstance()
+    local instanceID = tonumber((select(8, GetInstanceInfo())))
+    local known = instanceID and (CUSTOM_ART[instanceID]
+        or (AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
+            and AlchemyGPS.QuestData.Instances[instanceID]))
+    if not known and (not inInstance or (instType ~= "party" and instType ~= "raid")) then
+        if self.DungeonFloors or self.DungeonKey then
+            self.DungeonFloors, self.DungeonKey, self.DungeonInstance = nil, nil, nil
+            self.ViewFloor, self.PlayerFloor, self.RoomFloorKnown = nil, nil, nil
+        end
+        return nil
+    end
+    local best = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if not readable(best) then best = nil end
+    local playerMap = (best and isDungeonMapType(best)) and best or nil
+    local key = tostring(instanceID) .. ":" .. tostring(playerMap)
+        .. ((_G.FDJ or _G.ForeverDungeonJournal_NS) and ":fdj" or "")
+    if key ~= self.DungeonKey then
+        local oldFloor, oldInstance = self.PlayerFloor, self.DungeonInstance
+        self.DungeonKey, self.DungeonInstance = key, instanceID
+        local floors = self:BuildDungeonFloors(instanceID, playerMap)
+        -- 2026-11-16: levels the game has no map for, drawn from its old
+        -- map tiles (Upper Blackrock Spire - DungeonRooms.lua).
+        local tiles = self.GetInstanceTileFloors and self:GetInstanceTileFloors(instanceID)
+        if tiles then
+            if not floors or (#floors == 1 and floors[1].blank) then floors = {} end
+            local n = #floors
+            for k, t in ipairs(tiles) do
+                floors[n + k] = { mapId = CUSTOM_FLOOR_BASE + instanceID * 10 + math.min(9, n + k), name = t.name,
+                    spec = { tiles = t.tiles, fdrFloor = t.id } }
+            end
+        end
+        self.DungeonFloors = floors
+        self.PlayerFloor = nil
+        for i, f in ipairs(floors or NO_FLOORS) do
+            registerFloor(self, f.mapId, f.name, f.spec, f.posMap, f.blank)
+            if f.mapId == playerMap or (f.posMap and f.posMap == playerMap) then
+                self.PlayerFloor = i
+            end
+        end
+        -- A new dungeon, or the player changed floor: show where they are.
+        if oldInstance ~= instanceID or oldFloor ~= self.PlayerFloor then
+            self.ViewFloor = nil
+        end
+    end
+    -- No map from the game: the room it names tells the level
+    -- (DungeonRooms.lua). Kept while between named rooms.
+    local roomLevel = not playerMap and self.GetRoomLevel and self:GetRoomLevel(self.DungeonFloors)
+    if roomLevel then
+        self.RoomFloorKnown = true
+        if roomLevel ~= self.PlayerFloor then
+            self.PlayerFloor, self.ViewFloor = roomLevel, nil
+        end
+    elseif playerMap then
+        self.RoomFloorKnown = nil
+    end
+    local floors = self.DungeonFloors
+    if not floors or not floors[1] then return nil end
+    return floors[self.PlayerFloor or 1].mapId
+end
+
+-- Index of the floor being looked at, or nil outside a dungeon.
+function MinimapEngine:GetViewFloorIndex()
+    local floors = self.DungeonFloors
+    if not floors or not floors[1] or self.Cont ~= DUNGEON_CONT then return nil end
+    local i = self.ViewFloor or self.PlayerFloor or 1
+    if i > #floors then i = #floors end
+    return i
+end
+
+-- Map id of the floor being looked at (the player's zone outside a dungeon).
+function MinimapEngine:GetViewMapId()
+    local i = self:GetViewFloorIndex()
+    return i and self.DungeonFloors[i].mapId or self.MapId
+end
+
+function MinimapEngine:IsViewingPlayerFloor()
+    return self.ViewFloor == nil or not self:GetViewFloorIndex()
+end
+
+-- Shows floor i (nil: back to the player's own floor), fitted to the window.
+function MinimapEngine:SetViewFloor(i)
+    local floors = self.DungeonFloors
+    if not floors or not floors[1] then return end
+    if i then i = max(1, min(#floors, i)) end
+    if i and i == (self.PlayerFloor or 1) then i = nil end
+    if i == self.ViewFloor then return end
+    self.ViewFloor = i
+    local mapId = self:GetViewMapId()
+    local _, x, y, zw, zh = self:GetWorldZoneInfo(DUNGEON_CONT, mapId)
+    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    if ZoomController and x and zw > 0 and self.MapW and self.MapH then
+        if i or self.PlyrPosUnknown then
+            ZoomController:Move(x + zw / 2, y + zh / 2, min(self.MapW / zw, self.MapH / zh) * .9, 10)
+        elseif self.PlyrX then
+            ZoomController:Move(self.PlyrX, self.PlyrY, nil, 10)
+        end
+    end
+end
+
+function MinimapEngine:StepViewFloor(delta)
+    local i = self:GetViewFloorIndex()
+    if i then self:SetViewFloor(i + delta) end
+end
+
+-- The map id to ask C_Map for the player's position on a floor: the
+-- floor itself, or for a Forever dungeon's art floor the client map it
+-- matches (nil when there is none).
+function MinimapEngine:GetPositionMap(mapId)
+    local winfo = mapId and self.MapWorldInfo[mapId]
+    if winfo and (winfo.CustomArt or winfo.Blank) then return winfo.PosMap end
+    return mapId
+end
+
+-- A unit's own map id -> the floor it is on, or nil.
+function MinimapEngine:FloorForMap(map)
+    for _, f in ipairs(self.DungeonFloors or NO_FLOORS) do
+        if f.mapId == map or (f.posMap and f.posMap == map) then return f.mapId end
+    end
+    return nil
+end
+
+-- One Forever-dungeon floor: a single frame showing its part of
+-- Leatrix's art sheet, clipped to the map window like a terrain tile.
+-- A level drawn from the game's world map tiles: 12 tiles of 256 px,
+-- 4 across 3 down, the map being their top-left 1002x668 (the layout
+-- Forever Dungeon Routes' MapView.lua uses for the same files).
+local TILE_PX, TILE_MAP_W, TILE_MAP_H = 256, 1002, 668
+function MinimapEngine:DrawTileFloor(mapId, s)
+    local frms = self.CustomTileFrms or {}
+    self.CustomTileFrms = frms
+    local _, zx, zy, zw, zh = self:GetWorldZoneInfo(DUNGEON_CONT, mapId)
+    if not zx then return end
+    local lvl = (self.Frm:GetFrameLevel() or 1) + CITY_LEVEL_OFFSET
+    for i = 1, 12 do
+        local frm = frms[i]
+        if not frm then
+            frm = self:CreateMiniFrame()
+            frms[i] = frm
+        end
+        local id = s.tiles[i]
+        if id then
+            local row, col = math.floor((i - 1) / 4), (i - 1) % 4
+            local w = math.min(TILE_PX, TILE_MAP_W - col * TILE_PX)
+            local h = math.min(TILE_PX, TILE_MAP_H - row * TILE_PX)
+            if frm.tileId ~= id then
+                frm.texture:SetTexture(id)
+                frm.tileId = id
+            end
+            frm:SetFrameLevel(lvl)
+            if self:ClipFrameTL(frm, zx + col * TILE_PX / TILE_MAP_W * zw, zy + row * TILE_PX / TILE_MAP_H * zh,
+                    w / TILE_MAP_W * zw, h / TILE_MAP_H * zh) then
+                -- 0-1 over the visible part of the used w x h corner.
+                local ulx, uly, _, lly, urx = frm.texture:GetTexCoord()
+                local su, sv = w / TILE_PX, h / TILE_PX
+                frm.texture:SetTexCoord(ulx * su, urx * su, uly * sv, lly * sv)
+            end
+        else
+            frm:Hide()
+        end
+    end
+end
+
+local function hideTileFloor(self)
+    for _, f in ipairs(self.CustomTileFrms or {}) do f:Hide() end
+end
+
+function MinimapEngine:DrawCustomFloor(mapId, winfo)
+    if winfo.CustomArt and winfo.CustomArt.tiles then
+        if self.CustomArtFrm then self.CustomArtFrm:Hide() end
+        return self:DrawTileFloor(mapId, winfo.CustomArt)
+    end
+    hideTileFloor(self)
+    local frm = self.CustomArtFrm
+    if not frm then
+        frm = self:CreateMiniFrame()
+        self.CustomArtFrm = frm
+    end
+    local s = winfo.CustomArt
+    local path = s.path
+    if frm.path ~= path then
+        frm.texture:SetTexture(path)
+        frm.path = path
+    end
+    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + CITY_LEVEL_OFFSET)
+    local _, zx, zy, zw, zh = self:GetWorldZoneInfo(DUNGEON_CONT, mapId)
+    if not zx or not self:ClipFrameTL(frm, zx, zy, zw, zh) then return end
+    -- ClipFrameTL left 0-1 coords for the visible part of the floor;
+    -- map them into the floor's rectangle on the art sheet.
+    local ulx, uly, _, lly, urx = frm.texture:GetTexCoord()
+    local u1, u2, v1, v2 = s.u1, s.u2, s.v1, s.v2
+    frm.texture:SetTexCoord(u1 + ulx * (u2 - u1), u1 + urx * (u2 - u1),
+        v1 + uly * (v2 - v1), v1 + lly * (v2 - v1))
+end
+
+function MinimapEngine:HideCustomFloor()
+    if self.CustomArtFrm then self.CustomArtFrm:Hide() end
+    hideTileFloor(self)
+end
+
+---------------------------------------------------------------------------------------
+-- 2026-11-16: City / Dungeon map layer (user request). Inside one of
+-- the main cities (MapWorldInfo rows flagged City - Stormwind,
+-- Orgrimmar, Ironforge, Thunder Bluff, Darnassus, Undercity) or a
+-- dungeon, that place's own art map is drawn over the Terrain layer
+-- and under the Service layer, so it's the dominant map; each can be
+-- switched off in Settings > Map to fall back to Terrain alone.
+--
+-- This is real Carbonite's city handling: its UpdateWorld fills the
+-- TileFrms pool from GetArtLayerTextures(mapId, 1) and MoveCurZoneTiles
+-- places it with MoveZoneTiles whenever the zone is flagged City
+-- (MapEngine.lua:6083-6118 / 9419). TileFrms had been sitting unused
+-- in this port since the Art Map layer was redefined (build-order step
+-- 21), so it becomes this layer's pool.
+---------------------------------------------------------------------------------------
+
+function MinimapEngine:GetAreaMapKind(mapId)
+    local winfo = mapId and self.MapWorldInfo and self.MapWorldInfo[mapId]
+    if not winfo then return nil end
+    if winfo.City then return "City" end
+    if winfo.Dungeon then return "Dungeon" end
+    return nil
+end
+
+function MinimapEngine:UpdateAreaMap()
+    local mapId = self:GetViewMapId()
+    local kind = self.Cont and self:GetAreaMapKind(mapId)
+    if not kind or (kind == "City" and self.HideCityArt)
+        or (kind == "Dungeon" and self.HideDungeonArt) then
+        self:HideZoneTileFrames(self.TileFrms)
+        self:HideCustomFloor()
+        return
+    end
+
+    local winfo = self.MapWorldInfo[mapId]
+    if winfo and winfo.Blank then
+        self:HideZoneTileFrames(self.TileFrms)
+        self:HideCustomFloor()
+        return
+    end
+    if winfo and winfo.CustomArt then
+        self:HideZoneTileFrames(self.TileFrms)
+        self:DrawCustomFloor(mapId, winfo)
+        return
+    end
+    self:HideCustomFloor()
+
+    if self.AreaArtMapId ~= mapId then
+        local now = GetTime()
+        if self.AreaArtRetryMapId == mapId and now < (self.AreaArtRetryAt or 0) then
+            self:HideZoneTileFrames(self.TileFrms)
+            return
+        end
+        local textures = self:GetArtLayerTextures(self:GetArtSourceMapID(mapId), 1)
+        if not textures or not textures[1] then
+            -- Map art can arrive a moment after a loading screen - try
+            -- again in a second rather than giving up on this map.
+            self.AreaArtRetryMapId, self.AreaArtRetryAt = mapId, now + 1
+            self:HideZoneTileFrames(self.TileFrms, true)
+            return
+        end
+        local n = min(#textures, 150)
+        for i = 1, 150 do
+            local frm = self.TileFrms[i]
+            if frm then
+                frm.texture:SetTexture(i <= n and textures[i] or nil)
+            end
+        end
+        self.CurWorldTileCount = n
+        self.AreaArtMapId = mapId
+        self.AreaArtRetryMapId = nil
+    end
+
+    self:MoveZoneTiles(self.Cont, mapId, self.TileFrms, 1,
+        (self.Frm:GetFrameLevel() or 1) + CITY_LEVEL_OFFSET)
+end
+
+---------------------------------------------------------------------------------------
+-- 2026-11-16: window title = location, written like Titan Panel's
+-- Location button ("Zone - Subzone"), then the player's coordinates.
+-- Movement speed moved out of the title to the bottom-left corner of
+-- the map (MinimapWindow.SpeedText).
+---------------------------------------------------------------------------------------
+
+function MinimapEngine:UpdateTitle()
+    local win = self.Win
+    if not win then return end
+
+    local zone = GetRealZoneText and GetRealZoneText() or ""
+    if zone == "" then zone = GetZoneText and GetZoneText() or "" end
+    local sub = GetSubZoneText and GetSubZoneText() or ""
+    local title = zone
+    if sub ~= "" and sub ~= zone then
+        title = (zone ~= "" and (zone .. " - ") or "") .. sub
+    end
+    if not self.PlyrPosUnknown and self.PlyrRZX and self.PlyrRZY then
+        title = ("%s  |cffa0a0a0%.1f, %.1f|r"):format(title, self.PlyrRZX, self.PlyrRZY)
+    end
+    if title ~= self._LastTitle then
+        self._LastTitle = title
+        win:SetTitle(title)
+    end
+
+    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    local speedText = MinimapWindow and MinimapWindow.SpeedText
+    if speedText then
+        local text = "Speed: stopped"
+        if self.PlyrSpeed and self.PlyrSpeed > 0 then
+            local pct = self.PlyrSpeed / 6.4 * 100 - 100
+            if math.abs(pct) < .5 then pct = 0 end
+            text = ("Speed %+.0f%%"):format(pct)
+        end
+        if text ~= self._LastSpeed then
+            self._LastSpeed = text
+            speedText:SetText(text)
+        end
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- 2026-11-16: auto-scale, ported from Nx.Map:Update's NXAutoScaleOn
+-- block (Carbonite MapEngine.lua:6631-6720). While there is somewhere
+-- to go, the view centers between the player and that place and zooms
+-- so both stay on screen, re-fitting as the player closes in; once the
+-- destination is gone the zoom from before goes back (ClearTargets,
+-- :15281-15287). Carbonite tracks one destination at a time; here all
+-- three trails can run together, so the one it fits is picked by the
+-- user's priority: goto, then corpse, then quest.
+--
+-- Same math as the real source: the player-to-target distance spans
+-- half the window on its tighter axis, each step is limited to
+-- halving/doubling the current zoom (smooths big jumps), and the result
+-- is clamped to the Auto Scale Min/Max settings.
+---------------------------------------------------------------------------------------
+
+function MinimapEngine:GetAutoScaleTarget()
+    if self.GotoWX and self.GotoCont == self.Cont then
+        return self.GotoWX, self.GotoWY
+    end
+    if self.CorpseWX and self.CorpseCont == self.Cont then
+        return self.CorpseWX, self.CorpseWY
+    end
+    local Quest = AlchemyGPS.Modules.Quest
+    local t = Quest and Quest.Routing and Quest.Routing.Target
+    if t and t.x and t.cont == self.Cont and not t.inside
+        and not (Quest.Core and Quest.Core:Opt("RouteTrail") == false) then
+        return t.x, t.y
+    end
+    return nil
+end
+
+local AUTOSCALE_MIN_DISTANCE = .1
+
+function MinimapEngine:AutoScaleTarget()
+    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    if not ZoomController or not MinimapWindow then return false end
+    local opts = MinimapWindow:DB().profile
+
+    local tx, ty
+    if opts.AutoScale ~= false then
+        tx, ty = self:GetAutoScaleTarget()
+    end
+
+    if not tx then
+        if self.ScaleBeforeTarget then
+            ZoomController:Move(self.PlyrX, self.PlyrY, self.ScaleBeforeTarget, 30)
+            self.ScaleBeforeTarget = nil
+            return true
+        end
+        return false
+    end
+
+    if not self.ScaleBeforeTarget then
+        self.ScaleBeforeTarget = self.Scale
+    end
+
+    local mX = (tx + self.PlyrX) * .5
+    local mY = (ty + self.PlyrY) * .5
+    local dx = max(math.abs(tx - self.PlyrX), AUTOSCALE_MIN_DISTANCE)
+    local dy = max(math.abs(ty - self.PlyrY), AUTOSCALE_MIN_DISTANCE)
+    local scale = min(self.MapW / dx, self.MapH / dy) * .5
+
+    local cur = self.Scale or 1
+    scale = max(min(scale, cur * 2), cur / 2)
+    scale = max(min(scale, opts.AutoScaleMax or 4), opts.AutoScaleMin or .05)
+
+    ZoomController:Move(mX, mY, scale, 30)
+    return true
 end
 
 ---------------------------------------------------------------------------------------
@@ -2703,7 +3506,18 @@ function MinimapEngine:UpdatePlayerMarker()
     if not frm.texture:GetTexture() then
         AlchemyGPS.UI.StyleOptions:ApplyIcon(frm.texture, "PlayerMarker")
     end
-    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
+    -- 2026-11-16: inside a dungeon whose map doesn't report the
+    -- player's position there is nothing honest to draw.
+    if self.PlyrPosUnknown or not self:IsViewingPlayerFloor() then
+        frm:Hide()
+        return
+    end
+    -- 2026-11-16: always on top (user request) - overlay strata plus
+    -- its own level, above every icon, trail and the radar patch.
+    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    local overlay = MinimapWindow and MinimapWindow.OVERLAY_STRATA or "FULLSCREEN"
+    if frm:GetFrameStrata() ~= overlay then frm:SetFrameStrata(overlay) end
+    frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + PLAYER_LEVEL_OFFSET)
     self:ClipFrameW(frm, self.PlyrX, self.PlyrY,
         PLAYER_MARKER_SIZE, PLAYER_MARKER_SIZE, self.PlyrDir)
 end
@@ -2750,6 +3564,8 @@ local function IsMapFilterOn(key)
 end
 
 local SERVICE_ICON_SIZE = 16
+-- 2026-11-16: boats and zeppelins a size up - the way off a continent.
+local SERVICE_ICON_SIZE_BY_KIND = { Boat = 22, Zeppelin = 22 }
 
 -- Standard Blizzard minimap-tracking-filter textures (not Carbonite's
 -- own icon atlas) - long-standing paths, present since Classic.
@@ -2812,6 +3628,11 @@ local SERVICE_ICON_TEX = {
     -- rather than Leatrix_Maps' own atlas choice, to avoid adding
     -- atlas-vs-texture branching to UpdateServiceIcons below.
     SpiritHealer    = "Interface\\Icons\\Spell_Holy_Resurrection",
+    -- 2026-11-16: boats and zeppelins, split out of ZoneTransition
+    -- (GuideZoneTransition.lua) with icons of their own, drawn for this
+    -- addon by Tools/make_transport_icons.py.
+    Boat            = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconBoat",
+    Zeppelin        = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconZeppelin",
 }
 
 -- Build-order step 14, 2026-11-11: these three (plus FlightMaster's
@@ -2844,6 +3665,8 @@ local SERVICE_ICON_LABEL = {
     SpiritHealer    = "Spirit Healer",
     FlightMaster    = "Flight Master",
     GuardFlag       = "Guard Directions",
+    Boat            = "Boat",
+    Zeppelin        = "Zeppelin",
 }
 
 local function ServiceFrameOnEnter(frm)
@@ -2991,7 +3814,8 @@ function MinimapEngine:RefreshServiceIcons()
                             -- /Banker/SpiritHealer; only FlightMaster's
                             -- own node.name carries a location now.
                             local label = (name ~= "" and name) or SERVICE_ICON_LABEL[kind]
-                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = iconSpec, label = label }
+                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = iconSpec, label = label,
+                                size = SERVICE_ICON_SIZE_BY_KIND[kind] }
                         end
                     end
                 end
@@ -3147,7 +3971,8 @@ function MinimapEngine:UpdateServiceIcons()
             frm.svcIconSpec = pt.iconSpec
         end
         frm.svcLabel = pt.label
-        if self:ClipFrameW(frm, pt.x, pt.y, SERVICE_ICON_SIZE, SERVICE_ICON_SIZE) then
+        local size = pt.size or SERVICE_ICON_SIZE
+        if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
             frm:SetFrameLevel(level)
         end
     end
@@ -4185,6 +5010,13 @@ function MinimapEngine:FindContinent(mapId)
             end
         end
     end
+    -- 2026-11-16: dungeon floors registered by RegisterInstanceMap.
+    local inst = self.MapZones and self.MapZones[self.DUNGEON_CONT]
+    if inst then
+        for _, zoneId in ipairs(inst) do
+            if zoneId == mapId then return self.DUNGEON_CONT end
+        end
+    end
     return nil
 end
 
@@ -4195,11 +5027,16 @@ end
 -- below is the only work done once nothing has actually changed).
 function MinimapEngine:RefreshCurrentZone()
     local mapId = self:GetDisplayableMapForPlayer()
+    -- 2026-11-16: inside a dungeon, the floor the player is on (which
+    -- for a WoW Forever dungeon can be one of ResolveDungeonMap's made-
+    -- up art floors - the client may report no map, or an outdoor one).
+    mapId = self:ResolveDungeonMap(mapId) or mapId
     if not mapId or mapId == 0 or mapId == self.MapId then return end
 
-    local cont = self:FindContinent(mapId)
+    local cont = self:FindContinent(mapId) or self:RegisterInstanceMap(mapId)
     self.MapId = mapId
     self.Cont = cont
+    self.PlyrPosUnknown = nil
     self.Zone = cont and mapId or nil
 
     -- Build-order step 9b: static service icons (mailbox/innkeeper/
@@ -4226,6 +5063,7 @@ function MinimapEngine:RefreshCurrentZone()
         -- art from whatever zone we were in before.
         self:HideZoneTileFrames(self.TileFrms, true)
         self.CurWorldUpdateMapId = nil
+        self.AreaArtMapId = nil     -- textures just cleared; reload on return
         return
     end
 
@@ -4246,7 +5084,18 @@ function MinimapEngine:RefreshCurrentZone()
     local _, x, y, zw, zh = self:GetWorldZoneInfo(cont, mapId)
     local ZoomController = AlchemyGPS.Modules.Map.ZoomController
     if ZoomController and x then
-        ZoomController:Move(x + zw / 2, y + zh / 2, nil, 15)
+        -- 2026-11-16: a dungeon floor opens zoomed to fit the window
+        -- (it's far smaller than a zone, so the outdoor zoom would show
+        -- it as a speck); the outdoor zoom comes back on leaving.
+        local scale
+        if cont == self.DUNGEON_CONT and self.MapW and self.MapH and zw > 0 then
+            if not self.ScaleBeforeDungeon then self.ScaleBeforeDungeon = self.Scale end
+            scale = min(self.MapW / zw, self.MapH / zh) * .9
+        elseif self.ScaleBeforeDungeon then
+            scale = self.ScaleBeforeDungeon
+            self.ScaleBeforeDungeon = nil
+        end
+        ZoomController:Move(x + zw / 2, y + zh / 2, scale, 15)
     end
 end
 
@@ -4731,6 +5580,7 @@ local CORPSE_TEX_U1, CORPSE_TEX_U2 = 0.56640625, 0.6328125
 local CORPSE_TEX_V1, CORPSE_TEX_V2 = 0.001953125, 0.03515625
 
 function MinimapEngine:HideCorpseFrames()
+    self.CorpseWX, self.CorpseWY, self.CorpseCont = nil, nil, nil
     if self.CorpseFrm then self.CorpseFrm:Hide() end
     if self.CorpseYdLabel then self.CorpseYdLabel:Hide() end
     for i = 1, #self.CorpseTrailFrms do
@@ -4740,8 +5590,102 @@ end
 
 -- Called every tick from Update(), alongside UpdateGoto - see this
 -- section's header comment above for the full citation trail.
+-- 2026-11-16 (user request: "when im dead in a dungeon it needs to
+-- trace me back to the dungeon entrance"). Dying inside an instance
+-- leaves the corpse where no outdoor map can show it, and the game
+-- gives no corpse position once you release to the graveyard outside.
+-- So the instance you died in is remembered (per character, so it
+-- survives a relog as a ghost) and, while you're a ghost outside it,
+-- the corpse marker and red trail lead to its entrance instead
+-- (QuestData.Instances via Catalog:GetInstanceEntrance). Forgotten
+-- once you're alive again.
+local function deathStore()
+    local Quest = AlchemyGPS.Modules.Quest
+    local ok, t = pcall(function() return Quest.Core:Char("DeathInstance") end)
+    return ok and t or nil
+end
+
+local function noteDeathInstance()
+    if not IsInInstance() then return end
+    local name, instanceType, _, _, _, _, _, id = GetInstanceInfo()
+    id = tonumber(id)
+    if not id or instanceType == "pvp" or instanceType == "arena" then return end
+    local t = deathStore()
+    if t then t.id, t.name = id, name end
+end
+
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_DEAD")
+    f:RegisterEvent("PLAYER_ALIVE")
+    f:RegisterEvent("PLAYER_UNGHOST")
+    f:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_DEAD" then
+            pcall(noteDeathInstance)
+        elseif not UnitIsDeadOrGhost("player") then
+            -- Alive again (resurrected or back in your body): forget it.
+            local t = deathStore()
+            if t then t.id, t.name = nil, nil end
+        end
+    end)
+end
+
+-- Entrance of the instance you died in, while you're a ghost outside
+-- it: worldX, worldY, label - or nil.
+function MinimapEngine:GetDeathEntrance()
+    local t = deathStore()
+    if not t or not t.id then return nil end
+    if IsInInstance() then
+        local id = tonumber((select(8, GetInstanceInfo())))
+        if id == t.id then return nil end   -- back inside: the run is over
+    end
+    local Quest = AlchemyGPS.Modules.Quest
+    local Catalog = Quest and Quest.Catalog
+    if not Catalog or not Catalog.GetInstanceEntrance then return nil end
+    local key = Catalog.InstanceKey and Catalog:InstanceKey(t.id) or t.id
+    local name, owner, wx, wy = Catalog:GetInstanceEntrance(key)
+    if not wx or self:FindContinent(owner) ~= self.Cont then return nil end
+    return wx, wy, (name or t.name or "Dungeon") .. " entrance"
+end
+
+-- Fallback (2026-11-16, first live test: dead ~20yd from The Drowned
+-- City's entrance, no trail - the death came before this code loaded,
+-- so no instance was remembered, and the game had no corpse position).
+-- A ghost outdoors whose corpse the game can't place has it inside an
+-- instance: lead to the nearest entrance on this continent.
+-- Entrances per continent are built once.
+function MinimapEngine:GetNearestEntrance()
+    if IsInInstance() or not self.PlyrX then return nil end
+    local Quest = AlchemyGPS.Modules.Quest
+    local Catalog = Quest and Quest.Catalog
+    local all = AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
+    if not Catalog or not Catalog.GetInstanceEntrance or not all then return nil end
+    self.EntranceCache = self.EntranceCache or {}
+    local list = self.EntranceCache[self.Cont]
+    if not list then
+        list = {}
+        for id in pairs(all) do
+            local name, owner, wx, wy = Catalog:GetInstanceEntrance(id)
+            if wx and self:FindContinent(owner) == self.Cont then
+                list[#list + 1] = { wx = wx, wy = wy, name = name }
+            end
+        end
+        self.EntranceCache[self.Cont] = list
+    end
+    local best, bestD
+    for _, e in ipairs(list) do
+        local dx, dy = e.wx - self.PlyrX, e.wy - self.PlyrY
+        local d = dx * dx + dy * dy
+        if not bestD or d < bestD then best, bestD = e, d end
+    end
+    if not best then return nil end
+    return best.wx, best.wy, (best.name or "Dungeon") .. " entrance"
+end
+
 function MinimapEngine:UpdateCorpseTrack()
     if not UnitIsDeadOrGhost("player") then
+        local t = deathStore()
+        if t and t.id then t.id, t.name = nil, nil end
         self:HideCorpseFrames()
         return
     end
@@ -4751,18 +5695,27 @@ function MinimapEngine:UpdateCorpseTrack()
         self:HideCorpseFrames()
         return
     end
-
-    local mapId = C_Map.GetBestMapForUnit("player")
-    local info = mapId and C_DeathInfo.GetCorpseMapPosition(mapId)
-    if not info then
-        self:HideCorpseFrames()
-        return
+    -- Dead inside an instance without a PLAYER_DEAD seen (reload while
+    -- dead): remember it now.
+    if IsInInstance() then
+        local t = deathStore()
+        if t and not t.id then pcall(noteDeathInstance) end
     end
 
-    local wx, wy = self:GetWorldPos(mapId, info.x * 100, info.y * 100)
+    local wx, wy, label = self:GetDeathEntrance()
     if not wx then
-        self:HideCorpseFrames()
-        return
+        local mapId = C_Map.GetBestMapForUnit("player")
+        local info = mapId and C_DeathInfo.GetCorpseMapPosition(mapId)
+        if info then
+            wx, wy = self:GetWorldPos(mapId, info.x * 100, info.y * 100)
+        end
+        if not wx and UnitIsGhost and UnitIsGhost("player") then
+            wx, wy, label = self:GetNearestEntrance()
+        end
+        if not wx then
+            self:HideCorpseFrames()
+            return
+        end
     end
 
     if not self.CorpseFrm then
@@ -4779,6 +5732,10 @@ function MinimapEngine:UpdateCorpseTrack()
         self.CorpseYdLabel = lbl
     end
 
+    -- Remembered for auto-scale (AutoScaleTarget), cleared in
+    -- HideCorpseFrames.
+    self.CorpseWX, self.CorpseWY, self.CorpseCont = wx, wy, self.Cont
+
     local dx = wx - self.PlyrX
     local dy = wy - self.PlyrY
     local dist = (dx * dx + dy * dy) ^ .5
@@ -4787,7 +5744,8 @@ function MinimapEngine:UpdateCorpseTrack()
     if dotShown then
         self.CorpseFrm.texture:SetTexCoord(CORPSE_TEX_U1, CORPSE_TEX_U2, CORPSE_TEX_V1, CORPSE_TEX_V2)
         self.CorpseFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
-        self.CorpseYdLabel:SetText(("%dyd"):format(math.ceil(dist * YARDS_PER_WORLDUNIT)))
+        local yd = ("%dyd"):format(math.ceil(dist * YARDS_PER_WORLDUNIT))
+        self.CorpseYdLabel:SetText(label and (label .. "  " .. yd) or yd)
         self.CorpseYdLabel:Show()
     else
         self.CorpseYdLabel:Hide()
@@ -5185,10 +6143,18 @@ function MinimapEngine:Update(elapsed)
         -- - a separate, much bigger port, not attempted here) - it only
         -- stops the existing patch from vanishing while indoors.
         if self.Cont and zx then
-            local pos = C_Map and C_Map.GetPlayerMapPosition
-                and C_Map.GetPlayerMapPosition(self.MapId, "player")
-            if pos then
-                local px, py = pos:GetXY()
+            -- 2026-11-16: a Forever art floor reads the client map it
+            -- matches, if any (GetPositionMap); pcall since a dungeon
+            -- map can refuse the call.
+            local posMap = self:GetPositionMap(self.MapId)
+            local pos
+            if posMap and C_Map and C_Map.GetPlayerMapPosition then
+                local ok, p = pcall(C_Map.GetPlayerMapPosition, posMap, "player")
+                if ok then pos = p end
+            end
+            local px, py
+            if pos then px, py = pos:GetXY() end
+            if px and py and (px ~= 0 or py ~= 0) then
                 local newX = zx + px * zw
                 local newY = zy + py * zh
                 self.PlyrRZX = px * 100
@@ -5238,66 +6204,31 @@ function MinimapEngine:Update(elapsed)
                 -- ClipFrameW again.
                 self.PlyrDir = GetPlayerFacing() or 0
 
-                -- Window title: zone name + live coordinates + run
-                -- speed, same three pieces Nx.Map:OnUpdate's title
-                -- line 1 shows (MapEngine.lua:5632-5671) - not the
-                -- real source's own zone-database name lookup
-                -- (map:IdToName, NxMapData.lua) or its subzone/cursor-
-                -- position second title line (no mouse-hover tracking
-                -- ported here), just the live Blizzard API's own zone
-                -- name plus this function's own RZX/RZY/PlyrSpeed.
-                if self.MapId ~= self._TitleMapId then
-                    self._TitleMapId = self.MapId
-                    local info = C_Map.GetMapInfo and C_Map.GetMapInfo(self.MapId)
-                    self._TitleZoneName = info and info.name or ""
-                end
+                -- (Window title and speed readout: UpdateTitle, called
+                -- every tick from Update below - 2026-11-16.)
 
-                local title = ("%s %4.1f, %4.1f"):format(
-                    self._TitleZoneName or "", self.PlyrRZX, self.PlyrRZY)
-
-                if self.PlyrSpeed and self.PlyrSpeed > 0 then
-                    local speedPct = self.PlyrSpeed / 6.4 * 100 - 100
-                    if math.abs(speedPct) < .5 then speedPct = 0 end
-                    title = title .. (" |cffa0a0a0Speed%+.0f%%"):format(speedPct)
-                end
-
-                self.Win:SetTitle(title)
-
-                -- Trimmed from Nx.Map:Update's own continuous auto-
-                -- follow (MapEngine.lua:6625-6634,
-                -- `if not self.Scrolling and not self.MouseIsOver then
-                -- if self.CurOpts.NXPlyrFollow then ...
-                -- self:Move(plX, plY, nil, 30) end end`). Missing
-                -- entirely until now - confirmed live 2026-11-09 (big
-                -- background canvas correctly appears and tracks the
-                -- right zone, but never re-centers on the player as
-                -- they walk around; only the small live-widget patch
-                -- tracked PlyrX/PlyrY, since RefreshCurrentZone only
-                -- pans once, on zone entry, to the zone's center).
-                -- Drops the NXPlyrFollow user toggle (no settings UI
-                -- for it yet - always-on follow, which is this addon's
-                -- whole point) and the MouseIsOver pause-while-hovering
-                -- nicety (not ported - this addon's window isn't used
-                -- for click-to-travel the way Carbonite's full map is),
-                -- keeping only the self.Scrolling guard so an active
-                -- manual drag (ScrollScale.lua) is never fought.
-                --
-                -- 2026-11-10: gated on the new AutoFollow saved
-                -- setting (MinimapWindow.lua's title-bar checkbox,
-                -- next to the Settings gear) so this continuous
-                -- re-center can be turned off - without it, any manual
-                -- pan got fought back to center within ~30 ticks of
-                -- releasing the drag, which is what the checkbox is
-                -- for.
                 local ZoomController = AlchemyGPS.Modules.Map.ZoomController
                 local followWin = AlchemyGPS.Modules.Map.MinimapWindow
                 local autoFollow = not (followWin and followWin:DB().profile.AutoFollow == false)
-                if ZoomController and not self.Scrolling and autoFollow then
-                    ZoomController:Move(self.PlyrX, self.PlyrY, nil, 30)
+                -- 2026-11-16: two independent header switches. "Follow"
+                -- (saved as AutoScale) is Carbonite's auto-scale - while
+                -- there's somewhere to go it owns the view. Otherwise
+                -- "Center" (saved as AutoFollow) keeps the player in the
+                -- middle of the map.
+                if ZoomController and not self.Scrolling and self:IsViewingPlayerFloor() then
+                    if not self:AutoScaleTarget() and autoFollow then
+                        ZoomController:Move(self.PlyrX, self.PlyrY, nil, 30)
+                    end
                 end
+                self.PlyrPosUnknown = nil
+            elseif self.Cont == self.DUNGEON_CONT then
+                -- This dungeon's map doesn't report where the player is
+                -- (some instances don't) - show the map, hide the marker.
+                self.PlyrPosUnknown = true
             end
         end
     end
+    self:UpdateTitle()
     -- Build-order step 8b, corrected 2026-11-10 after live testing
     -- showed only ever one detail tile at a time, frozen on pan: a
     -- re-read of real Carbonite's UpdateZones (MapEngine.lua:9831-9900)
@@ -5344,7 +6275,6 @@ function MinimapEngine:Update(elapsed)
             self:UpdateZoneOverlays()
         end
     else
-        self:HideZoneTileFrames(self.TileFrms)
         self:HideContinentFrames()
         self:HideAllOverlayFrames()
     end
@@ -5353,6 +6283,11 @@ function MinimapEngine:Update(elapsed)
     else
         self:UpdateMiniFrames()
     end
+
+    -- 2026-11-16: City / Dungeon map layer, above Terrain - see
+    -- UpdateAreaMap. Not zoom-gated: inside a city or dungeon its art
+    -- is the main map at every zoom.
+    self:UpdateAreaMap()
 
     -- Build-order step 9a: independent of both tile layers - see
     -- UpdatePlayerMarker's own header.
@@ -5440,5 +6375,88 @@ function MinimapEngine:Update(elapsed)
         self:UpdateLiveBlips()
     end
 
+    -- 2026-11-16: bosses, level exits, entrance and quest targets on a
+    -- Forever dungeon's map (DungeonPins.lua).
+    if self.UpdateDungeonPins then
+        local ok, err = pcall(self.UpdateDungeonPins, self)
+        if not ok and self.DungeonPinError ~= err then
+            self.DungeonPinError = err
+            AlchemyGPS.Core.Logger:Get("Map"):error("dungeon pins failed: %s", tostring(err))
+        end
+    end
+
+    -- 2026-11-16: party / raid / guild / enemy players (PlayerBlips.lua).
+    if self.UpdatePlayerBlips then
+        local ok, err = pcall(self.UpdatePlayerBlips, self)
+        if not ok and self.PlayerBlipError ~= err then
+            self.PlayerBlipError = err
+            AlchemyGPS.Core.Logger:Get("Map"):error("player blips failed: %s", tostring(err))
+        end
+    end
+
+    -- 2026-11-16: keep the map above other addons (see MinimapWindow's
+    -- SyncStrata) - re-asserted every tick, it's only string compares.
+    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    if MinimapWindow and MinimapWindow.SyncStrata then MinimapWindow:SyncStrata() end
+    if MinimapWindow and MinimapWindow.UpdateLevelBar then MinimapWindow:UpdateLevelBar() end
+
     self:UpdateDebugOverlay()
 end
+
+---------------------------------------------------------------------------------------
+-- /gps where - what the client reports about where the player is.
+-- Inside a dungeon this is what decides whether a position marker can
+-- be drawn at all, and it differs per dungeon (WoW Forever's own ones
+-- especially), so it is printed rather than guessed.
+---------------------------------------------------------------------------------------
+
+AlchemyGPS.Core.SlashCommands:Register("where", function()
+    local function say(...) DEFAULT_CHAT_FRAME:AddMessage(string.format(...)) end
+    local function pos(map, unit)
+        if not map then return "no map" end
+        local ok, p = pcall(C_Map.GetPlayerMapPosition, map, unit or "player")
+        if not ok then return "error" end
+        if not p then return "nil" end
+        local x, y = p:GetXY()
+        return ("%.1f, %.1f"):format((x or 0) * 100, (y or 0) * 100)
+    end
+    local E = MinimapEngine
+    local inInstance, instType = IsInInstance()
+    local name, _, _, _, _, _, _, instanceID = GetInstanceInfo()
+    say("|cffffd100Alchemy GPS - where am I|r")
+    say("  instance: %s (%s) id %s, type %s", tostring(inInstance), tostring(name),
+        tostring(instanceID), tostring(instType))
+    local best = C_Map.GetBestMapForUnit("player")
+    local info = best and C_Map.GetMapInfo(best)
+    say("  best map: %s %s - position %s", tostring(best), tostring(info and info.name), pos(best))
+    say("  displayable map: %s", tostring(E:GetDisplayableMapForPlayer()))
+    local okU, ux, uy, _, uc = pcall(UnitPosition, "player")
+    say("  UnitPosition: %s", okU and ux and ("%.1f, %.1f (instance %s)"):format(ux, uy, tostring(uc)) or "nil")
+    say("  Leatrix Maps art: %s", leatrixInstalled() and "found" or "not found")
+    local f1 = E.DungeonFloors and E.DungeonFloors[1]
+    if E.DescribeRoom then say("  room: %s", E:DescribeRoom()) end
+    do
+        local Quest = AlchemyGPS.Modules.Quest
+        local ok, t = pcall(function() return Quest.Core:Char("DeathInstance") end)
+        local bm = C_Map.GetBestMapForUnit("player")
+        local cp = bm and C_DeathInfo.GetCorpseMapPosition(bm)
+        local ex, _, elabel = E:GetDeathEntrance()
+        local nx, _, nlabel = E:GetNearestEntrance()
+        say("  death: dead %s, ghost %s, died in %s, corpse from game %s, died-in entrance %s, nearest entrance %s",
+            tostring(UnitIsDeadOrGhost("player")), tostring(UnitIsGhost and UnitIsGhost("player")),
+            ok and t and t.id and (tostring(t.name) .. " " .. t.id) or "none",
+            cp and ("%.1f, %.1f"):format(cp.x * 100, cp.y * 100) or "none",
+            ex and elabel or "none", nx and nlabel or "none")
+    end
+    say("  dungeon floors: %s", not f1 and "none"
+        or (f1.spec and f1.spec.fdjName and "Forever Dungeon Journal art")
+        or (f1.spec and "Leatrix art") or (f1.blank and "blank (no art)") or "client maps")
+    say("  map: zone %s, continent %s, floor %s of %s (showing %s)%s",
+        tostring(E.MapId), tostring(E.Cont), tostring(E.PlayerFloor),
+        tostring(E.DungeonFloors and #E.DungeonFloors), tostring(E:GetViewFloorIndex()),
+        E.PlyrPosUnknown and " - position unknown" or "")
+    if C_Map.GetMapArtLayerTextures and best then
+        local ok, t = pcall(C_Map.GetMapArtLayerTextures, best, 1)
+        say("  client map art for %s: %s", tostring(best), (ok and t and #t > 0) and (#t .. " tiles") or "none")
+    end
+end, "print what the game reports about your position (for dungeon maps)")

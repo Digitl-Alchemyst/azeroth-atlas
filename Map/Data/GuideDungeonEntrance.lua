@@ -39,28 +39,31 @@ local Map = AlchemyGPS.Map
 
 -- { instanceName, ownerMapId, ex, ey } - instanceName now also feeds
 -- the hover-tooltip label (build-order step 12), not just readability.
+-- 2026-11-16: ten entrances moved from Zones.lua's places (those of the
+-- later, redrawn zone maps) to where Forever Dungeon Routes and Dungeon
+-- Crawler Forever agree - see ENTRANCE_FIXES in Tools/gen_quest_data.py.
 local RAW_INSTANCES = {
-    { "Ragefire Chasm",               1454, 51.9,  58.4 },
+    { "Ragefire Chasm",               1454, 53.2, 48.7 },
     { "Zul'Farrak",                   1446, 39.2,  21.4 },
     { "The Temple of Atal'Hakkar",    1435, 69.83, 54.14 },
     { "The Stockade",                 1453, 51.4,  68.3 },
     { "Gnomeregan",                   1426, 24.38, 39.8 },
     { "Blackfathom Deeps",            1440, 14.15, 13.9 },
     { "Uldaman",                      1418, 44.44, 12.19 },
-    { "Dire Maul",                    1444, 59.1,  45.4 },
-    { "Blackrock Depths",             1428, 15.70, 28.33 },
-    { "Blackrock Spire",              1428, 15.70, 33.33 },
+    { "Dire Maul",                    1444, 62.0, 33.3 },
+    { "Blackrock Depths",             1428, 32.5, 30.0 },
+    { "Blackrock Spire",              1428, 36.5, 25.4 },
     { "Maraudon",                     1443, 29.48, 62.53 },
     { "The Deadmines",                1436, 42.56, 71.72 },
-    { "Wailing Caverns",              1413, 39,    69.4 },
-    { "Razorfen Downs",               1413, 45.43, 89.48 },
+    { "Wailing Caverns",              1413, 46.0, 36.3 },
+    { "Razorfen Downs",               1413, 50.9, 92.9 },
     { "Razorfen Kraul",               1413, 43.59, 90.16 },
     { "Scholomance",                  1422, 69.77, 73.51 },
     { "Shadowfang Keep",              1421, 44.86, 67.86 },
     { "Stratholme",                   1423, 27.09, 12.6 },
-    { "Scarlet Monastery",            1420, 85.57, 36.04 },
+    { "Scarlet Monastery",            1420, 85.1, 31.4 },
     { "Naxxramas",                    1423, 40.0,  25.8 },
-    { "Molten Core",                  1428, 20.70, 33.33 },
+    { "Molten Core",                  1428, 32.5, 30.0 },
     { "Ruins of Ahn'Qiraj",           1451, 29.1,  93.8 },
     -- Carbonite's Zones.lua lists this one under owner map 70, which isn't
     -- a zone id on this client (every other row is 14xx), so the flag
@@ -68,14 +71,14 @@ local RAW_INSTANCES = {
     -- Marsh, 1445 here. Tools/gen_quest_data.py applies the same fix to
     -- QuestData.Instances and checks the two lists stay identical.
     { "Onyxia's Lair",                1445, 52.41, 76.39 },
-    { "Blackwing Lair",               1428, 20.70, 35.33 },
+    { "Blackwing Lair",               1428, 36.5, 25.4 },
     { "Temple of Ahn'Qiraj",          1451, 29.1,  93.8 },
-    { "Zul'Gurub",                    1434, 67.2,  32.8 },
+    { "Zul'Gurub",                    1434, 53.9, 17.6 },
     { "City of Dalaran",              1416, 9.8,   60.6 },
     { "Excavation Site: Wetlands",    1437, 52.3,  66.4 },
     { "Ruins of Lordaeron",           1458, 72.9,  11.3 },
     { "The Hall of Thanes",           1455, 46.8,  52.3 },
-    { "The Drowned City",             1434, 20.9,  28.1 },
+    { "The Drowned City",             1434, 21.5,  27.8 },
     { "Blackmaw Hold",                1447, 39.6,  32.7 },
     { "Alcaz Prison",                 1445, 77.5,  17.2 },
     { "The Shaper's Terrace",         1449, 49.1,  1.0 },

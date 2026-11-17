@@ -24,6 +24,10 @@
          pick a quest up, items that start quests, patrol paths, quest
          items. Plain strings, parsed on demand by QuestRules.lua. -->
     <Script file="Data\QuestDBRules.lua" />
+    <!-- Hand-maintained, not generated: dungeon and giver/turn-in
+         positions for this server's newest quests (The Drowned City),
+         which the generated data above has no location for. -->
+    <Script file="Data\QuestDBManual.lua" />
 
     <!-- Order matters below: each file reads the ones above it at file
          scope. QuestApi (no dependencies) -> Quest (the module shell,
@@ -35,12 +39,14 @@
     <Script file="QuestCatalog.lua" />
     <Script file="QuestRules.lua" />
     <Script file="QuestState.lua" />
+    <Script file="QuestParty.lua" />
     <Script file="QuestRouting.lua" />
     <Script file="SuperTrack.lua" />
     <Script file="TrackerHider.lua" />
     <Script file="QuestPins.lua" />
     <Script file="QuestOverlay.lua" />
     <Script file="QuestItems.lua" />
+    <Script file="QuestMenu.lua" />
     <Script file="QuestTracker.lua" />
     <Script file="QuestList.lua" />
     <Script file="HUDArrow.lua" />

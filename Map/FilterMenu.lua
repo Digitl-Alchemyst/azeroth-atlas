@@ -69,6 +69,8 @@ local FILTERS = {
     { key = "Banker",          label = "Bankers" },
     { key = "DungeonEntrance", label = "Dungeon/Raid Entrances" },
     { key = "ZoneTransition",  label = "Zone Transitions" },
+    { key = "Boat",            label = "Boats" },
+    { key = "Zeppelin",        label = "Zeppelins" },
     { key = "GuardFlag",       label = "Guard Directions" },
     { key = "SpiritHealer",    label = "Spirit Healers" },
     -- Quest companion (2026-11-15): the three quest pin roles
@@ -99,7 +101,10 @@ local function SetFilterOn(key, on)
     AlchemyGPS.db.profile.MapFilters[key] = on
 
     local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if not MinimapEngine then return end
+    -- .Frm: Settings > Map can change a filter before the map window
+    -- has ever been opened, when there are no icon pools yet - the
+    -- first open reads the saved filters anyway.
+    if not MinimapEngine or not MinimapEngine.Frm then return end
     if key == "Gathering" or key == "Treasure" then
         MinimapEngine:RefreshGatherIcons()
         MinimapEngine:UpdateGatherIcons()
@@ -111,6 +116,13 @@ local function SetFilterOn(key, on)
         MinimapEngine:UpdateServiceIcons()
     end
 end
+
+-- 2026-11-16: the map's title-bar Filter button is gone - these same
+-- rows now live in Settings > Map, which reads them from here so the
+-- list and its refresh behavior stay in one place.
+FilterMenu.FILTERS = FILTERS
+FilterMenu.IsFilterOn = IsFilterOn
+FilterMenu.SetFilterOn = SetFilterOn
 
 local function create()
     if menu then return menu end

@@ -176,6 +176,20 @@ end
 -- when it is on another continent).
 local function EntranceTarget(dungeons, px, py, cont)
     if not dungeons then return nil end
+    -- Already inside one of them: the destination is "here", not the
+    -- entrance on the outdoor continent the player just left.
+    local here = Catalog:CurrentInstance()
+    if here then
+        for i = 1, #dungeons do
+            if dungeons[i] == here then
+                local name = Catalog:GetInstanceEntrance(here) or "the dungeon"
+                return {
+                    mId = Routing.PlyrMapId, cont = cont, x = px, y = py,
+                    inside = true, name = name, instance = here, source = "here",
+                }, 0
+            end
+        end
+    end
     local res, bestD
     for i = 1, #dungeons do
         local name, owner, wx, wy = Catalog:GetInstanceEntrance(dungeons[i])

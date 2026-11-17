@@ -64,6 +64,12 @@
     <Script file="ScrollScale.lua" />
     <Script file="ZoomController.lua" />
     <Script file="MinimapEngine.lua" />
+    <!-- 2026-11-16: party / raid / guild / enemy players on the map.
+         Adds UpdatePlayerBlips to the engine, so it loads after it. -->
+    <Script file="PlayerBlips.lua" />
+    <Script file="Data\DungeonRoomData.lua" />
+    <Script file="DungeonRooms.lua" />
+    <Script file="DungeonPins.lua" />
     <Script file="MinimapDock.lua" />
     <Script file="MapContextMenu.lua" />
     <Script file="FilterMenu.lua" />

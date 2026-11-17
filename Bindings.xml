@@ -3,4 +3,14 @@
          at the item of the nearest tracked quest. The menu text is set
          there (BINDING_HEADER_ALCHEMYGPS / BINDING_NAME_...). -->
     <Binding name="CLICK AlchemyGPSQuestItemNearest:LeftButton" header="ALCHEMYGPS" category="ADDONS" />
+    <!-- M / L (Map\MinimapWindow.lua's ApplyKeys puts these on the M and
+         L keys as override bindings; they can also be bound to any other
+         key from the game's Key Bindings menu). Names are set in
+         MinimapWindow.lua. -->
+    <Binding name="ALCHEMYGPS_TOGGLEMAP" category="ADDONS">
+        AlchemyGPS_ToggleMapSize()
+    </Binding>
+    <Binding name="ALCHEMYGPS_QUESTLIST" category="ADDONS">
+        AlchemyGPS_ToggleQuestList()
+    </Binding>
 </Bindings>

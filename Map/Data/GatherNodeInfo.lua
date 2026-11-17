@@ -17,14 +17,12 @@
 -- static reference data, not called into at runtime) since that's the
 -- authoritative, already-correct source for "which texture goes with
 -- which node ID" - re-deriving it from scratch would just reproduce
--- the same answer with more risk of typos. Texture paths still point
--- at GatherMate2's own Artwork files on disk (Interface\AddOns\
--- GatherMate2\Artwork\...) rather than copies bundled here - WoW loads
--- a texture file by path regardless of whether that addon's Lua code
--- is enabled, so this works fine with GatherMate2 disabled (per the
--- user's own plan), and only degrades (falls back to the generic
--- per-category icon already in MinimapEngine.lua) if GatherMate2 is
--- fully uninstalled rather than just disabled.
+-- the same answer with more risk of typos. The icon files themselves
+-- are bundled in this addon (Gfx\Gather\, copied from GatherMate2's
+-- Artwork folder). They used to be loaded straight out of GatherMate2's
+-- own folder, which broke the moment GatherMate2 was uninstalled from
+-- the live client (2026-11-16): a missing texture file draws nothing,
+-- so only the black backdrop square behind each icon showed.
 --
 -- Scoped to exactly the species IDs actually present in this server's
 -- own zone data (Map/Data/Gather{Herb,Mining,Fish,Treasure}.lua) -
@@ -51,7 +49,7 @@
 -- harvest, per the user's own explicit direction.
 ---------------------------------------------------------------------------------------
 
-local ICON = "Interface\\AddOns\\GatherMate2\\Artwork\\"
+local ICON = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Gather\\"
 
 AlchemyGPSGatherNodeInfo = {
 

@@ -71,12 +71,25 @@ local function rowOnClick(row, button)
         local folded = Core:Char("ListFolded")
         folded[row.zone] = (not folded[row.zone]) and true or nil
         List:Render()
-    elseif row.kind == "quest" or row.kind == "objective" then
+    elseif row.kind == "quest" or row.kind == "objective" or row.kind == "text" then
         local questID = row.questID
         if button == "RightButton" then
-            local open = Core:Char("ListOpen")
-            open[questID] = (not open[questID]) and true or nil
-            List:Render()
+            -- 2026-11-16: the quest menu (Quest/QuestMenu.lua) - quest
+            -- text, objectives, route, track, share, abandon.
+            local open, text = Core:Char("ListOpen"), Core:Char("ListText")
+            Q.Menu:Open(questID, {
+                textShown = text[questID],
+                onText = function()
+                    text[questID] = (not text[questID]) and true or nil
+                    List:Render()
+                end,
+                foldText = open[questID] and "Hide objectives" or "Show objectives",
+                onFold = function()
+                    open[questID] = (not open[questID]) and true or nil
+                    List:Render()
+                end,
+                redraw = function() List:Render() end,
+            })
         elseif IsShiftKeyDown() then
             State:SetWatched(questID, not State:IsWatched(questID))
         elseif Routing then
@@ -95,6 +108,7 @@ local function rowOnEnter(row)
         GameTooltip:Show()
         return
     end
+    if row.kind == "text" then return end   -- the quest's own text: already on screen
     local q = row.questID and Q.State:GetQuest(row.questID)
     if not q then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
@@ -109,8 +123,9 @@ local function rowOnEnter(row)
         end
     end
     if q.ready then GameTooltip:AddLine("Ready to turn in", 0.4, 1, 0.4) end
+    if Q.Party then Q.Party:AddTooltip(q.questID) end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Click: route here    Right-click: objectives", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("Click: route here    Right-click: menu (quest text, share, abandon)", 0.6, 0.6, 0.6, true)
     GameTooltip:AddLine("Tick box or Shift-click: track / untrack", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
@@ -256,6 +271,7 @@ function List:Render()
     local activeQuest = target and target.kind == "quest" and target.questID or nil
     local folded = Core:Char("ListFolded")
     local open = Core:Char("ListOpen")
+    local textOpen = Core:Char("ListText")
     local dungeons = dungeonNames()
 
     local used, y, trackedTotal = 0, 2, 0
@@ -292,6 +308,7 @@ function List:Render()
                 elseif q.ready then
                     title = title .. " |cff66ff66(Complete)|r"
                 end
+                if Q.Party then title = title .. Q.Party:Badge(questID) end
                 y = y + placeRow(qrow, child, y, width, QUEST_INDENT, GameFontNormalSmall, title,
                     distanceText(info[questID]) or (not watched and "untracked") or nil, watched)
                 qrow.text:SetAlpha(watched and 1 or 0.6)
@@ -328,6 +345,26 @@ function List:Render()
                     end
                     y = y + 4
                 end
+
+                -- 2026-11-16: the quest's own text, as Blizzard's quest
+                -- log shows it (opened from the quest menu).
+                if textOpen[questID] then
+                    local desc, summary = Q.Api:GetQuestText(questID)
+                    local function textRow(s, font, r, g, b, after)
+                        used = used + 1
+                        local trow = self:AcquireRow(used)
+                        trow.kind, trow.zone, trow.questID = "text", nil, questID
+                        y = y + placeRow(trow, child, y, width, OBJECTIVE_INDENT, font, s, nil, nil) + after
+                        trow.text:SetTextColor(r, g, b)
+                        trow.text:SetAlpha(1)
+                        trow.active:Hide()
+                    end
+                    textRow("Quest Objectives", GameFontNormalSmall, 1, 0.82, 0, -4)
+                    textRow(summary or "-", GameFontHighlightSmall, 0.92, 0.88, 0.78, 2)
+                    textRow("Description", GameFontNormalSmall, 1, 0.82, 0, -4)
+                    textRow(desc or "The game gave no text for this quest.", GameFontHighlightSmall,
+                        0.92, 0.88, 0.78, 6)
+                end
             end
         end
         y = y + 4
@@ -361,7 +398,8 @@ function List:Create()
         title = "Quest List",
         width = 340,
         height = 460,
-        strata = "MEDIUM",
+        -- Above the map, which sits in DIALOG strata (2026-11-16).
+        strata = "FULLSCREEN_DIALOG",
         dbAnchor = anchor,
         dbSize = Core:ProfileTable("ListSize"),
         resizable = true,
@@ -415,6 +453,7 @@ end
 function List:Start()
     local function redraw() self:Render() end
     EventBus:Subscribe("QUEST_STATE_CHANGED", redraw)
+    EventBus:Subscribe("QUEST_PARTY_CHANGED", redraw)
     EventBus:Subscribe("QUEST_ROUTE_CHANGED", redraw)
     EventBus:Subscribe("QUEST_CATALOG_READY", redraw)
 end

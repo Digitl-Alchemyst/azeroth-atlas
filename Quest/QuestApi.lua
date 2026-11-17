@@ -217,3 +217,83 @@ function Api:GetNextWaypoint(questID)
     if ok and mapID and x and y then return mapID, x, y end
     return nil
 end
+
+---------------------------------------------------------------------------------------
+-- Quest text, sharing, abandoning (2026-11-16, user request: share and
+-- abandon from our list / tracker; the quest's own text in the list
+-- like Blizzard's quest log). The game's calls for these act on the
+-- quest log's *selected* quest, so each one selects the quest, acts,
+-- and puts Blizzard's selection back.
+---------------------------------------------------------------------------------------
+
+local function readable(v)
+    return v ~= nil and not (issecretvalue and issecretvalue(v))
+end
+
+-- Runs fn with questID selected in the quest log; returns fn's results.
+local function withSelected(questID, fn)
+    local idx = Api:GetLogIndexForQuestID(questID)
+    if not idx or idx == 0 then return nil end
+    local getSel, setSel = modern("GetSelectedQuest"), modern("SetSelectedQuest")
+    local prev
+    if getSel and setSel then
+        prev = try(getSel)
+        try(setSel, questID)
+    elseif _G.SelectQuestLogEntry then
+        prev = _G.GetQuestLogSelection and _G.GetQuestLogSelection()
+        pcall(_G.SelectQuestLogEntry, idx)
+    end
+    local ok, a, b, c = pcall(fn, idx)
+    if getSel and setSel then
+        if prev and prev ~= 0 then try(setSel, prev) end
+    elseif _G.SelectQuestLogEntry and prev and prev > 0 then
+        pcall(_G.SelectQuestLogEntry, prev)
+    end
+    if ok then return a, b, c end
+    return nil
+end
+
+-- description, objectivesSummary (either may be nil).
+-- Cached: a quest's text never changes, and the list redraws often.
+local textCache = {}
+function Api:GetQuestText(questID)
+    local hit = textCache[questID]
+    if hit then return hit[1], hit[2] end
+    local get = _G.GetQuestLogQuestText
+    if not get then return nil end
+    local desc, obj = withSelected(questID, function(idx) return get(idx) end)
+    desc = readable(desc) and desc ~= "" and desc or nil
+    obj = readable(obj) and obj ~= "" and obj or nil
+    if desc or obj then textCache[questID] = { desc, obj } end
+    return desc, obj
+end
+
+-- Can this quest be shared with the group right now?
+function Api:CanShare(questID)
+    if not IsInGroup() then return false end
+    local fn = modern("IsPushableQuest")
+    if fn then return try(fn, questID) and true or false end
+    if _G.GetQuestLogPushable then
+        return withSelected(questID, function() return _G.GetQuestLogPushable() end) and true or false
+    end
+    return false
+end
+
+function Api:Share(questID)
+    local push = _G.QuestLogPushQuest
+    if not push then return false end
+    withSelected(questID, function(idx) push(idx) end)
+    return true
+end
+
+-- Abandons the quest (the caller asks the player first).
+function Api:Abandon(questID)
+    local setAb = modern("SetAbandonQuest") or _G.SetAbandonQuest
+    local ab = modern("AbandonQuest") or _G.AbandonQuest
+    if not setAb or not ab then return false end
+    withSelected(questID, function()
+        setAb()
+        ab()
+    end)
+    return true
+end

@@ -136,14 +136,21 @@ end
 -- renderer shows that pin's title field verbatim, and its own data
 -- stores the plain destination zone name there, no "to" prefix - see
 -- Map/Data/ZoneNames.lua's own header for the full citation).
-local byZone = {}
+-- 2026-11-16 (user request: "special icons for zeppelins and boats
+-- moving between continents"): boats and zeppelins go to categories of
+-- their own (GuideData.Boat / .Zeppelin - own icon, own filter row);
+-- trams, portals and plain borders stay Zone Transitions. Told apart by
+-- the name every boat / zeppelin row carries ("Boat to ...").
+local byZone, byKind = {}, { Boat = {}, Zeppelin = {} }
 local function addPoint(mapId, x, y, name, otherMapId)
     if not mapId or not x or not y then return end
     if not name or name == "" then
         name = Map.ZoneNames and Map.ZoneNames[otherMapId] or ""
     end
+    local kind = name:match("^(Boat) to ") or name:match("^(Zeppelin) to ")
+    local bucket = kind and byKind[kind] or byZone
     local entry = ("0,%g,%g,%s"):format(x, y, name)
-    byZone[mapId] = byZone[mapId] and (byZone[mapId] .. "|" .. entry) or entry
+    bucket[mapId] = bucket[mapId] and (bucket[mapId] .. "|" .. entry) or entry
 end
 
 for _, raw in ipairs(RAW_CONNECTIONS) do
@@ -155,3 +162,7 @@ end
 Map.GuideData = Map.GuideData or {}
 Map.GuideData["ZoneTransition"] = byZone
 Map.GuideData["ZoneTransition"].Mode = 32
+Map.GuideData["Boat"] = byKind.Boat
+Map.GuideData["Boat"].Mode = 32
+Map.GuideData["Zeppelin"] = byKind.Zeppelin
+Map.GuideData["Zeppelin"].Mode = 32

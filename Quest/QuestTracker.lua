@@ -69,9 +69,17 @@ local function rowOnClick(row, button)
     if not questID then return end
 
     if button == "RightButton" then
+        -- 2026-11-16: the quest menu (Quest/QuestMenu.lua) - collapse,
+        -- route, track, share, abandon.
         local collapsed = Core:Char("Collapsed")
-        collapsed[questID] = (not collapsed[questID]) and true or nil
-        Tracker:Render()
+        Q.Menu:Open(questID, {
+            foldText = collapsed[questID] and "Expand" or "Collapse",
+            onFold = function()
+                collapsed[questID] = (not collapsed[questID]) and true or nil
+                Tracker:Render()
+            end,
+            redraw = function() Tracker:Render() end,
+        })
     elseif IsShiftKeyDown() then
         State:SetWatched(questID, false)
     elseif Routing then
@@ -118,8 +126,9 @@ local function rowOnEnter(row)
     if t and t.kind == "quest" and t.questID == q.questID and t.detail then
         GameTooltip:AddLine("Arrow: " .. t.detail, 1, 0.82, 0.2, true)
     end
+    if Q.Party then Q.Party:AddTooltip(q.questID) end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Click: route here    Right-click: collapse", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("Click: route here    Right-click: menu (collapse, share, abandon)", 0.6, 0.6, 0.6, true)
     GameTooltip:AddLine("Shift-click: stop tracking", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
@@ -300,6 +309,7 @@ function Tracker:Render()
                 elseif q.ready then
                     title = title .. " |cff66ff66(Complete)|r"
                 end
+                if Q.Party then title = title .. Q.Party:Badge(questID) end
                 if collapsed[questID] and not q.ready and #q.objectives > 0 then
                     title = "|cffa0a0a0+|r " .. title
                 end
@@ -544,6 +554,7 @@ function Tracker:Start()
 
     local function redraw() self:Render() end
     EventBus:Subscribe("QUEST_STATE_CHANGED", redraw)
+    EventBus:Subscribe("QUEST_PARTY_CHANGED", redraw)
     EventBus:Subscribe("QUEST_ROUTE_CHANGED", redraw)
     EventBus:Subscribe("QUEST_CATALOG_READY", redraw)
     EventBus:Subscribe("QUEST_OPTION_CHANGED", function(_, key)

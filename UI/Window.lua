@@ -1416,7 +1416,11 @@ function Window:SetFrmStrata(layer)
     local svdata = self.SaveData
     svdata[self.LayoutMode.."L"] = layer
 
-    self.Frm:SetFrameStrata(self.StrataNames[layer] or "MEDIUM")
+    -- ForceStrata (AlchemyGPS addition, 2026-11-16): a window that must
+    -- always sit above other addons' frames (the map) pins its strata
+    -- here instead of using the saved per-layout layer.
+    self.Frm:SetFrameStrata(self.ForceStrata or self.StrataNames[layer] or "MEDIUM")
+    if self.OnStrataChanged then self.OnStrataChanged(self) end
 end
 
 ---------------------------------------------------------------------------------------
@@ -1720,7 +1724,11 @@ function Window:OnMouseDown(button)
         if win.MovSizing then
 
             SetCursor("INSPECT_CURSOR")
-            this:SetFrameStrata("HIGH")
+            -- Lift above other windows while dragging - but never DROP a
+            -- window whose strata is pinned higher than this (ForceStrata).
+            if not win.ForceStrata then
+                this:SetFrameStrata("HIGH")
+            end
         end
 
     elseif button == "MiddleButton" then

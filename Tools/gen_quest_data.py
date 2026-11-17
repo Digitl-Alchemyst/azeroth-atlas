@@ -50,6 +50,33 @@ ZONE_RE = re.compile(
 # Marsh, which is 1445 here.
 OWNER_MAP_FIXES = {70: 1445}
 
+# Instance id -> (x, y): an entrance Zones.lua places wrongly. The Drowned
+# City's underwater entrance is at about 21.5, 27.8 in Stranglethorn Vale
+# (checked in game by the user, 2026-11-16; DungeonGuideForever has 21.4,
+# 27.9) - Zones.lua's 20.9, 28.1 is short of it.
+ENTRANCE_FIXES = {2970: ("21.5", "27.8")}
+
+# 2026-11-16 (user: Wailing Caverns' entrance not on the map while in the
+# Barrens). Zones.lua has these at the places of the later, redrawn zone
+# maps (Northern Barrens, Northern Stranglethorn, the remade Orgrimmar) on
+# this client's classic maps - Wailing Caverns ended up south of Camp
+# Taurajo. Replaced where Forever Dungeon Routes' and Dungeon Crawler
+# Forever's entrance lists agree with each other and not with Zones.lua.
+# Blackrock Mountain's four stay on Burning Steppes (ZONE_ALIASES below):
+# BRS / BWL at FDR's portal, BRD / MC at DCF's Burning Steppes point.
+ENTRANCE_FIXES.update({
+    213: ("53.2", "48.7"),   # Ragefire Chasm
+    232: ("32.5", "30.0"),   # Molten Core
+    234: ("62.0", "33.3"),   # Dire Maul
+    242: ("32.5", "30.0"),   # Blackrock Depths
+    250: ("36.5", "25.4"),   # Blackrock Spire
+    279: ("46.0", "36.3"),   # Wailing Caverns
+    287: ("36.5", "25.4"),   # Blackwing Lair
+    300: ("50.9", "92.9"),   # Razorfen Downs
+    337: ("53.9", "17.6"),   # Zul'Gurub
+    435: ("85.1", "31.4"),   # Scarlet Monastery
+})
+
 # Blackrock Mountain's four instances are listed under Burning Steppes in
 # Zones.lua, while the quest rows put objectives inside them under Searing
 # Gorge (the first approach QuestieDB lists).
@@ -353,8 +380,9 @@ def main():
         m = ZONE_RE.match(line)
         if m:
             owner = OWNER_MAP_FIXES.get(int(m.group(3)), int(m.group(3)))
+            ex, ey = ENTRANCE_FIXES.get(int(m.group(1)), (m.group(4), m.group(5)))
             instances.append((int(m.group(1)), '"%s|%d|%s|%s"' % (
-                m.group(2), owner, m.group(4), m.group(5))))
+                m.group(2), owner, ex, ey)))
 
     check_map_flags(addons, instances)
 

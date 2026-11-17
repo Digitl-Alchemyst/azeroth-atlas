@@ -35,6 +35,12 @@ local MinimapWindow = Module:New("MinimapWindow", {
             MinimapWindow = {
                 NativeMinimapHidden = true,
                 AutoFollow = true,
+                -- 2026-11-16: M / L key overrides (see ApplyKeys) and
+                -- Carbonite's auto-scale (MinimapEngine:AutoScaleTarget).
+                OverrideMLKeys = true,
+                AutoScale = true,
+                AutoScaleMin = 0.05,
+                AutoScaleMax = 4,
             },
             Map = {
                 Compatibility = true,
@@ -47,6 +53,17 @@ local MinimapWindow = Module:New("MinimapWindow", {
 -- pattern as ZoomController.lua/NativeMinimapHide.lua/etc.).
 AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
 AlchemyGPS.Modules.Map.MinimapWindow = MinimapWindow
+
+-- 2026-11-16: the map renders above other addons' frames (see Open()'s
+-- strata comment). DIALOG beats the MEDIUM/HIGH strata action bars,
+-- raid frames and unit frames use; FULLSCREEN is the overlay tier for
+-- the map's own chrome and player marker. Popups that must open over
+-- the map (Settings, the quest list, menus) use FULLSCREEN_DIALOG or
+-- TOOLTIP.
+local MAP_STRATA = "DIALOG"
+local OVERLAY_STRATA = "FULLSCREEN"
+MinimapWindow.MAP_STRATA = MAP_STRATA
+MinimapWindow.OVERLAY_STRATA = OVERLAY_STRATA
 
 function MinimapWindow:OnEnable()
     -- AceAddon's automatic module-enable fires on ADDON_LOADED, but
@@ -70,6 +87,8 @@ function MinimapWindow:OnEnable()
         if NativeMinimapHide then
             NativeMinimapHide:SetNativeHidden(self:DB().profile.NativeMinimapHidden == true)
         end
+
+        self:ApplyKeys()
 
         -- Remember whether the map window itself was open or closed,
         -- same way UI/Window.lua's Window:Show already persists it
@@ -156,6 +175,10 @@ function MinimapWindow:Open()
     -- shown + with buttons (Create's own defaults).
     local win = Nx.Window:Create("AlchemyGPSMinimapWindow", 120, 120, false, 1)
     self.Win = win
+    -- Pinned above other addons (see MAP_STRATA) - set before the first
+    -- SetLayoutMode below so the saved layout's own layer never applies.
+    win.ForceStrata = MAP_STRATA
+    win.OnStrataChanged = function() self:SyncStrata() end
 
     -- One no-zone-key call per the plan: seed the "" (normal) layout
     -- mode's default position/size. Nx.FixWin's deferred post-login
@@ -201,152 +224,70 @@ function MinimapWindow:Open()
     end)
     self.SettingsBut = settingsBut
 
-    -- Auto-follow checkbox, title-bar row directly left of the
-    -- Settings gear (user-requested quick toggle, 2026-11-10). Backs
-    -- MinimapEngine.lua's continuous per-tick re-center-on-player call
-    -- (ZoomController:Move, gated on this same saved flag) - unchecking
-    -- it is what lets a manual pan-drag stay where you left it instead
-    -- of snapping back to center the instant you release the mouse.
-    -- Real checkbox textures (Blizzard's stock UI-CheckBox set, shrunk
-    -- to match the tight title-bar row), not a plain icon button like
-    -- settingsBut above - this one needs to show a persistent
-    -- checked/unchecked state, not just fire once on click.
-    local followCB = CreateFrame("CheckButton", nil, win.Frm)
-    followCB:SetSize(14, 14)
-    followCB:SetPoint("RIGHT", settingsBut, "LEFT", -6, 0)
-    followCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-    followCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-    followCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
-    followCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    followCB:SetChecked(self:DB().profile.AutoFollow ~= false)
-    followCB:SetScript("OnClick", function(cb)
-        self:DB().profile.AutoFollow = cb:GetChecked() and true or false
-    end)
-    followCB:SetScript("OnEnter", function(cb)
-        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
-        GameTooltip:SetText("Auto-follow player")
-        GameTooltip:AddLine(
-            "Recenters the view on you once you stop panning. Uncheck to pan freely without it snapping back.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    followCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Header checkboxes, right to left (2026-11-16, user request: no
+    -- text labels, hover tooltips only):
+    --   Center (right, next to the gear) - saved flag AutoFollow. The
+    --     original 2026-11-10 checkbox: keeps the player in the middle
+    --     of the map at every zoom/size. Unchecking it is what lets a
+    --     manual pan stay where you left it.
+    --   Follow (left of Center) - saved flag AutoScale. Carbonite's
+    --     auto-scale (MinimapEngine:AutoScaleTarget): with a goto,
+    --     corpse or routed quest active, zooms in and out so both the
+    --     player and that point stay in the frame.
+    -- The saved flag names predate the user's names for them and are
+    -- kept so existing saved settings carry over.
+    local function makeHeaderCB(anchor, field, title, text)
+        local cb = CreateFrame("CheckButton", nil, win.Frm)
+        cb:SetSize(14, 14)
+        cb:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
+        cb:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+        cb:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+        cb:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+        cb:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        cb:SetChecked(self:DB().profile[field] ~= false)
+        cb:SetScript("OnClick", function(b)
+            self:DB().profile[field] = b:GetChecked() and true or false
+            local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+            if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
+        end)
+        cb:SetScript("OnEnter", function(b)
+            GameTooltip:SetOwner(b, "ANCHOR_LEFT")
+            GameTooltip:SetText(title)
+            GameTooltip:AddLine(text, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        return cb
+    end
+
+    local centerCB = makeHeaderCB(settingsBut, "AutoFollow", "Center",
+        "Keeps you in the middle of the map at any zoom or window size. "
+        .. "Uncheck to pan freely without the map snapping back to you.")
+    self.CenterCB = centerCB
+
+    local followCB = makeHeaderCB(centerCB, "AutoScale", "Follow",
+        "With a goto, corpse or quest route active, zooms the map in and out so "
+        .. "both you and that point stay in the frame. Picks the goto first, then "
+        .. "your corpse, then the quest.")
     self.FollowCB = followCB
 
-    -- Filter button, title-bar row directly left of the auto-follow
-    -- checkbox (build-order step 9k, 2026-11-10, explicit user
-    -- request). Opens FilterMenu.lua's own checklist popup - see that
-    -- file's header for why it's not built from Blizzard's dropdown
-    -- system. Styled like the zoom buttons just below (flat dark
-    -- background + text label, not an icon) rather than a bare icon
-    -- button like settingsBut - this project has had more than one
-    -- wrong-guessed icon-texture-path bug this session, and a text
-    -- label carries zero texture-path risk at all.
-    local filterBut = CreateFrame("Button", nil, win.Frm)
-    filterBut:SetSize(40, 14)
-    filterBut:SetPoint("RIGHT", followCB, "LEFT", -6, 0)
-    local filterBg = filterBut:CreateTexture(nil, "BACKGROUND")
-    filterBg:SetAllPoints()
-    filterBg:SetColorTexture(0, 0, 0, 0.5)
-    local filterText = filterBut:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    filterText:SetPoint("CENTER")
-    filterText:SetText("Filter")
-    filterBut:SetScript("OnClick", function()
-        local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
-        if FilterMenu then FilterMenu:Toggle(filterBut) end
-    end)
-    self.FilterBut = filterBut
+    -- The title text used to run the full width of the bar, under these
+    -- controls - stop it just left of the leftmost one.
+    local titleFS = win.TitleFStr and win.TitleFStr[1]
+    if titleFS then
+        local _, _, _, _, ty = titleFS:GetPoint(1)
+        titleFS:ClearAllPoints()
+        titleFS:SetPoint("TOPLEFT", win.Frm, "TOPLEFT", win.BorderW, ty or -win.BorderH)
+        titleFS:SetPoint("RIGHT", followCB, "LEFT", -6, 0)
+        titleFS:SetWordWrap(false)
+    end
 
-    -- Terrain/Art Map layer toggles (build-order step 18 follow-up,
-    -- 2026-11-11, direct user request for clickable buttons instead of
-    -- typing the `/gps hideart`/`/gps hideterrain` diagnostic slash
-    -- commands those same two flags already backed - see
-    -- MinimapEngine.lua's own header comment above
-    -- ART_MAP_LEVEL_OFFSET/TERRAIN_TILE_LEVEL_OFFSET). Same bare-
-    -- checkbox-plus-tooltip style as followCB above (no text label -
-    -- title bar is already tight), reading/writing
-    -- MinimapEngine.DebugHideArt/DebugHideTerrain directly rather than
-    -- a new SavedVariables field - these are still the Phase 2/3
-    -- isolation-testing toggles from the map-layering fix, not a new
-    -- persisted user preference, so they intentionally reset to both-
-    -- on (unchecked = "hidden") at next login/reload, same as the
-    -- slash commands already did. Checked = layer shown, matching the
-    -- Filter menu's own checkbox-means-visible convention. Reuses the
-    -- `MinimapEngine` local already declared at the top of this
-    -- function (line 143) rather than redeclaring it.
-
-    local terrainCB = CreateFrame("CheckButton", nil, win.Frm)
-    terrainCB:SetSize(14, 14)
-    terrainCB:SetPoint("RIGHT", filterBut, "LEFT", -6, 0)
-    terrainCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-    terrainCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-    terrainCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
-    terrainCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    terrainCB:SetChecked(not MinimapEngine.DebugHideTerrain)
-    terrainCB:SetScript("OnClick", function(cb)
-        MinimapEngine.DebugHideTerrain = not cb:GetChecked()
-    end)
-    terrainCB:SetScript("OnEnter", function(cb)
-        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
-        GameTooltip:SetText("Terrain Texture layer")
-        GameTooltip:AddLine(
-            "Close-zoom real minimap tiles. Uncheck to hide it and see the Art Map layer alone.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    terrainCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    self.TerrainCB = terrainCB
-
-    local artCB = CreateFrame("CheckButton", nil, win.Frm)
-    artCB:SetSize(14, 14)
-    artCB:SetPoint("RIGHT", terrainCB, "LEFT", -6, 0)
-    artCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-    artCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-    artCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
-    artCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    artCB:SetChecked(not MinimapEngine.DebugHideArt)
-    artCB:SetScript("OnClick", function(cb)
-        MinimapEngine.DebugHideArt = not cb:GetChecked()
-    end)
-    artCB:SetScript("OnEnter", function(cb)
-        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
-        GameTooltip:SetText("Art Map layer")
-        GameTooltip:AddLine(
-            "Each zone's own revealed overlay art, stitched across the continent. Uncheck to hide it and see the Terrain Texture/Base layers alone.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    artCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    self.ArtMapCB = artCB
-
-    -- Build-order step 20 follow-up (2026-11-11): continent backdrop
-    -- split out of Art Map into its own independently-togglable layer,
-    -- direct user request ("move the continent to its own layer call
-    -- it base give it a toggle box too") - see MinimapEngine.lua's
-    -- MoveCurZoneTiles for how DebugHideArt/DebugHideBase now apply
-    -- independently. Same bare-checkbox-plus-tooltip style as the
-    -- other two, continuing the row leftward.
-    local baseCB = CreateFrame("CheckButton", nil, win.Frm)
-    baseCB:SetSize(14, 14)
-    baseCB:SetPoint("RIGHT", artCB, "LEFT", -6, 0)
-    baseCB:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-    baseCB:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-    baseCB:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
-    baseCB:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    baseCB:SetChecked(not MinimapEngine.DebugHideBase)
-    baseCB:SetScript("OnClick", function(cb)
-        MinimapEngine.DebugHideBase = not cb:GetChecked()
-    end)
-    baseCB:SetScript("OnEnter", function(cb)
-        GameTooltip:SetOwner(cb, "ANCHOR_LEFT")
-        GameTooltip:SetText("Base layer")
-        GameTooltip:AddLine(
-            "Flat continent backdrop art, shown when zoomed out past the current zone's own bounds. Uncheck to hide it.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    baseCB:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    self.BaseCB = baseCB
+    -- 2026-11-16: the Filter button and the Base/Art Map/Terrain layer
+    -- checkboxes that used to continue this row leftward moved into the
+    -- Settings window's "Map" tab (explicit user request - keep the
+    -- header to the location name). The title bar now carries only
+    -- the location text, Follow, Center, the Settings gear and
+    -- Close/Max.
 
     -- Zoom buttons, build-order step 5. Carbonite's own +/- zoom
     -- buttons are Blizzard's native MinimapZoomIn/MinimapZoomOut,
@@ -431,43 +372,84 @@ function MinimapWindow:Open()
     -- MinimapEngine's own current ceiling (+5), so a future addition to
     -- that internal stack can't silently repeat this same collision -
     -- chrome should always just win.
-    local CHROME_LEVEL_OFFSET = 50
-    zoomIn:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    zoomOut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    settingsBut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    followCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    filterBut:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    terrainCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    artCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
-    baseCB:SetFrameLevel(content:GetFrameLevel() + CHROME_LEVEL_OFFSET)
+    --
+    -- 2026-11-16 (map above other addons): the whole stack moved up a
+    -- tier. The window itself is pinned to MAP_STRATA ("DIALOG", see
+    -- the top of this file) so Bartender bars, VuhDo panels and Frames
+    -- Forever unit frames - all MEDIUM/HIGH - can no longer show
+    -- through it. Chrome and the player marker go one tier higher
+    -- still (OVERLAY_STRATA, "FULLSCREEN"), the same tier the live-blip
+    -- radar patch reaches (MinimapEngine's MinimapSyncLayer puts it one
+    -- strata above the window), and win there on frame level. All of
+    -- this is re-asserted every tick by SyncStrata below, because
+    -- changing a parent's strata drags its children along with it.
+    self.Chrome = { zoomIn, zoomOut, settingsBut, self.CenterCB, self.FollowCB }
 
-    -- Build-order step 21 same-day seventh follow-up (2026-11-11,
-    -- 5-layer rework): a SEPARATE collision risk from the frame-level
-    -- one above, discovered while wiring Radar Layer (the live-blip
-    -- patch, MinimapEngine.lua's mm/MMRadar) to sit above Service
-    -- Layer per direct request. mm/MMRadar are ordered against
-    -- everything in this window via frame STRATA, not level (they're
-    -- parented to UIParent, not win.Frm - see MinimapEngine.lua's
-    -- UpdateLiveBlips header for why). Making Radar Layer win now bumps
-    -- mm one strata tier above win.Frm's own baseline strata (typically
-    -- "MEDIUM", UI/Window.lua:1419) whenever a gathering skill is
-    -- tracked - i.e. up to "HIGH". This chrome row had no strata of its
-    -- own before now (it only ever needed the frame-level fix above,
-    -- since nothing previously out-ranked win.Frm's strata), so without
-    -- this it would vanish under the green sweep exactly like the
-    -- frame-level bug above, just through strata instead of level.
-    -- Fixed the same way MinimapEngine's own icon-vs-patch ordering was
-    -- fixed back in step 17: strata ignores parent/level entirely, so
-    -- explicitly setting chrome to "HIGH" guarantees it stays on top
-    -- regardless of what strata Radar Layer reaches.
-    zoomIn:SetFrameStrata("HIGH")
-    zoomOut:SetFrameStrata("HIGH")
-    settingsBut:SetFrameStrata("HIGH")
-    followCB:SetFrameStrata("HIGH")
-    filterBut:SetFrameStrata("HIGH")
-    terrainCB:SetFrameStrata("HIGH")
-    artCB:SetFrameStrata("HIGH")
-    baseCB:SetFrameStrata("HIGH")
+    -- Movement speed, bottom-left corner (2026-11-16, moved out of the
+    -- title per user request). Text is set by MinimapEngine:Update.
+    local speedFrm = CreateFrame("Frame", nil, win.Frm)
+    speedFrm:SetSize(110, 16)
+    speedFrm:SetPoint("BOTTOMLEFT", win.Frm, "BOTTOMLEFT", 8, 4)
+    local speedBg = speedFrm:CreateTexture(nil, "BACKGROUND")
+    speedBg:SetAllPoints()
+    speedBg:SetColorTexture(0, 0, 0, 0.5)
+    local speedText = speedFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    speedText:SetPoint("LEFT", 4, 0)
+    speedText:SetJustifyH("LEFT")
+    speedText:SetTextColor(0.85, 0.85, 0.85)
+    self.SpeedFrm, self.SpeedText = speedFrm, speedText
+    self.Chrome[#self.Chrome + 1] = speedFrm
+
+    -- Dungeon level bar (2026-11-16, user request): top-centre of the
+    -- map, inside any dungeon (UpdateLevelBar). Arrows flip
+    -- through the floors; clicking the name goes back to your own.
+    -- Filled in every tick by UpdateLevelBar.
+    local levelBar = CreateFrame("Frame", nil, win.Frm)
+    levelBar:SetSize(240, 20)
+    levelBar:SetPoint("TOP", win.Frm, "TOP", 0, -((win.TopH or 20) + 4))
+    local levelBg = levelBar:CreateTexture(nil, "BACKGROUND")
+    levelBg:SetAllPoints()
+    levelBg:SetColorTexture(0, 0, 0, 0.6)
+    local function arrow(dir, point, x)
+        local b = CreateFrame("Button", nil, levelBar)
+        b:SetSize(20, 20)
+        b:SetPoint(point, x, 0)
+        local base = "Interface\\Buttons\\UI-SpellbookIcon-" .. (dir < 0 and "Prev" or "Next") .. "Page-"
+        b:SetNormalTexture(base .. "Up")
+        b:SetPushedTexture(base .. "Down")
+        b:SetDisabledTexture(base .. "Disabled")
+        b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+        b:SetScript("OnClick", function() MinimapEngine:StepViewFloor(dir) end)
+        b:SetScript("OnEnter", function(btn)
+            GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
+            GameTooltip:SetText(dir < 0 and "Previous level" or "Next level")
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        return b
+    end
+    local prevBut = arrow(-1, "LEFT", 0)
+    local nextBut = arrow(1, "RIGHT", 0)
+    local nameBut = CreateFrame("Button", nil, levelBar)
+    nameBut:SetPoint("LEFT", prevBut, "RIGHT", 2, 0)
+    nameBut:SetPoint("RIGHT", nextBut, "LEFT", -2, 0)
+    nameBut:SetHeight(20)
+    local levelText = nameBut:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    levelText:SetAllPoints()
+    levelText:SetWordWrap(false)
+    nameBut:SetScript("OnClick", function() MinimapEngine:SetViewFloor(nil) end)
+    nameBut:SetScript("OnEnter", function(btn)
+        GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Dungeon level")
+        GameTooltip:AddLine("Arrows: look at the other levels. Click here: back to the level you're on.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    nameBut:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    levelBar:Hide()
+    self.LevelBar, self.LevelText = levelBar, levelText
+    self.LevelPrev, self.LevelNext = prevBut, nextBut
+    self.Chrome[#self.Chrome + 1] = levelBar
 
     MinimapEngine:TakeOwnership(win, content)
 
@@ -495,4 +477,119 @@ function MinimapWindow:Open()
     end)
 
     win:Show(true)
+    win.Frm:SetFrameStrata(MAP_STRATA)
+    self:SyncStrata()
+end
+
+-- Re-applies the strata stack described in Open() - window at
+-- MAP_STRATA, its own close/max buttons with it, chrome and the player
+-- marker at OVERLAY_STRATA above everything the map draws. Cheap
+-- (string compares) and called every engine tick, since setting a
+-- parent's strata resets its children's.
+-- The dungeon level bar (see Open): shown in every dungeon (with its
+-- arrows greyed out when there is only one level, so it's clear there
+-- is nothing to flip to - user feedback 2026-11-16), hidden elsewhere.
+-- "Level name  2/3", with a green > on the level you are on.
+function MinimapWindow:UpdateLevelBar()
+    local bar = self.LevelBar
+    if not bar then return end
+    local E = AlchemyGPS.Modules.Map.MinimapEngine
+    if not E or not E.GetViewFloorIndex then return end
+    local i = E:GetViewFloorIndex()
+    local floors = E.DungeonFloors
+    if not i or not floors or #floors < 1 then
+        if bar:IsShown() then bar:Hide() end
+        return
+    end
+    local f = floors[i]
+    local winfo = E.MapWorldInfo and E.MapWorldInfo[f.mapId]
+    local name = (winfo and winfo.Name) or f.name or ("Level " .. i)
+    local here = E.PlayerFloor == i and (not E.PlyrPosUnknown or E.RoomFloorKnown)
+    local text = ("%s%s  |cffa0a0a0%d/%d|r"):format(here and "|cff40ff40>|r " or "", name, i, #floors)
+    if text ~= self._LevelText then
+        self._LevelText = text
+        self.LevelText:SetText(text)
+        self.LevelPrev:SetEnabled(i > 1)
+        self.LevelNext:SetEnabled(i < #floors)
+    end
+    if not bar:IsShown() then bar:Show() end
+end
+
+local CHROME_LEVEL_OFFSET = 50
+function MinimapWindow:SyncStrata()
+    local win = self.Win
+    if not win or not win.Frm then return end
+    local f = win.Frm
+    if f:GetFrameStrata() ~= MAP_STRATA then f:SetFrameStrata(MAP_STRATA) end
+
+    local base = self.Content and self.Content:GetFrameLevel() or f:GetFrameLevel()
+    for _, b in ipairs({ win.ButClose, win.ButMaxer }) do
+        local bf = b and b.Frm
+        if bf then
+            if bf:GetFrameStrata() ~= MAP_STRATA then bf:SetFrameStrata(MAP_STRATA) end
+            if bf:GetFrameLevel() < base + CHROME_LEVEL_OFFSET then
+                bf:SetFrameLevel(base + CHROME_LEVEL_OFFSET)
+            end
+        end
+    end
+    for _, c in ipairs(self.Chrome or {}) do
+        if c:GetFrameStrata() ~= OVERLAY_STRATA then c:SetFrameStrata(OVERLAY_STRATA) end
+        if c:GetFrameLevel() ~= base + CHROME_LEVEL_OFFSET then
+            c:SetFrameLevel(base + CHROME_LEVEL_OFFSET)
+        end
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- M / L keys (2026-11-16, user request): M flips the map window between
+-- its normal size and its maximized ("big map") size, opening it first
+-- if it's closed; L toggles the quest list. Done with override
+-- bindings, which sit on top of the player's own key bindings without
+-- ever changing or saving them - turn the "M / L keys" option off in
+-- Settings > Map and the game's own M (world map) / L (quest log) come
+-- straight back. Override bindings can't change during combat, so a
+-- change made in combat is applied when combat ends.
+---------------------------------------------------------------------------------------
+
+function MinimapWindow:ToggleMapSize()
+    if not self.Win or not self.Win:IsShown() then
+        self:Open()
+        return
+    end
+    self.Win:ToggleSize()
+end
+
+function MinimapWindow:ToggleQuestList()
+    local List = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.List
+    if List then List:Toggle() end
+end
+
+-- Global entry points for Bindings.xml.
+_G.AlchemyGPS_ToggleMapSize = function() MinimapWindow:ToggleMapSize() end
+_G.AlchemyGPS_ToggleQuestList = function() MinimapWindow:ToggleQuestList() end
+_G.BINDING_HEADER_ALCHEMYGPS = _G.BINDING_HEADER_ALCHEMYGPS or "Alchemy GPS"
+_G.BINDING_NAME_ALCHEMYGPS_TOGGLEMAP = "Toggle map size (small / big)"
+_G.BINDING_NAME_ALCHEMYGPS_QUESTLIST = "Toggle quest list"
+
+local keyOwner = CreateFrame("Frame", "AlchemyGPSKeyOwner", UIParent)
+keyOwner:RegisterEvent("PLAYER_REGEN_ENABLED")
+keyOwner:SetScript("OnEvent", function()
+    if keyOwner.pending then MinimapWindow:ApplyKeys() end
+end)
+
+function MinimapWindow:ApplyKeys()
+    if InCombatLockdown() then
+        keyOwner.pending = true
+        return
+    end
+    keyOwner.pending = nil
+    ClearOverrideBindings(keyOwner)
+    if self:DB().profile.OverrideMLKeys ~= false then
+        SetOverrideBinding(keyOwner, false, "M", "ALCHEMYGPS_TOGGLEMAP")
+        SetOverrideBinding(keyOwner, false, "L", "ALCHEMYGPS_QUESTLIST")
+        -- Alt+M / Alt+L keep the game's own world map and quest log
+        -- reachable while M and L belong to Alchemy GPS.
+        SetOverrideBinding(keyOwner, false, "ALT-M", "TOGGLEWORLDMAP")
+        SetOverrideBinding(keyOwner, false, "ALT-L", "TOGGLEQUESTLOG")
+    end
 end

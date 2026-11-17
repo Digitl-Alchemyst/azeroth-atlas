@@ -120,6 +120,135 @@ local function buildGeneral(content)
 end
 
 ---------------------------------------------------------------------------------------
+-- Map tab (2026-11-16, user request): everything that used to crowd the
+-- map's title bar - the layer checkboxes and the Filter menu - plus the
+-- new player icons, auto-scale and M / L key options. Scrolls, like the
+-- Quests tab.
+---------------------------------------------------------------------------------------
+
+local MAP_LAYERS = {
+    { key = "Base",    label = "Base - continent backdrop when zoomed far out" },
+    { key = "Art",     label = "Art Map - zones' revealed overlay art" },
+    { key = "Terrain", label = "Terrain - close-zoom ground texture" },
+    { key = "City",    label = "City maps - inside the main cities" },
+    { key = "Dungeon", label = "Dungeon maps - inside dungeons and raids" },
+}
+
+local PLAYER_FILTERS = {
+    { key = "Party", label = "Party members (blue)" },
+    { key = "Raid",  label = "Raid members (orange)" },
+    { key = "Guild", label = "Guildmates (green) - those running Alchemy GPS" },
+    { key = "Enemy", label = "Enemy players (red) - where you last saw them" },
+}
+
+local function mapFilterOn(key)
+    local filters = AlchemyGPS.db.profile.MapFilters
+    return not filters or filters[key] ~= false
+end
+
+local function setMapFilter(key, on)
+    AlchemyGPS.db.profile.MapFilters = AlchemyGPS.db.profile.MapFilters or {}
+    AlchemyGPS.db.profile.MapFilters[key] = on
+end
+
+local function addHeader(parent, y, text)
+    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fs:SetPoint("TOPLEFT", 6, y)
+    fs:SetText(text)
+    return y - 20
+end
+
+local function buildMap(panel)
+    local scroll = Widget.CreateScrollFrame(panel, "AlchemyGPSMapOptionsScroll")
+    scroll:SetPoint("TOPLEFT", 0, 0)
+    scroll:SetPoint("BOTTOMRIGHT", -24, 0)
+    local content = scroll.ScrollChild
+    content:SetWidth(340)
+
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+    local y = -6
+
+    y = addHeader(content, y, "Map layers")
+    for _, layer in ipairs(MAP_LAYERS) do
+        local key = layer.key
+        addCheckbox(content, y, layer.label,
+            function() return MinimapEngine:IsLayerShown(key) end,
+            function(value) MinimapEngine:SetLayerShown(key, value) end)
+        y = y - 26
+    end
+
+    y = y - 8
+    y = addHeader(content, y, "Map icons")
+    if FilterMenu and FilterMenu.FILTERS then
+        for _, f in ipairs(FilterMenu.FILTERS) do
+            local key = f.key
+            addCheckbox(content, y, f.label,
+                function() return FilterMenu.IsFilterOn(key) end,
+                function(value) FilterMenu.SetFilterOn(key, value) end)
+            y = y - 26
+        end
+    end
+
+    y = y - 8
+    y = addHeader(content, y, "Players")
+    for _, f in ipairs(PLAYER_FILTERS) do
+        local key = f.key
+        addCheckbox(content, y, f.label,
+            function() return mapFilterOn(key) end,
+            function(value) setMapFilter(key, value) end)
+        y = y - 26
+    end
+    addCheckbox(content, y, "Show enemies as their faction's emblem",
+        function() return AlchemyGPS.db.profile.EnemyFactionIcons == true end,
+        function(value) AlchemyGPS.db.profile.EnemyFactionIcons = value end)
+    y = y - 26
+    addCheckbox(content, y, "Share my position with my guild",
+        function() return AlchemyGPS.db.profile.ShareGuildPosition ~= false end,
+        function(value) AlchemyGPS.db.profile.ShareGuildPosition = value end)
+    y = y - 26
+
+    y = y - 8
+    y = addHeader(content, y, "Navigation")
+    addCheckbox(content, y, "Center: keep you in the middle of the map",
+        function() return minimapDB().AutoFollow ~= false end,
+        function(value)
+            minimapDB().AutoFollow = value
+            local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+            if MinimapWindow and MinimapWindow.CenterCB then MinimapWindow.CenterCB:SetChecked(value) end
+        end)
+    y = y - 26
+    addCheckbox(content, y, "Follow: zoom to keep you and your destination in view",
+        function() return minimapDB().AutoScale ~= false end,
+        function(value)
+            minimapDB().AutoScale = value
+            local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+            if MinimapWindow and MinimapWindow.FollowCB then MinimapWindow.FollowCB:SetChecked(value) end
+        end)
+    y = y - 26
+    addCheckbox(content, y, "M: map size, L: quest list (Alt+M / Alt+L: Blizzard's)",
+        function() return minimapDB().OverrideMLKeys ~= false end,
+        function(value)
+            minimapDB().OverrideMLKeys = value
+            local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+            if MinimapWindow then MinimapWindow:ApplyKeys() end
+        end)
+    y = y - 26
+
+    local hint = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", 4, y - 6)
+    hint:SetWidth(330)
+    hint:SetJustifyH("LEFT")
+    hint:SetText("Follow fits one destination at a time, in this order: "
+        .. "your goto point, then your corpse, then the quest you're routed to. "
+        .. "Center and Follow are also the two checkboxes on the map's header.\n\n"
+        .. "With the M / L option on, Alt+M and Alt+L open the game's own world map and "
+        .. "quest log. Unticking it gives plain M and L back to them.")
+
+    content:SetHeight(-y + 90)
+end
+
+---------------------------------------------------------------------------------------
 -- Quests tab (quest companion, 2026-11-15)
 ---------------------------------------------------------------------------------------
 
@@ -423,6 +552,8 @@ local function create()
         title  = "Alchemy GPS Settings",
         width  = 380,
         height = 440,
+        -- 2026-11-16: above the map, which now sits in DIALOG strata.
+        strata = "FULLSCREEN_DIALOG",
     }
 
     -- Both panels sit below the 30px-tall tab bar (anchored at the top
@@ -440,7 +571,11 @@ local function create()
     questsPanel:SetPoint("TOPLEFT", 0, -30)
     questsPanel:SetPoint("BOTTOMRIGHT", 0, 0)
 
-    local panels = { general = generalPanel, quests = questsPanel, style = stylePanel }
+    local mapPanel = CreateFrame("Frame", nil, win.content)
+    mapPanel:SetPoint("TOPLEFT", 0, -30)
+    mapPanel:SetPoint("BOTTOMRIGHT", 0, 0)
+
+    local panels = { general = generalPanel, map = mapPanel, quests = questsPanel, style = stylePanel }
 
     local tabBar = AlchemyGPS.UI.TabBar:New{
         parent = win.content,
@@ -449,6 +584,7 @@ local function create()
         anchor = { point = "TOPLEFT", x = 0, y = 0 },
         tabs = {
             { id = "general", label = "General" },
+            { id = "map",     label = "Map" },
             { id = "quests",  label = "Quests" },
             { id = "style",   label = "Style" },
         },
@@ -461,8 +597,10 @@ local function create()
     }
     stylePanel:Hide()
     questsPanel:Hide()
+    mapPanel:Hide()
 
     buildGeneral(generalPanel)
+    buildMap(mapPanel)
     buildQuests(questsPanel)
     buildStyle(stylePanel)
 

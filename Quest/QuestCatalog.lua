@@ -67,6 +67,13 @@ local EndAlts = QuestData.EndAlts or {}
 local Instances = QuestData.Instances or {}
 local ObjectiveDungeons = QuestData.ObjectiveDungeons or {}
 local EndpointDungeons = QuestData.EndpointDungeons or {}
+-- Hand-maintained (Quest/Data/QuestDBManual.lua): quests whose work is
+-- done inside a dungeon that no generated table can say, and Start /
+-- End positions the generated rows lack.
+local QuestDungeons = QuestData.QuestDungeons or {}
+local ManualStart = QuestData.ManualStart or {}
+local ManualEnd = QuestData.ManualEnd or {}
+local EMPTY = {}
 
 Catalog.Quests = {}
 Catalog.Count = 0
@@ -145,6 +152,7 @@ function Catalog:Start()
 end
 
 function Catalog:FinishLoad()
+    self:ApplyManual()
     self:ApplyLearned()
     self:BuildGiverIndex()
     self.Loading = false
@@ -184,6 +192,19 @@ local function hasPosition(se)
     if type(se) ~= "string" then return false end
     local _, zone, _, x, y = strsplit("|", se)
     return (tonumber(zone) or 0) ~= 0 and ((tonumber(x) or 0) > 0 or (tonumber(y) or 0) > 0)
+end
+
+-- Fills the rows' missing Start / End from Quest/Data/QuestDBManual.lua.
+-- Runs before ApplyLearned, which only fills what is still missing.
+function Catalog:ApplyManual()
+    for questID, se in pairs(ManualStart) do
+        local row = self.Quests[questID]
+        if row and not hasPosition(row.Start) then row.Start = se end
+    end
+    for questID, se in pairs(ManualEnd) do
+        local row = self.Quests[questID]
+        if row and not hasPosition(row.End) then row.End = se end
+    end
 end
 
 -- Fills the rows' missing Start / End from the saved positions.
@@ -278,10 +299,36 @@ function Catalog:GetContinent(zone)
     if not zone or zone == 0 then return nil end
     local cont = contCache[zone]
     if cont == nil then
-        cont = Map:FindContinent(zone) or false
-        contCache[zone] = cont
+        cont = Map:FindContinent(zone)
+        -- Only hits are cached: a dungeon floor joins the map's catalog
+        -- when the player first enters it (MinimapEngine
+        -- :ResolveDungeonMap), after it may already have been asked about.
+        if cont then contCache[zone] = cont end
     end
-    return cont or nil
+    return cont
+end
+
+-- The instance id the player is inside right now (GetInstanceInfo's
+-- eighth return - the same ids QuestData.Instances is keyed by), or nil.
+function Catalog:CurrentInstance()
+    if not IsInInstance or not IsInInstance() then return nil end
+    local id = GetInstanceInfo and select(8, GetInstanceInfo())
+    return self:InstanceKey(tonumber(id))
+end
+
+-- QuestData.Instances key for an instance id. WoW Forever's own dungeons
+-- are keyed by instance id; the classic ones by their first map's
+-- uiMapID (Wailing Caverns: instance 43, key 279) - found through the
+-- room data's map list (Map/Data/DungeonRoomData.lua). 2026-11-16.
+function Catalog:InstanceKey(id)
+    if not id then return nil end
+    if Instances[id] then return id end
+    local data = AlchemyGPS.DungeonRoomData
+    local maps = data and data.ClientFloors and data.ClientFloors[id]
+    for _, mapId in ipairs(maps or {}) do
+        if Instances[mapId] then return mapId end
+    end
+    return nil
 end
 
 function Catalog:IsInstanceZone(zone)
@@ -452,7 +499,14 @@ end
 function Catalog:GetObjectiveGeo(questID, objIndex)
     local row = self.Quests[questID]
     local list = row and row.Objectives and row.Objectives[objIndex]
-    if type(list) ~= "table" then return nil end
+    -- A quest QuestDBManual.lua says is done inside a dungeon gets a
+    -- location-less geo naming that dungeon, so routing and the pins
+    -- send the player to its entrance instead of back to the giver.
+    local inside = row and QuestDungeons[questID]
+    if type(list) ~= "table" then
+        if not inside then return nil end
+        list = EMPTY
+    end
 
     local cache = row._geo
     if not cache then
@@ -498,6 +552,12 @@ function Catalog:GetObjectiveGeo(questID, objIndex)
     if extra then
         for i = 1, #extra do
             if Instances[extra[i]] then geo.dungeons = addUnique(geo.dungeons, extra[i]) end
+        end
+    end
+    if inside then
+        for id in tostring(inside):gmatch("%d+") do
+            id = tonumber(id)
+            if Instances[id] then geo.dungeons = addUnique(geo.dungeons, id) end
         end
     end
     geo.n = n

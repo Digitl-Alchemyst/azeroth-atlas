@@ -637,7 +637,8 @@ function Pins:OnRightClick(frm, pt)
     local menu = self.HideMenu
     if not menu then
         menu = CreateFrame("Frame", "AlchemyGPSQuestHideMenu", UIParent, "BackdropTemplate")
-        menu:SetFrameStrata("DIALOG")
+        -- Above the map (DIALOG strata since 2026-11-16).
+        menu:SetFrameStrata("TOOLTIP")
         menu:SetClampedToScreen(true)
         menu:EnableMouse(true)
         if menu.SetBackdrop then
