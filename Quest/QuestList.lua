@@ -328,6 +328,9 @@ local function titleExtras(questID, q)
     if Q.Core:Opt("ListShowIDs") then s = s .. (" |cff9d9d9d#%d|r"):format(questID) end
     return s
 end
+-- The tracker uses the same extras (2026-11-18, user: "on the tracker its
+-- not showing part # of #").
+List.TitleExtras = titleExtras
 
 local function formatSeconds(sec)
     sec = math.floor(sec or 0)
@@ -773,7 +776,7 @@ function List:Start()
     EventBus:Subscribe("QUEST_STATE_CHANGED", redraw)
     EventBus:Subscribe("QUEST_PARTY_CHANGED", redraw)
     -- 2026-11-18: quest IDs / chain parts shown or not.
-    EventBus:Subscribe("QUEST_OPTION_CHANGED", function(key)
+    EventBus:Subscribe("QUEST_OPTION_CHANGED", function(_, key)
         if key == "ListShowIDs" or key == "ListShowChain" then redraw() end
     end)
     EventBus:Subscribe("QUEST_ROUTE_CHANGED", redraw)

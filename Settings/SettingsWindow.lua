@@ -621,7 +621,7 @@ local function buildQuests(panel)
 
     -- 2026-11-18 (user request, from Carbonite): quest IDs, chain parts.
     y = y - 10
-    y = addHeader(content, y, "Quest list")
+    y = addHeader(content, y, "Quest list and tracker")
     addCheckbox(content, y, "Show which part of a chain a quest is (part 2/4)",
         function() return Core:Opt("ListShowChain") ~= false end,
         function(value) Core:SetOpt("ListShowChain", value) end)

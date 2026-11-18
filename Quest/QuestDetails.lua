@@ -250,7 +250,7 @@ function Details:Start()
     local function refresh() self:Refresh() end
     EventBus:Subscribe("QUEST_STATE_CHANGED", refresh)
     EventBus:Subscribe("QUEST_PARTY_CHANGED", refresh)
-    EventBus:Subscribe("QUEST_OPTION_CHANGED", function(key)
+    EventBus:Subscribe("QUEST_OPTION_CHANGED", function(_, key)
         if key == "ListTextSide" and not self:SidePanelOn() then self:Hide() end
         refresh()
     end)

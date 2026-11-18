@@ -217,7 +217,8 @@ You need a friend on your friends list, not in your group, who also runs Alchemy
 | # | Do this | Expect | Result |
 | --- | --- | --- | --- |
 | 2.6.1 | Look at a chain quest in the list | **(part 2/4)** after its title. The tooltip says "Part 2 of 4 in a chain". |  |
-| 2.6.2 | Tick **Show quest IDs** (Settings > Quests > Quest list) | "#1234" after each title. The tooltip always shows "Quest ID". |  |
+| 2.6.2 | Tick **Show quest IDs** (Settings > Quests > Quest list and tracker) | "#1234" after each title in the list **and the tracker**, straight away (no reload). The tooltip always shows "Quest ID". |  |
+| 2.6.1b | Track that chain quest | The tracker shows **(part 2/4)** after its title too. Unticking "Show which part of a chain…" removes it from both at once. |  |
 | 2.6.3 | Open the quest text panel | Its second line shows "Part X of Y" and "ID …". |  |
 | 2.6.4 | With a daily in your log (or one done today) | A blue line at the top says "Dailies: N done today, N in your log, reset in …". WoW Forever may have no dailies; if so, this never shows and that's fine. |  |
 

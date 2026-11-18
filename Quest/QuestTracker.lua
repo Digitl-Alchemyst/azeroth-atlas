@@ -307,6 +307,10 @@ function Tracker:Render()
                 row.kind, row.questID, row.restores, row.zone = "quest", questID, nil, nil
 
                 local title = Pins:ColoredTitle(q.level, q.title, questID)
+                -- (Daily), (part 2/4), #ID - same settings as the quest list.
+                if Q.List and Q.List.TitleExtras then
+                    title = title .. Q.List.TitleExtras(questID, q)
+                end
                 if q.isFailed then
                     title = title .. " |cffff4040(Failed)|r"
                 elseif q.ready then
