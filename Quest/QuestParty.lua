@@ -175,6 +175,41 @@ function Party:GetMembers(questID)
     return list
 end
 
+-- 2026-11-18 (user request, from Carbonite: the quest list's Party
+-- tab). Every other group member and the quests we know they have:
+-- their whole log when they run Alchemy GPS (their shared list), or
+-- else only the quests in OUR log the game says they're on.
+--   { { name, class, level, unit, full = bool, quests = { id, ... } }, ... }
+function Party:GetMemberLogs()
+    local out = {}
+    if not IsInGroup() then return out end
+    local State = Q.State
+    local api = C_QuestLog and C_QuestLog.IsUnitOnQuest
+    local now = GetTime()
+    for _, unit in ipairs(groupUnits()) do
+        local base = UnitName(unit)
+        if readable(base) then
+            local _, class = UnitClass(unit)
+            local m = { name = unitName(unit) or base, class = class, level = UnitLevel(unit),
+                unit = unit, quests = {} }
+            local e = shared[base]
+            if e and e.set and now - (e.t or 0) < SHARED_TTL then
+                m.full = true
+                for id in pairs(e.set) do m.quests[#m.quests + 1] = id end
+            elseif api then
+                for _, q in ipairs(State and State.Quests or {}) do
+                    local ok, r = pcall(api, unit, q.questID)
+                    if ok and readable(r) and r then m.quests[#m.quests + 1] = q.questID end
+                end
+            end
+            table.sort(m.quests)
+            out[#out + 1] = m
+        end
+    end
+    table.sort(out, function(a, b) return a.name < b.name end)
+    return out
+end
+
 -- " [2]" after a title when anyone else in the group has the quest.
 function Party:Badge(questID)
     local list = self:GetMembers(questID)

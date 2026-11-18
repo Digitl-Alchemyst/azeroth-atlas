@@ -503,6 +503,8 @@ function Overlay:Draw(engine)
                         t:SetDrawLayer(layer, sub)
                         local alpha = AREA_ALPHA
                         if focus then alpha = (a.questID == focus) and FOCUS_ALPHA or DIM_ALPHA end
+                        -- 2026-11-18: the map menu's "Quest areas" slider.
+                        alpha = math.min(1, alpha * (engine.QuestAreaOpacity or 1))
                         t:SetColorTexture(a.r, a.g, a.b, alpha)
                         t:ClearAllPoints()
                         t:SetPoint("TOPLEFT", f, "TOPLEFT", x1, -y1)

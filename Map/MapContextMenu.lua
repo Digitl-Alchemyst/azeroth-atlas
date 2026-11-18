@@ -78,35 +78,93 @@
 -- alpha-fade-on-OnUpdate, since Blizzard's highlight layer already
 -- does the show/hide-on-hover part for free).
 
+-- 2026-11-18 (user request, from Carbonite's "Transparency by layer":
+-- "do this but make it work how the ones we already have do, put in
+-- both settings menu and the right click menu on map make the right
+-- click menu more tidy, make it open up or down depending on where on
+-- screen it is so it never flows off screen"): every slider is now one
+-- row of MapContextMenu.SLIDERS - the five above plus city maps,
+-- dungeon maps, unexplored areas, map icons, quest icons and quest
+-- areas - each a profile value applied live to a MinimapEngine field,
+-- exactly like the first five. Settings > Map builds the same list.
+-- The menu itself: the goto rows on top, then two columns ("Map
+-- layers", "Icons") of compact sliders each showing its value, and it
+-- opens down and right from the cursor, or up / left when that would
+-- run off the screen.
+
 local AlchemyGPS = _G.AlchemyGPS
 AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
 
 local MapContextMenu = {}
 AlchemyGPS.Modules.Map.MapContextMenu = MapContextMenu
 
-local DEFAULT_BRIGHTNESS = 1
--- 0-100% only, not an over-brightening range past the tile art's own
--- natural color - explicit user instruction, 2026-11-10 ("i want the
--- working range to be 0-100"), reverting the earlier 0-250% attempt.
-local MIN_BRIGHTNESS, MAX_BRIGHTNESS = 0, 1
+-- One row per slider: profile key, engine field (read by the drawing
+-- code), label, range, step, default, and an optional extra on change.
+local function questOverlayChanged()
+    local Q = AlchemyGPS.Modules.Quest
+    if Q and Q.Overlay then Q.Overlay.Drawn = nil end
+end
 
-local DEFAULT_GATHER_OPACITY = 1
-local MIN_GATHER_OPACITY, MAX_GATHER_OPACITY = 0, 1
+MapContextMenu.SLIDERS = {
+    -- Map layers
+    { col = 1, key = "BackgndBrightness", field = "BackgndAlpha", label = "Zone art",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 1, key = "TerrainBrightness", field = "TerrainBrightness", label = "Terrain",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 1, key = "CityBrightness", field = "CityBrightness", label = "City maps",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 1, key = "DungeonBrightness", field = "DungeonBrightness", label = "Dungeon maps",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 1, key = "UnexploredBrightness", field = "UnexploredBrightness", label = "Unexplored areas",
+      min = 0, max = 1, step = 0.05, default = 0.35 },
+    { col = 1, key = "QuestAreaOpacity", field = "QuestAreaOpacity", label = "Quest areas",
+      min = 0, max = 3, step = 0.1, default = 1, changed = questOverlayChanged },
+    -- Icons
+    { col = 2, key = "PoiOpacity", field = "PoiOpacity", label = "Map icons",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 2, key = "QuestIconOpacity", field = "QuestIconOpacity", label = "Quest icons",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 2, key = "GatherIconOpacity", field = "GatherOpacity", label = "Gathering icons",
+      min = 0, max = 1, step = 0.05, default = 1 },
+    { col = 2, key = "GatherIconScale", field = "GatherIconScale", label = "Gathering icon size",
+      min = 0.5, max = 3, step = 0.1, default = 1 },
+    { col = 2, key = "GatherBackdropOpacity", field = "GatherBackdropOpacity", label = "Gathering backdrop",
+      min = 0, max = 1, step = 0.05, default = 0.7 },
+}
 
-local DEFAULT_GATHER_SCALE = 1
-local MIN_GATHER_SCALE, MAX_GATHER_SCALE = 0.5, 3
+function MapContextMenu.SliderValue(def)
+    local p = AlchemyGPS.db and AlchemyGPS.db.profile
+    local v = p and p[def.key]
+    if v == nil then return def.default end
+    return v
+end
 
-local DEFAULT_GATHER_BACKDROP_OPACITY = 0.7
-local MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY = 0, 1
+function MapContextMenu.SetSliderValue(def, value)
+    if AlchemyGPS.db and AlchemyGPS.db.profile then
+        AlchemyGPS.db.profile[def.key] = value
+    end
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if MinimapEngine then MinimapEngine[def.field] = value end
+    if def.changed then def.changed() end
+end
 
-local DEFAULT_TERRAIN_BRIGHTNESS = 1
--- Same "0-100% only" reasoning as row 1's MIN_BRIGHTNESS/MAX_BRIGHTNESS.
-local MIN_TERRAIN_BRIGHTNESS, MAX_TERRAIN_BRIGHTNESS = 0, 1
+-- Puts every slider's saved value on the engine (at login).
+function MapContextMenu.ApplyAll()
+    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    if not MinimapEngine or not (AlchemyGPS.db and AlchemyGPS.db.profile) then return end
+    for _, def in ipairs(MapContextMenu.SLIDERS) do
+        MinimapEngine[def.field] = MapContextMenu.SliderValue(def)
+    end
+end
 
 local menu
 
-local GOTO_ROW_H = 16
-local GOTO_ROW_GAP = 2
+local ROW_H = 16
+local ROW_GAP = 2
+local COL_W = 200
+local PAD = 12
+local SLIDER_H = 38
+local HEADER_H = 18
 
 -- Thin, borderless highlight row matching real Carbonite's own menu
 -- item look (see header comment above) - a Button (for OnClick/hover)
@@ -115,9 +173,9 @@ local GOTO_ROW_GAP = 2
 -- hover for free instead of Carbonite's own manual alpha-fade.
 local function createMenuRow(parent, text, yOffset, onClick)
     local row = CreateFrame("Button", nil, parent)
-    row:SetHeight(GOTO_ROW_H)
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, yOffset)
-    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -14, yOffset)
+    row:SetHeight(ROW_H)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, yOffset)
+    row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -PAD, yOffset)
 
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints(row)
@@ -133,62 +191,46 @@ local function createMenuRow(parent, text, yOffset, onClick)
     return row
 end
 
-local function applyBrightness(value)
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile.BackgndBrightness = value
-    end
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if MinimapEngine then
-        MinimapEngine.BackgndAlpha = value
-    end
-end
+local function pct(v) return ("%d%%"):format(math.floor(v * 100 + .5)) end
+MapContextMenu.Pct = pct
 
-local function applyGatherOpacity(value)
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile.GatherIconOpacity = value
-    end
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if MinimapEngine then
-        MinimapEngine.GatherOpacity = value
-    end
-end
+-- A compact slider: "Label .......... 80%" over a thin bar.
+local sliderCount = 0
+local function createSlider(parent, def, x, y)
+    sliderCount = sliderCount + 1
+    local name = "AlchemyGPSMapMenuSlider" .. sliderCount
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("TOPLEFT", parent, "TOPLEFT", x + 4, y)
+    label:SetText(def.label)
+    local value = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    value:SetPoint("TOPRIGHT", parent, "TOPLEFT", x + COL_W - 8, y)
 
-local function applyGatherScale(value)
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile.GatherIconScale = value
+    local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
+    slider:SetPoint("TOPLEFT", parent, "TOPLEFT", x + 4, y - 14)
+    slider:SetWidth(COL_W - 12)
+    slider:SetHeight(14)
+    slider:SetMinMaxValues(def.min, def.max)
+    slider:SetValueStep(def.step)
+    slider:SetObeyStepOnDrag(true)
+    for _, part in ipairs({ "Low", "High", "Text" }) do
+        local fs = _G[name .. part]
+        if fs then fs:SetText("") end
     end
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if MinimapEngine then
-        MinimapEngine.GatherIconScale = value
-    end
-end
-
-local function applyGatherBackdropOpacity(value)
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile.GatherBackdropOpacity = value
-    end
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if MinimapEngine then
-        MinimapEngine.GatherBackdropOpacity = value
-    end
-end
-
-local function applyTerrainBrightness(value)
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile.TerrainBrightness = value
-    end
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if MinimapEngine then
-        MinimapEngine.TerrainBrightness = value
-    end
+    slider:SetScript("OnValueChanged", function(self, v)
+        value:SetText(pct(v))
+        if not self.refreshing then MapContextMenu.SetSliderValue(def, v) end
+    end)
+    slider.def = def
+    slider.valueText = value
+    return slider
 end
 
 local function create()
     if menu then return menu end
 
     menu = CreateFrame("Frame", "AlchemyGPSMapContextMenu", UIParent, "BackdropTemplate")
-    menu:SetSize(220, 372)
     menu:SetFrameStrata("TOOLTIP")
+    menu:SetClampedToScreen(true)
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -198,114 +240,57 @@ local function create()
     menu:SetBackdropColor(0, 0, 0, 0.9)
     menu:Hide()
 
-    local gotoRow = createMenuRow(menu, "Set Goto Here", -10, function()
-        local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-        if MinimapEngine then MinimapEngine:SetGotoAtClick() end
-        MapContextMenu:Close()
+    local y = -10
+    local function row(text, fn)
+        local r = createMenuRow(menu, text, y, function()
+            local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+            if MinimapEngine then fn(MinimapEngine) end
+            MapContextMenu:Close()
+        end)
+        y = y - (ROW_H + ROW_GAP)
+        return r
+    end
+    menu.gotoRow = row("Set goto here", function(E) E:SetGotoAtClick() end)
+    -- 2026-11-18: a waypoint here, queued behind the goto (Map/Waypoints.lua).
+    menu.waypointRow = row("Add a waypoint here", function(E)
+        if not E.ClickFrmX then return end
+        local wx, wy = E:FramePosToWorldPos(E.ClickFrmX, E.ClickFrmY)
+        local zone, zx, zy
+        if wx then zone, zx, zy = E:ZoneAtWorld(wx, wy) end
+        local W = AlchemyGPS.Modules.Map.Waypoints
+        if zone and W then
+            W:Add(zone, zx / 100, zy / 100, { title = "Map waypoint", crazy = false, from = "map" })
+        end
     end)
-    menu.gotoRow = gotoRow
+    menu.clearGotoRow = row("Clear goto", function(E) E:ClearGoto() end)
 
-    local clearGotoRow = createMenuRow(menu, "Clear Goto", -10 - (GOTO_ROW_H + GOTO_ROW_GAP), function()
-        local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-        if MinimapEngine then MinimapEngine:ClearGoto() end
-        MapContextMenu:Close()
-    end)
-    menu.clearGotoRow = clearGotoRow
+    -- A thin divider, then the two columns.
+    y = y - 4
+    local line = menu:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(1, 1, 1, 0.15)
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", menu, "TOPLEFT", PAD, y)
+    line:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, y)
+    y = y - 6
 
-    local label = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    -- Anchored to the menu's own top-center, not the slider below it -
-    -- a left-anchored label's "BOTTOM" point sits at the horizontal
-    -- center of its own rendered text width, not the menu's center,
-    -- which is what was actually dragging the slider left (it was
-    -- anchored off this label, not off the menu).
-    label:SetPoint("TOP", menu, "TOP", 0, -52)
-    label:SetText("Tile Map Brightness")
-
-    local slider = CreateFrame("Slider", "AlchemyGPSMapBrightnessSlider", menu, "OptionsSliderTemplate")
-    slider:SetPoint("TOP", menu, "TOP", 0, -76)
-    slider:SetWidth(180)
-    slider:SetMinMaxValues(MIN_BRIGHTNESS, MAX_BRIGHTNESS)
-    slider:SetValueStep(0.05)
-    slider:SetObeyStepOnDrag(true)
-    _G[slider:GetName() .. "Low"]:SetText("0%")
-    _G[slider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_BRIGHTNESS * 100))
-    _G[slider:GetName() .. "Text"]:SetText("")
-    slider:SetScript("OnValueChanged", function(_, value)
-        applyBrightness(value)
-    end)
-    menu.slider = slider
-
-    local gatherLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    gatherLabel:SetPoint("TOP", menu, "TOP", 0, -114)
-    gatherLabel:SetText("Gathering Icon Opacity")
-
-    local gatherSlider = CreateFrame("Slider", "AlchemyGPSGatherOpacitySlider", menu, "OptionsSliderTemplate")
-    gatherSlider:SetPoint("TOP", menu, "TOP", 0, -138)
-    gatherSlider:SetWidth(180)
-    gatherSlider:SetMinMaxValues(MIN_GATHER_OPACITY, MAX_GATHER_OPACITY)
-    gatherSlider:SetValueStep(0.05)
-    gatherSlider:SetObeyStepOnDrag(true)
-    _G[gatherSlider:GetName() .. "Low"]:SetText("0%")
-    _G[gatherSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_GATHER_OPACITY * 100))
-    _G[gatherSlider:GetName() .. "Text"]:SetText("")
-    gatherSlider:SetScript("OnValueChanged", function(_, value)
-        applyGatherOpacity(value)
-    end)
-    menu.gatherSlider = gatherSlider
-
-    local sizeLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sizeLabel:SetPoint("TOP", menu, "TOP", 0, -176)
-    sizeLabel:SetText("Gathering Icon Size")
-
-    local sizeSlider = CreateFrame("Slider", "AlchemyGPSGatherSizeSlider", menu, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOP", menu, "TOP", 0, -200)
-    sizeSlider:SetWidth(180)
-    sizeSlider:SetMinMaxValues(MIN_GATHER_SCALE, MAX_GATHER_SCALE)
-    sizeSlider:SetValueStep(0.1)
-    sizeSlider:SetObeyStepOnDrag(true)
-    _G[sizeSlider:GetName() .. "Low"]:SetText(("%d%%"):format(MIN_GATHER_SCALE * 100))
-    _G[sizeSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_GATHER_SCALE * 100))
-    _G[sizeSlider:GetName() .. "Text"]:SetText("")
-    sizeSlider:SetScript("OnValueChanged", function(_, value)
-        applyGatherScale(value)
-    end)
-    menu.sizeSlider = sizeSlider
-
-    local backdropLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    backdropLabel:SetPoint("TOP", menu, "TOP", 0, -238)
-    backdropLabel:SetText("Gathering Icon Backdrop Opacity")
-
-    local backdropSlider = CreateFrame("Slider", "AlchemyGPSGatherBackdropOpacitySlider", menu, "OptionsSliderTemplate")
-    backdropSlider:SetPoint("TOP", menu, "TOP", 0, -262)
-    backdropSlider:SetWidth(180)
-    backdropSlider:SetMinMaxValues(MIN_GATHER_BACKDROP_OPACITY, MAX_GATHER_BACKDROP_OPACITY)
-    backdropSlider:SetValueStep(0.05)
-    backdropSlider:SetObeyStepOnDrag(true)
-    _G[backdropSlider:GetName() .. "Low"]:SetText("0%")
-    _G[backdropSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_GATHER_BACKDROP_OPACITY * 100))
-    _G[backdropSlider:GetName() .. "Text"]:SetText("")
-    backdropSlider:SetScript("OnValueChanged", function(_, value)
-        applyGatherBackdropOpacity(value)
-    end)
-    menu.backdropSlider = backdropSlider
-
-    local terrainLabel = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    terrainLabel:SetPoint("TOP", menu, "TOP", 0, -300)
-    terrainLabel:SetText("Terrain Brightness")
-
-    local terrainSlider = CreateFrame("Slider", "AlchemyGPSTerrainBrightnessSlider", menu, "OptionsSliderTemplate")
-    terrainSlider:SetPoint("TOP", menu, "TOP", 0, -324)
-    terrainSlider:SetWidth(180)
-    terrainSlider:SetMinMaxValues(MIN_TERRAIN_BRIGHTNESS, MAX_TERRAIN_BRIGHTNESS)
-    terrainSlider:SetValueStep(0.05)
-    terrainSlider:SetObeyStepOnDrag(true)
-    _G[terrainSlider:GetName() .. "Low"]:SetText("0%")
-    _G[terrainSlider:GetName() .. "High"]:SetText(("%d%%"):format(MAX_TERRAIN_BRIGHTNESS * 100))
-    _G[terrainSlider:GetName() .. "Text"]:SetText("")
-    terrainSlider:SetScript("OnValueChanged", function(_, value)
-        applyTerrainBrightness(value)
-    end)
-    menu.terrainSlider = terrainSlider
+    local heads = { "Map layers", "Icons" }
+    local colY = {}
+    for col = 1, 2 do
+        local x = PAD + (col - 1) * COL_W
+        local h = menu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        h:SetPoint("TOPLEFT", menu, "TOPLEFT", x + 4, y)
+        h:SetText(heads[col])
+        colY[col] = y - HEADER_H
+    end
+    menu.sliders = {}
+    for _, def in ipairs(MapContextMenu.SLIDERS) do
+        local col = def.col
+        local x = PAD + (col - 1) * COL_W
+        menu.sliders[#menu.sliders + 1] = createSlider(menu, def, x, colY[col])
+        colY[col] = colY[col] - SLIDER_H
+    end
+    local bottom = math.min(colY[1], colY[2])
+    menu:SetSize(PAD * 2 + COL_W * 2, -bottom + 8)
 
     -- Dismiss on an outside click WITHOUT an intercepting frame: a
     -- full-screen clickable Button over UIParent sat above Blizzard's
@@ -316,16 +301,9 @@ local function create()
     -- can't taint a secure frame's click the way an overlapping
     -- mouse-enabled frame can).
     --
-    -- Found and fixed live, 2026-11-10 (the deferred "large number of
-    -- AddOn errors" bug from earlier this session, finally reproduced
-    -- with an exact error): the global MouseIsOver() function doesn't
-    -- exist on this server's client build - "attempt to call a nil
-    -- value" on every single OnUpdate tick while this menu was open,
-    -- which is exactly what "large number of errors" looks like. Same
-    -- pattern as this session's other missing-default-Blizzard-asset
-    -- finds (the native mail icon texture). Switched to the frame's
-    -- own :IsMouseOver() method instead, which doesn't depend on that
-    -- global and is the more modern, idiomatic equivalent anyway.
+    -- Found and fixed live, 2026-11-10: the global MouseIsOver()
+    -- function doesn't exist on this server's client build - the
+    -- frame's own :IsMouseOver() method is used instead.
     menu:SetScript("OnUpdate", function(self)
         if not self:IsShown() then return end
         if (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
@@ -340,30 +318,25 @@ end
 function MapContextMenu:Open()
     local m = create()
 
-    local brightness = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.BackgndBrightness) or DEFAULT_BRIGHTNESS
-    m.slider:SetValue(brightness)
+    for _, slider in ipairs(m.sliders) do
+        local v = MapContextMenu.SliderValue(slider.def)
+        slider.refreshing = true
+        slider:SetValue(v)
+        slider.refreshing = false
+        slider.valueText:SetText(pct(v))
+    end
 
-    local gatherOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.GatherIconOpacity) or DEFAULT_GATHER_OPACITY
-    m.gatherSlider:SetValue(gatherOpacity)
-
-    local gatherScale = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.GatherIconScale) or DEFAULT_GATHER_SCALE
-    m.sizeSlider:SetValue(gatherScale)
-
-    local gatherBackdropOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.GatherBackdropOpacity) or DEFAULT_GATHER_BACKDROP_OPACITY
-    m.backdropSlider:SetValue(gatherBackdropOpacity)
-
-    local terrainBrightness = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.TerrainBrightness) or DEFAULT_TERRAIN_BRIGHTNESS
-    m.terrainSlider:SetValue(terrainBrightness)
-
-    local x, y = GetCursorPosition()
+    -- Down and right from the cursor, or up / left when that would run
+    -- off the screen.
     local scale = UIParent:GetEffectiveScale()
+    local x, y = GetCursorPosition()
+    x, y = x / scale, y / scale
+    local w, h = m:GetWidth(), m:GetHeight()
+    local up = y - h < 0
+    local left = x + w > UIParent:GetWidth()
+    local point = (up and "BOTTOM" or "TOP") .. (left and "RIGHT" or "LEFT")
     m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+    m:SetPoint(point, UIParent, "BOTTOMLEFT", x, y)
 
     m:Show()
 end
@@ -376,3 +349,8 @@ end
 function MapContextMenu:IsShown()
     return menu ~= nil and menu:IsShown()
 end
+
+-- Saved values onto the engine once the saved settings are in.
+AlchemyGPS.Core.EventBus:Subscribe("ALCHEMYGPS_ENABLE", function()
+    MapContextMenu.ApplyAll()
+end)

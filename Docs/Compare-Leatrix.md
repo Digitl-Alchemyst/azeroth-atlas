@@ -4,6 +4,17 @@
 
 **How this was made.** I went through Leatrix Maps' options panels and code (`R:\addons\Leatrix_Maps`, the WoW Forever build), then searched our code for each feature. Anything we already do is left out. Each item was checked by searching our code, so a few could be wrong. If you spot one we already have, strike it.
 
+## Where we stand (updated 2026-11-18)
+
+**Fully done items are removed from this list.** 5 of the original 21 are done (1.1–1.5: portal icons, tram icons, the other faction's travel, clicking a travel icon or a dungeon entrance to open its map). They're built and deployed but not yet tested in game; their checklist is `Docs/Testing/Leatrix-Features.md`. The numbers below keep their original values.
+
+| | Partly ◐ | Still missing | Left |
+|---|---|---|---|
+| Section 1 — features we don't have | 2 | 14 | 16 |
+
+- **Partly:** unexplored areas (1.7, 1.8). The map's new **Unexplored areas** slider goes from black (0%) to fully revealed (100%), but there's no tint colour.
+- **Still missing:** gamepad support, the dungeon extras (boss badges, level list, arrow keys, right-click), the animated theme extras and Gem Match, the battlefield map, and the settings extras (keybinding panel, own minimap button, languages, reset buttons).
+
 **One thing to know first.** Leatrix changes **Blizzard's own world map**. We **replace** it with our own map, and Alt+M still opens Blizzard's. So some Leatrix features only make sense on Blizzard's map. Those are listed separately in section 4.
 
 ---
@@ -14,19 +25,14 @@
 
 | # | Feature | What it does in Leatrix |
 |---|---|---|
-| 1.1 | ✅ *Done 2026-11-18.* **Portal icons** | Mage-city and other portals get their own icon and their own on/off switch. Ours has no Portals filter. A few portals are inside our zone-transition data, but nothing marks them as portals. |
-| 1.2 | ✅ *Done 2026-11-18.* **Tram icons** | The Deeprun Tram stations are marked and shown with the boats and zeppelins. Ours has no tram icons. |
-| 1.3 | ✅ *Done 2026-11-18.* **Show the other faction's points of interest** | A switch that also shows the other faction's flight points, boats, zeppelins and portals. Ours always hides the other faction's and has no switch. |
-| 1.4 | ✅ *Done 2026-11-18.* **Click a travel icon to open where it goes** | Clicking a zone-exit arrow, portal, boat, zeppelin or tram opens the map of its destination. Ours only shows a tooltip. |
-| 1.5 | ✅ *Done 2026-11-18.* **Click a dungeon entrance to open its map** | Clicking a dungeon or raid icon on a zone map opens that dungeon's map. If several dungeons share one icon, a small list pops up to pick from. Ours can only reach dungeon maps from the big map's Dungeons menu. |
 | 1.6 | **Gamepad support** | With a controller, a crosshair picks the icon under it and shows its tooltip. Ours is mouse-only. |
 
 ### Unexplored areas
 
 | # | Feature | What it does in Leatrix |
 |---|---|---|
-| 1.7 | **Switch to show or hide unexplored areas** | A checkbox for revealing unexplored areas. Ours always draws them dimmed; it's a fixed setting in the code (`SHOW_UNEXPLORED`). |
-| 1.8 | **Tint colour and opacity for unexplored areas** | Red, green, blue and opacity sliders with a live preview square, so unexplored parts can be tinted any colour. Ours uses one fixed dim (35%). |
+| 1.7 | ◐ *Partly, 2026-11-18.* **Switch to show or hide unexplored areas** | A checkbox for revealing unexplored areas. *Ours now has an **Unexplored areas** slider (map right-click menu and Settings > Map). At 100% they look explored, so it does the same job; there's no checkbox.* |
+| 1.8 | ◐ *Partly, 2026-11-18.* **Tint colour and opacity for unexplored areas** | Red, green, blue and opacity sliders with a live preview square, so unexplored parts can be tinted any colour. *Ours now sets their brightness (default 35%) with the same slider. There's no tint colour.* |
 
 ### Dungeon maps
 
@@ -79,8 +85,9 @@ We have all 15 Leatrix themes. What we left out is the animated extras:
 ## 3. What we already match or beat (for balance)
 
 - **Dungeon maps:** entrances, level-change arrows you can click, boss portraits, previewing dungeon maps from outside them, mouse-wheel zoom and drag-pan. Ours also adds quest pins inside dungeons.
-- **Points of interest:** flight masters, boats, zeppelins, spirit healers, zone exits, dungeon entrances. Ours also adds innkeepers, mailboxes, bankers, auctioneers, guard directions, gathering nodes and treasure.
+- **Points of interest:** flight masters, boats, zeppelins, portals, trams, spirit healers, zone exits, dungeon entrances, plus the other faction's travel on a switch, and clicking any of them to open where it goes. Ours also adds innkeepers, mailboxes, bankers, auctioneers, class and profession trainers, guard directions, gathering nodes (with your own recorded ones) and treasure.
 - **Map frame:** all 15 themes on either map, continent / zone / dungeon menus in the title bar, fishing levels.
+- **Map layers (2026-11-18):** brightness and opacity sliders for 11 layers, on the map's right-click menu and in Settings. Leatrix has no equivalent.
 
 ---
 

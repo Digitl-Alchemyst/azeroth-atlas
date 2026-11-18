@@ -126,6 +126,88 @@ local function show(title, items)
     m:Show()
 end
 
+---------------------------------------------------------------------------------------
+-- Links (2026-11-18, user request, from Carbonite: "Shift-right-click
+-- puts a quest link in chat. Quest links can carry level and part
+-- number. You can also copy a Wowhead link" - "make work for both list
+-- and tracker"). Both windows' Shift-right-click and this menu's two
+-- rows call these. The level and chain part go AFTER the link as plain
+-- text - the server may refuse a link whose own text was changed.
+---------------------------------------------------------------------------------------
+
+local Links = {}
+Q.Links = Links
+
+local WOWHEAD = "https://www.wowhead.com/classic/quest=%d"
+
+function Links:Get(questID)
+    local q = Q.State:GetQuest(questID)
+    local get = _G.GetQuestLink
+    if get then
+        local ok, link = pcall(get, questID)
+        if ok and type(link) == "string" and link:find("|Hquest:") then return link end
+        local idx = Q.Api:GetLogIndexForQuestID(questID)
+        if idx then
+            ok, link = pcall(get, idx)
+            if ok and type(link) == "string" and link:find("|Hquest:") then return link end
+        end
+    end
+    local title = (q and q.title) or Q.Api:GetTitle(questID) or ("Quest " .. questID)
+    return ("|cffffff00|Hquest:%d:%d|h[%s]|h|r"):format(questID, (q and q.level) or 0, title)
+end
+
+-- The link, plus " (level 12, part 2/4)" when that's switched on.
+function Links:ChatText(questID)
+    local text = self:Get(questID)
+    if Q.Core:Opt("QuestLinkExtras") ~= false then
+        local q = Q.State:GetQuest(questID)
+        local bits = {}
+        if q and q.level and q.level > 0 then bits[#bits + 1] = "level " .. q.level end
+        local part, total
+        if Q.Catalog then part, total = Q.Catalog:GetChainPart(questID) end
+        if part then bits[#bits + 1] = ("part %d/%d"):format(part, total) end
+        if #bits > 0 then text = text .. " (" .. table.concat(bits, ", ") .. ")" end
+    end
+    return text
+end
+
+-- Into the chat box being typed in, or a new one.
+function Links:InsertInChat(questID)
+    local text = self:ChatText(questID)
+    local box = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
+    if box and ChatEdit_InsertLink then
+        ChatEdit_InsertLink(text)
+    elseif ChatFrame_OpenChat then
+        ChatFrame_OpenChat(text)
+    end
+end
+
+StaticPopupDialogs["ALCHEMYGPS_COPY_URL"] = {
+    text = "%s\n\nPress Ctrl+C to copy.",
+    button1 = CLOSE or "Close",
+    hasEditBox = true,
+    editBoxWidth = 320,
+    OnShow = function(self, data)
+        local box = self.editBox or self.EditBox
+        if box then
+            box:SetText(data or "")
+            box:HighlightText()
+            box:SetFocus()
+        end
+    end,
+    EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+function Links:CopyWowhead(questID)
+    local q = Q.State:GetQuest(questID)
+    StaticPopup_Show("ALCHEMYGPS_COPY_URL", (q and q.title) or ("Quest " .. questID), nil,
+        WOWHEAD:format(questID))
+end
+
 -- Opens the menu for a quest. opts:
 --   textShown      the quest's text is open in the list (nil: no text row)
 --   onText         toggles it
@@ -154,6 +236,10 @@ function Menu:Open(questID, opts)
     items[#items + 1] = { watched and "Untrack" or "Track", function()
         State:SetWatched(questID, not watched)
     end }
+    items[#items + 1] = { "Link in chat  |cff9d9d9d(Shift-right-click)|r", function()
+        Links:InsertInChat(questID)
+    end }
+    items[#items + 1] = { "Copy Wowhead link", function() Links:CopyWowhead(questID) end }
     local canShare = Api:CanShare(questID)
     items[#items + 1] = { IsInGroup() and "Share with group" or "Share with group (not in a group)",
         function() Api:Share(questID) end, not canShare }

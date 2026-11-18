@@ -49,5 +49,11 @@
     <Script file="QuestMenu.lua" />
     <Script file="QuestTracker.lua" />
     <Script file="QuestList.lua" />
+    <!-- 2026-11-18: the quest text side panel. -->
+    <Script file="QuestDetails.lua" />
+    <!-- 2026-11-18: quest-complete sound, progress messages. -->
+    <Script file="QuestNotify.lua" />
+    <!-- 2026-11-18: quest lines on mob and item tooltips. -->
+    <Script file="QuestTooltips.lua" />
     <Script file="HUDArrow.lua" />
 </Ui>

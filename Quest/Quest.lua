@@ -43,6 +43,12 @@ local DEFAULTS = {
     ArrowShown = true,
     ArrowLocked = false,
     ArrowScale = 1,
+    -- 2026-11-18 (user request, from Carbonite's HUD options): degrees
+    -- off course after the distance, click the arrow to target who
+    -- you're heading to, hide it in battlegrounds.
+    ArrowDirText = false,
+    ArrowTargetButton = true,
+    ArrowHideInBG = false,
     RouteTrail = true,          -- ant trail to the routed target on the map
     SuperTrackSync = true,      -- mirror our target into C_SuperTrack
     ShowLowLevel = false,       -- pickup pins for trivial (gray) quests
@@ -195,7 +201,7 @@ end
 
 local STARTUP = {
     "Catalog", "Rules", "State", "TrackerHider", "Routing", "SuperTrack", "Pins", "Overlay",
-    "Items", "Tracker", "List", "HUD",
+    "Items", "Tracker", "List", "Details", "Notify", "Tooltips", "HUD",
 }
 
 function Core:Start()

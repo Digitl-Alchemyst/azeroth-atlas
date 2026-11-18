@@ -12,6 +12,7 @@
 --   Click a quest          route the arrow to it (click again to release)
 --   Right-click            collapse / expand its objectives
 --   Shift-click            take it off the tracker
+--   Shift-right-click      put its link in chat (2026-11-18)
 --   Click a zone heading   fold / unfold that zone's quests
 --   Shift-click a heading  take the whole zone off the tracker
 --   "Auto" in the title    route to whichever tracked quest is closest
@@ -68,7 +69,9 @@ local function rowOnClick(row, button)
     local questID = row.questID
     if not questID then return end
 
-    if button == "RightButton" then
+    if button == "RightButton" and IsShiftKeyDown() and Q.Links then
+        Q.Links:InsertInChat(questID)       -- 2026-11-18: link in chat
+    elseif button == "RightButton" then
         -- 2026-11-16: the quest menu (Quest/QuestMenu.lua) - collapse,
         -- route, track, share, abandon.
         local collapsed = Core:Char("Collapsed")
@@ -129,7 +132,7 @@ local function rowOnEnter(row)
     if Q.Party then Q.Party:AddTooltip(q.questID) end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Click: route here    Right-click: menu (collapse, share, abandon)", 0.6, 0.6, 0.6, true)
-    GameTooltip:AddLine("Shift-click: stop tracking", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("Shift-click: stop tracking    Shift-right-click: link in chat", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
 

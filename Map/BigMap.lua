@@ -142,7 +142,15 @@ local function openMenu(owner, items)
     for i = #items + 1, #m.rows do m.rows[i]:Hide() end
     m:SetSize(PAD * 2 + cols * COL_W - 4, PAD * 2 + rows * ROW_H)
     m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
+    -- 2026-11-18 (user request): opens upward when there isn't room
+    -- below the owner, so it never runs off the bottom of the screen.
+    local bottom = owner:GetBottom()
+    local ratio = owner:GetEffectiveScale() / m:GetEffectiveScale()
+    if bottom and bottom * ratio - m:GetHeight() - 2 < 0 then
+        m:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", 0, 2)
+    else
+        m:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
+    end
     m:Show()
 end
 -- 2026-11-18: also used by the map's dungeon entrance icons (a list

@@ -75,6 +75,50 @@ local function addCheckbox(parent, y, label, get, set)
     return cb
 end
 
+-- 2026-11-18: a labelled slider ("Arrow size: 1.2"), refreshed with the
+-- checkboxes. Takes 46 pixels of height; fmt formats the value.
+local sliders = {}
+local nextSliderID = 0
+
+local function addSlider(parent, y, label, minV, maxV, step, get, set, fmt)
+    nextSliderID = nextSliderID + 1
+    local name = "AlchemyGPSSettingsSlider" .. nextSliderID
+    local s = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
+    s:SetPoint("TOPLEFT", 14, y - 16)
+    s:SetWidth(296)
+    s:SetMinMaxValues(minV, maxV)
+    s:SetValueStep(step)
+    if s.SetObeyStepOnDrag then s:SetObeyStepOnDrag(true) end
+    fmt = fmt or "%g"
+    -- fmt: a format string, or a function (value -> text).
+    local function fmtv(v)
+        if type(fmt) == "function" then return fmt(v) end
+        return fmt:format(v)
+    end
+    local text, low, high = _G[name .. "Text"], _G[name .. "Low"], _G[name .. "High"]
+    if low then low:SetText(fmtv(minV)) end
+    if high then high:SetText(fmtv(maxV)) end
+    local function show(v)
+        if text then text:SetText(label .. ": " .. fmtv(v)) end
+    end
+    s:SetScript("OnValueChanged", function(self, v)
+        v = math.floor(v / step + .5) * step
+        show(v)
+        if not self.refreshing then set(v) end
+    end)
+    local entry = { get = get }
+    function entry.refresh()
+        local v = get() or minV
+        s.refreshing = true
+        s:SetValue(v)
+        s.refreshing = false
+        show(v)
+    end
+    entry.refresh()
+    tinsert(sliders, entry)
+    return s
+end
+
 local function buildGeneral(content)
     local y = -6
 
@@ -138,6 +182,7 @@ local PLAYER_FILTERS = {
     { key = "Party", label = "Party members (blue)" },
     { key = "Raid",  label = "Raid members (orange)" },
     { key = "Guild", label = "Guildmates (green) - those running Alchemy GPS" },
+    { key = "Friend", label = "Friends (yellow) - those running Alchemy GPS" },
     { key = "Enemy", label = "Enemy players (red) - where you last saw them" },
 }
 
@@ -177,6 +222,14 @@ local function buildMap(panel)
             function(value) MinimapEngine:SetLayerShown(key, value) end)
         y = y - 26
     end
+    -- 2026-11-18 (user request, from Carbonite): subzone names.
+    addCheckbox(content, y, "Subzone names (Goldshire...) as you zoom in",
+        function() return AlchemyGPS.db.profile.ShowAreaNames ~= false end,
+        function(value)
+            AlchemyGPS.db.profile.ShowAreaNames = value
+            MinimapEngine.AreaLabelKey = nil
+        end)
+    y = y - 26
 
     y = y - 8
     y = addHeader(content, y, "Map icons")
@@ -207,6 +260,183 @@ local function buildMap(panel)
         function() return AlchemyGPS.db.profile.ShareGuildPosition ~= false end,
         function(value) AlchemyGPS.db.profile.ShareGuildPosition = value end)
     y = y - 26
+    addCheckbox(content, y, "Share my position with online friends",
+        function() return AlchemyGPS.db.profile.ShareFriendPosition ~= false end,
+        function(value) AlchemyGPS.db.profile.ShareFriendPosition = value end)
+    y = y - 26
+
+    -- 2026-11-18 (user request, from Carbonite): Map/MouseActions.lua.
+    -- A button per click; clicking it lists the jobs it can have.
+    local MouseActions = AlchemyGPS.Modules.Map.MouseActions
+    if MouseActions then
+        y = y - 8
+        y = addHeader(content, y, "Mouse clicks on the map")
+        local note = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        note:SetPoint("TOPLEFT", 6, y)
+        note:SetWidth(320)
+        note:SetJustifyH("LEFT")
+        note:SetText("Each of these does nothing until you give it a job. Plain left-drag "
+            .. "still moves the map and plain right-click still opens its menu.")
+        y = y - 30
+        for _, slot in ipairs(MouseActions.SLOTS) do
+            local key = slot.key
+            local label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            label:SetPoint("TOPLEFT", 8, y - 4)
+            label:SetText(slot.label)
+            local btn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+            btn:SetSize(190, 20)
+            btn:SetPoint("TOPLEFT", 140, y)
+            local function refresh() btn:SetText(MouseActions:Label(MouseActions:Get(key))) end
+            refresh()
+            btn:SetScript("OnShow", refresh)
+            btn:SetScript("OnClick", function(self)
+                local BigMap = AlchemyGPS.Modules.Map.BigMap
+                if not (BigMap and BigMap.OpenMenu) then return end
+                local items = {}
+                local current = MouseActions:Get(key)
+                for _, a in ipairs(MouseActions.ACTIONS) do
+                    items[#items + 1] = { a.label, function()
+                        MouseActions:Set(key, a.id)
+                        refresh()
+                    end, a.id == current }
+                end
+                BigMap.OpenMenu(self, items)
+            end)
+            y = y - 24
+        end
+    end
+
+    -- 2026-11-18 (user request, from Carbonite: transparency by layer):
+    -- the same sliders as the map's right-click menu (one list,
+    -- MapContextMenu.SLIDERS).
+    local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+    if MapContextMenu and MapContextMenu.SLIDERS then
+        y = y - 8
+        y = addHeader(content, y, "Brightness and opacity")
+        local tip = content:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        tip:SetPoint("TOPLEFT", 6, y + 2)
+        tip:SetText("Also on the map's right-click menu.")
+        y = y - 14
+        for _, def in ipairs(MapContextMenu.SLIDERS) do
+            addSlider(content, y, def.label, def.min, def.max, def.step,
+                function() return MapContextMenu.SliderValue(def) end,
+                function(v) MapContextMenu.SetSliderValue(def, v) end,
+                MapContextMenu.Pct)
+            y = y - 46
+        end
+    end
+
+    -- 2026-11-18 (user request, from Carbonite): Map/GatherRecorder.lua.
+    local Recorder = AlchemyGPS.Modules.Map.GatherRecorder
+    if Recorder then
+        y = y - 8
+        y = addHeader(content, y, "Gathered nodes")
+        -- Node glow's settings (on, near-only, speed) are hidden while
+        -- the feature is parked (MinimapEngine.lua, GATHER_GLOW_ENABLED).
+        addCheckbox(content, y, "Record the herbs, ore and treasure you gather",
+            function() return AlchemyGPS.db.profile.RecordGathering ~= false end,
+            function(value) AlchemyGPS.db.profile.RecordGathering = value end)
+        y = y - 28
+        local x = 4
+        for _, kind in ipairs(Recorder.KINDS) do
+            local btn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+            btn:SetSize(108, 22)
+            btn:SetPoint("TOPLEFT", x, y)
+            local function label()
+                local n = Recorder:Count(kind)
+                btn:SetText(("Clear %s (%d)"):format(kind == "Mine" and "mining" or kind:lower(), n))
+                btn:SetEnabled(n > 0)
+            end
+            btn:SetScript("OnShow", label)
+            btn:SetScript("OnClick", function()
+                Recorder:Clear(kind)
+                label()
+            end)
+            btn:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText("Forget every " .. Recorder.KIND_LABEL[kind]:gsub("s$", "") .. " you recorded")
+                GameTooltip:AddLine("Every character's - the map's own nodes stay.", 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            label()
+            x = x + 112
+        end
+        y = y - 30
+
+        -- 2026-11-18 (user request, from Carbonite): one-off import.
+        local imp = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+        imp:SetSize(220, 22)
+        imp:SetPoint("TOPLEFT", 4, y)
+        imp:SetText("Import from GatherMate2_Data")
+        local rem = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+        rem:SetSize(120, 22)
+        rem:SetPoint("LEFT", imp, "RIGHT", 4, 0)
+        rem:SetText("Remove import")
+        local status = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        status:SetPoint("TOPLEFT", 8, y - 26)
+        status:SetWidth(440)
+        status:SetJustifyH("LEFT")
+        local function showStatus(msg)
+            local info = Recorder:ImportInfo()
+            rem:SetEnabled(info ~= nil)
+            if msg then
+                status:SetText(msg)
+            elseif info then
+                local c = info.counts or {}
+                status:SetText(("Using imported data (%s): %d herbs, %d mining, %d treasure.")
+                    :format(info.when and date("%Y-%m-%d", info.when) or "?", c.Herb or 0, c.Mine or 0, c.Treasure or 0))
+            else
+                status:SetText("Using the map's built-in gathering data.")
+            end
+        end
+        imp:SetScript("OnClick", function()
+            local _, msg = Recorder:Import()
+            showStatus(msg)
+        end)
+        rem:SetScript("OnClick", function()
+            Recorder:RemoveImport()
+            showStatus()
+        end)
+        imp:SetScript("OnShow", function() showStatus() end)
+        showStatus()
+        y = y - 56
+    end
+
+    -- 2026-11-18 (user request, from Carbonite): MinimapEngine:UpdateTrail.
+    y = y - 8
+    y = addHeader(content, y, "Movement trail")
+    addCheckbox(content, y, "Show a trail of dots where you've walked",
+        function() return AlchemyGPS.db.profile.ShowTrail ~= false end,
+        function(value) AlchemyGPS.db.profile.ShowTrail = value end)
+    y = y - 26
+    addSlider(content, y, "Yards between dots", 2, 50, 1,
+        function() return AlchemyGPS.db.profile.TrailYards or 10 end,
+        function(v) AlchemyGPS.db.profile.TrailYards = v end, "%d")
+    y = y - 46
+    addSlider(content, y, "Most dots", 10, 300, 10,
+        function() return AlchemyGPS.db.profile.TrailCount or 100 end,
+        function(v) AlchemyGPS.db.profile.TrailCount = v end, "%d")
+    y = y - 46
+    addSlider(content, y, "Seconds a dot lasts", 10, 600, 10,
+        function() return AlchemyGPS.db.profile.TrailSeconds or 90 end,
+        function(v) AlchemyGPS.db.profile.TrailSeconds = v end, "%d")
+    y = y - 46
+
+    -- 2026-11-18 (user request, from Carbonite): Map/CombatState.lua.
+    y = y - 8
+    y = addHeader(content, y, "In combat")
+    for _, o in ipairs({
+        { key = "CombatShrinkMap",      label = "Big map drops to the small map when combat starts" },
+        { key = "CombatCloseQuestList", label = "Quest list closes when combat starts" },
+        { key = "CombatRestore",        label = "Put them back the way they were when combat ends" },
+    }) do
+        local key = o.key
+        addCheckbox(content, y, o.label,
+            function() return AlchemyGPS.db.profile[key] ~= false end,
+            function(value) AlchemyGPS.db.profile[key] = value end)
+        y = y - 26
+    end
 
     -- 2026-11-17: the big map (M) - Map/BigMap.lua.
     y = y - 8
@@ -222,6 +452,24 @@ local function buildMap(panel)
 
     y = y - 8
     y = addHeader(content, y, "Navigation")
+    -- 2026-11-18 (user request, from Carbonite): Map/Travel.lua.
+    addCheckbox(content, y, "Travel routes: use flight paths, boats and portals",
+        function() return AlchemyGPS.db.profile.TravelRoute ~= false end,
+        function(value)
+            AlchemyGPS.db.profile.TravelRoute = value
+            local Travel = AlchemyGPS.Modules.Map.Travel
+            if Travel then Travel.CacheKey = nil end
+        end)
+    y = y - 26
+    addCheckbox(content, y, "Follow your flight: the arrow points where it lands",
+        function() return AlchemyGPS.db.profile.TrackFlight ~= false end,
+        function(value) AlchemyGPS.db.profile.TrackFlight = value end)
+    y = y - 26
+    -- 2026-11-18 (user request, from Carbonite): Map/Waypoints.lua.
+    addCheckbox(content, y, "Act as TomTom: /way, and waypoints from other addons (/reload)",
+        function() return AlchemyGPS.db.profile.EmulateTomTom ~= false end,
+        function(value) AlchemyGPS.db.profile.EmulateTomTom = value end)
+    y = y - 26
     addCheckbox(content, y, "Center: keep you in the middle of the map",
         function() return minimapDB().AutoFollow ~= false end,
         function(value)
@@ -319,6 +567,182 @@ local function buildQuests(panel)
             y = y - 26
         end
     end
+
+    -- 2026-11-18 (user request, from Carbonite's HUD options): the arrow.
+    -- Its look is on the Style tab ("Quest Arrow").
+    y = y - 10
+    y = addHeader(content, y, "Arrow")
+    for _, opt in ipairs({
+        { key = "ArrowDirText",      label = "Show how many degrees you're off course" },
+        { key = "ArrowTargetButton", label = "Click the arrow to target who you're heading to" },
+        { key = "ArrowHideInBG",     label = "Hide the arrow in battlegrounds" },
+    }) do
+        local key = opt.key
+        addCheckbox(content, y, opt.label,
+            function() return Core:Opt(key) end,
+            function(value) Core:SetOpt(key, value) end)
+        y = y - 26
+    end
+    addSlider(content, y, "Arrow size", 0.5, 2, 0.05,
+        function() return Core:Opt("ArrowScale") or 1 end,
+        function(v) Core:SetOpt("ArrowScale", v) end, "%.2f")
+    y = y - 46
+    -- X / Y: where the arrow's middle sits, from the middle of the screen.
+    -- Dragging the arrow moves these too.
+    local function arrowOffset(axis)
+        local HUD = AlchemyGPS.Modules.Quest.HUD
+        local f = HUD and HUD.Frm
+        local cx, cy
+        if f then cx, cy = f:GetCenter() end
+        if cx then
+            local k = f:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            local ux, uy = UIParent:GetCenter()
+            return math.floor((axis == "x" and (cx - ux / k) or (cy - uy / k)) + .5)
+        end
+        local a = Core:ProfileTable("ArrowAnchor")
+        return (a.point == "CENTER" and a[axis]) or 0
+    end
+    local function setArrowOffset(axis, v)
+        local a = Core:ProfileTable("ArrowAnchor")
+        local ox, oy = arrowOffset("x"), arrowOffset("y")
+        a.point, a.relPoint = "CENTER", "CENTER"
+        a.x, a.y = ox, oy
+        a[axis] = v
+        AlchemyGPS.Core.EventBus:Fire("QUEST_OPTION_CHANGED", "ArrowAnchor")
+    end
+    addSlider(content, y, "Arrow X offset", -800, 800, 1,
+        function() return arrowOffset("x") end,
+        function(v) setArrowOffset("x", v) end, "%d")
+    y = y - 46
+    addSlider(content, y, "Arrow Y offset", -500, 500, 1,
+        function() return arrowOffset("y") end,
+        function(v) setArrowOffset("y", v) end, "%d")
+    y = y - 46
+
+    -- 2026-11-18 (user request, from Carbonite): quest IDs, chain parts.
+    y = y - 10
+    y = addHeader(content, y, "Quest list")
+    addCheckbox(content, y, "Show which part of a chain a quest is (part 2/4)",
+        function() return Core:Opt("ListShowChain") ~= false end,
+        function(value) Core:SetOpt("ListShowChain", value) end)
+    y = y - 26
+    addCheckbox(content, y, "Show quest IDs",
+        function() return Core:Opt("ListShowIDs") == true end,
+        function(value) Core:SetOpt("ListShowIDs", value) end)
+    y = y - 26
+    addCheckbox(content, y, "Quest links in chat say the level and chain part",
+        function() return Core:Opt("QuestLinkExtras") ~= false end,
+        function(value) Core:SetOpt("QuestLinkExtras", value) end)
+    y = y - 26
+
+    -- 2026-11-18 (user request, from Carbonite): Quest/QuestNotify.lua.
+    local Notify = AlchemyGPS.Modules.Quest.Notify
+    if Notify then
+        y = y - 10
+        y = addHeader(content, y, "Quest progress")
+        local label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("TOPLEFT", 8, y - 4)
+        label:SetText("Sound")
+        local btn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+        btn:SetSize(190, 20)
+        btn:SetPoint("TOPLEFT", 70, y)
+        local function refresh() btn:SetText(Notify:SoundLabel(Notify:SoundChoice())) end
+        refresh()
+        btn:SetScript("OnShow", refresh)
+        btn:SetScript("OnClick", function(self)
+            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            if not (BigMap and BigMap.OpenMenu) then return end
+            local cur = Notify:SoundChoice()
+            local items = {}
+            local function add(choice)
+                items[#items + 1] = { Notify:SoundLabel(choice), function()
+                    Core:SetOpt("CompleteSound", choice)
+                    refresh()
+                    Notify:PlaySound(choice)
+                end, choice == cur }
+            end
+            add(0)
+            for i = 1, #Notify.SOUNDS do add(i) end
+            add("random")
+            BigMap.OpenMenu(self, items)
+        end)
+        local play = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+        play:SetSize(60, 20)
+        play:SetPoint("LEFT", btn, "RIGHT", 4, 0)
+        play:SetText("Play")
+        play:SetScript("OnClick", function() Notify:PlaySound() end)
+        y = y - 28
+        -- 2026-11-18 (user request, from Carbonite): progress to the group.
+        addCheckbox(content, y, "Tell my party / raid in chat as my objectives progress",
+            function() return Core:Opt("GroupProgressMsg") == true end,
+            function(value) Core:SetOpt("GroupProgressMsg", value) end)
+        y = y - 30
+        addSlider(content, y, "Say it every this many kills / items", 1, 10, 1,
+            function() return Core:Opt("GroupProgressEvery") or 1 end,
+            function(v) Core:SetOpt("GroupProgressEvery", v) end, "%d")
+        y = y - 46
+        -- 2026-11-18 (user request, from Carbonite): auto-watch.
+        -- 2026-11-18 (user request, from Carbonite): Quest/QuestTooltips.lua.
+        addCheckbox(content, y, "Quest progress on mob and item tooltips",
+            function() return Core:Opt("QuestTooltips") ~= false end,
+            function(value) Core:SetOpt("QuestTooltips", value) end)
+        y = y - 26
+        addCheckbox(content, y, "Track a quest again when it progresses",
+            function() return Core:Opt("AutoWatchProgress") ~= false end,
+            function(value) Core:SetOpt("AutoWatchProgress", value) end)
+        y = y - 26
+        addCheckbox(content, y, "Stop tracking a quest once it's ready to hand in",
+            function() return Core:Opt("AutoUnwatchDone") == true end,
+            function(value) Core:SetOpt("AutoUnwatchDone", value) end)
+        y = y - 26
+    end
+
+    -- 2026-11-18 (user request, from Carbonite): Quest/QuestDetails.lua.
+    y = y - 10
+    y = addHeader(content, y, "Quest text")
+    addCheckbox(content, y, "Show quest text in a panel beside the list",
+        function() return Core:Opt("ListTextSide") ~= false end,
+        function(value) Core:SetOpt("ListTextSide", value) end)
+    y = y - 26
+    addCheckbox(content, y, "Parchment background",
+        function() return Core:Opt("DetailsParchment") ~= false end,
+        function(value) Core:SetOpt("DetailsParchment", value) end)
+    y = y - 28
+    do
+        local Details = AlchemyGPS.Modules.Quest.Details
+        local label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetPoint("TOPLEFT", 8, y - 4)
+        label:SetText("Text colour")
+        local btn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+        btn:SetSize(210, 20)
+        btn:SetPoint("TOPLEFT", 110, y)
+        local function refresh()
+            local cur = Core:Opt("DetailsColor") or "auto"
+            for _, c in ipairs(Details and Details.COLOR_CHOICES or {}) do
+                if c.id == cur then btn:SetText(c.label) end
+            end
+        end
+        refresh()
+        btn:SetScript("OnShow", refresh)
+        btn:SetScript("OnClick", function(self)
+            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            if not (BigMap and BigMap.OpenMenu and Details) then return end
+            local cur = Core:Opt("DetailsColor") or "auto"
+            local items = {}
+            for _, c in ipairs(Details.COLOR_CHOICES) do
+                items[#items + 1] = { c.label, function()
+                    Core:SetOpt("DetailsColor", c.id)
+                    refresh()
+                end, c.id == cur }
+            end
+            BigMap.OpenMenu(self, items)
+        end)
+        y = y - 30
+    end
+    addSlider(content, y, "Quest text size", 0.7, 1.5, 0.05,
+        function() return Core:Opt("DetailsScale") or 1 end,
+        function(v) Core:SetOpt("DetailsScale", v) end, "%.2f")
+    y = y - 46
 
     y = y - 8
     local trackAll = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
@@ -657,6 +1081,7 @@ function SettingsWindow:Refresh()
     for _, entry in ipairs(checkboxes) do
         entry.cb:SetChecked(entry.get() and true or false)
     end
+    for _, entry in ipairs(sliders) do entry.refresh() end
     for _, fn in ipairs(swatchRefreshers) do fn() end
 end
 

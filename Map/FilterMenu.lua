@@ -80,6 +80,13 @@ local FILTERS = {
     { key = "OpposingFaction", label = "Other faction's travel", default = false },
     { key = "GuardFlag",       label = "Guard Directions" },
     { key = "SpiritHealer",    label = "Spirit Healers" },
+    -- 2026-11-18 (user request, from Carbonite): Questie, GatherMate2,
+    -- HandyNotes... pins from Blizzard's map (Map/AddonPins.lua).
+    { key = "AddonPins",       label = "Other addons' pins (big map)" },
+    -- 2026-11-18 (user request, from Carbonite): your class's trainers,
+    -- and every profession / riding / first aid / cooking / fishing one.
+    { key = "ClassTrainer",      label = "Class Trainers" },
+    { key = "ProfessionTrainer", label = "Profession Trainers" },
     -- Quest companion (2026-11-15): the three quest pin roles
     -- (Quest/QuestPins.lua). Turn-in markers existed before this but
     -- had no filter row of their own.

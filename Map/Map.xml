@@ -46,6 +46,10 @@
          icon" shape as the rest of this block, pure data, no
          dependencies. -->
     <Script file="Data\GuideSpiritHealer.lua" />
+    <!-- 2026-11-18: class and profession trainers (Carbonite's guides). -->
+    <Script file="Data\GuideTrainer.lua" />
+    <!-- 2026-11-18: subzone name labels (Carbonite's list). -->
+    <Script file="Data\AreaLabels.lua" />
     <!-- Build-order step 9e: static Wowhead gathering-node data (herb/
          mining/fish/treasure), pure data, no dependencies. Herb/Mining/
          Treasure ported from the standalone GatherMate2_Data addon's
@@ -67,9 +71,21 @@
     <Script file="ScrollScale.lua" />
     <Script file="ZoomController.lua" />
     <Script file="MinimapEngine.lua" />
+    <!-- 2026-11-18: travel routing (flight paths, boats, portals). -->
+    <Script file="Travel.lua" />
+    <!-- 2026-11-18: waypoints, /way and TomTom emulation. -->
+    <Script file="Waypoints.lua" />
+    <!-- 2026-11-18: mouse-button actions you set yourself. -->
+    <Script file="MouseActions.lua" />
+    <!-- 2026-11-18: the map in combat (shrink, close, put back). -->
+    <Script file="CombatState.lua" />
+    <!-- 2026-11-18: recording the nodes you gather. -->
+    <Script file="GatherRecorder.lua" />
     <!-- 2026-11-16: party / raid / guild / enemy players on the map.
          Adds UpdatePlayerBlips to the engine, so it loads after it. -->
     <Script file="PlayerBlips.lua" />
+    <!-- 2026-11-18: other addons' world map pins on the big map. -->
+    <Script file="AddonPins.lua" />
     <Script file="Data\DungeonRoomData.lua" />
     <Script file="DungeonRooms.lua" />
     <!-- 2026-11-17: Leatrix Maps' dungeon pins (entrances, level arrows,

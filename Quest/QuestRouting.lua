@@ -62,6 +62,11 @@ local POINT_ARRIVAL_YARDS = 7   -- same radius the map's own goto uses
 -- this factor, so two objectives at similar distances don't trade the
 -- arrow back and forth as the player moves.
 local AUTO_SWITCH_FACTOR = 0.85
+-- 2026-11-18 (with Carbonite's auto-watch): for a while after one of its
+-- objectives moves, a quest counts as this much nearer when picking the
+-- closest - the arrow stays on what you're doing.
+local WORKING_FACTOR = 0.5
+local WORKING_SECONDS = 180
 
 local huge = math.huge
 
@@ -375,6 +380,10 @@ local function questTarget(q, entry, auto)
         name = name, detail = detail,
         inside = res.inside, entrance = res.entrance, turnin = res.turnin,
         source = res.source, auto = auto or nil,
+        -- 2026-11-18: who / what is there, for the arrow's click-to-
+        -- target (the turn-in NPC, the mob or object of an objective).
+        npc = (res.source == "db-se" or res.source == "db") and not res.entrance
+            and res.name ~= "?" and res.name or nil,
     }
 end
 
@@ -386,6 +395,8 @@ function Routing:Recalc()
     local px, py, cont, mapId = self:GetPlayerPos()
     local info = {}
     local closest, closestD
+    local now = GetTime()
+    local recent = self.Progress or {}
 
     if px and State then
         for _, q in ipairs(State:GetWatchedQuests()) do
@@ -396,7 +407,10 @@ function Routing:Recalc()
                     local d = res.inside and 0 or ((res.x - px) ^ 2 + (res.y - py) ^ 2) ^ .5
                     entry.dist = d
                     entry.yards = d * YARDS_PER_WORLDUNIT
-                    if not closestD or d < closestD then closest, closestD = q, d end
+                    -- What's compared: nearer while you're working on it.
+                    local t = recent[q.questID]
+                    entry.eff = (t and now - t < WORKING_SECONDS) and d * WORKING_FACTOR or d
+                    if not closestD or entry.eff < closestD then closest, closestD = q, entry.eff end
                 else
                     entry.far = true
                 end
@@ -443,7 +457,7 @@ function Routing:Recalc()
             local cur = self.Target
             if cur and cur.kind == "quest" and cur.auto and cur.questID ~= questID then
                 local curEntry = info[cur.questID]
-                if curEntry and curEntry.dist and closestD > curEntry.dist * AUTO_SWITCH_FACTOR then
+                if curEntry and curEntry.eff and closestD > curEntry.eff * AUTO_SWITCH_FACTOR then
                     questID = cur.questID
                 end
             end
@@ -488,6 +502,14 @@ end
 ---------------------------------------------------------------------------------------
 -- Manual control
 ---------------------------------------------------------------------------------------
+
+-- 2026-11-18: one of this quest's objectives just moved (Quest/
+-- QuestNotify.lua) - see WORKING_FACTOR.
+function Routing:NoteProgress(questID)
+    self.Progress = self.Progress or {}
+    self.Progress[questID] = GetTime()
+    self:RequestRecalc()
+end
 
 function Routing:RequestRecalc()
     self._tick = FULL_EVERY

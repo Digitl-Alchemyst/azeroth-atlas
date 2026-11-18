@@ -435,7 +435,10 @@ end
 ---------------------------------------------------------------------------------------
 
 function Window:Adjust(skipChildren)
-    if InCombatLockdown() and Nx.db.profile.Map.Compatibility then
+    -- 2026-11-18 (user request: open, close and resize the map in
+    -- combat): only a window with protected children has to wait for
+    -- combat to end - see Map/CombatState.lua.
+    if InCombatLockdown() and self.Secure and Nx.db.profile.Map.Compatibility then
         return
     end
     local f = self.Frm
@@ -823,7 +826,7 @@ end
 ---------------------------------------------------------------------------------------
 
 function Window:SetSize(width, height, skipChildren)
-    if InCombatLockdown() then
+    if InCombatLockdown() and self.Secure then
         return
     end
     self.Frm:SetWidth(width + self.BorderW * 2)
@@ -1219,7 +1222,10 @@ end
 ---------------------------------------------------------------------------------------
 
 function Window:SetLayoutMode(mode)
-    if InCombatLockdown() and Nx.db.profile.Map.Compatibility then
+    -- 2026-11-18 (user request: open, close and resize the map in
+    -- combat): only a window with protected children has to wait for
+    -- combat to end - see Map/CombatState.lua.
+    if InCombatLockdown() and self.Secure and Nx.db.profile.Map.Compatibility then
         return
     end
     local data = self.SaveData

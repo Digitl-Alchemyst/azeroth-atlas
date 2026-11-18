@@ -40,6 +40,7 @@ local ON_COURSE_DEGREES = 5
 local atan2, deg, floor = math.atan2, math.deg, math.floor
 
 local function engine() return AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine end
+local function f_shown(f) return f ~= nil and f:IsShown() end
 
 -- The corpse, else the goto marker, as a destination shaped like
 -- QuestRouting's targets (x, y, cont, name, detail), or nil. One table,
@@ -55,9 +56,24 @@ local function overrideTarget()
         alt.inside = nil
         return alt
     end
+    -- 2026-11-18 (user request, from Carbonite): on a flight, where it
+    -- lands (Map/Travel.lua).
+    local Travel = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.Travel
+    local flight = Travel and UnitOnTaxi("player") and Travel:FlightTarget()
+    if flight then return flight end
+    -- 2026-11-18 (user request, from Carbonite): a player you're
+    -- tracking (right-click their dot on the map - PlayerBlips.lua).
+    local player = E.TrackedPlayerTarget and E:TrackedPlayerTarget()
+    if player then return player end
     if E.GotoWX then
         alt.kind, alt.x, alt.y, alt.cont = "goto", E.GotoWX, E.GotoWY, E.GotoCont
-        alt.name, alt.detail, alt.inside = "Goto marker", "Right-click the arrow to clear", nil
+        -- 2026-11-18: a waypoint's own name (/way, TomTom - Map/Waypoints.lua).
+        local Waypoints = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.Waypoints
+        local more = Waypoints and #Waypoints.List - (E.GotoUid and 1 or 0) or 0
+        alt.name = E.GotoName or "Goto marker"
+        alt.detail = more > 0 and ("Right-click the arrow to clear - %d more waypoint%s"):format(more, more == 1 and "" or "s")
+            or "Right-click the arrow to clear"
+        alt.inside = nil
         return alt
     end
     return nil
@@ -104,28 +120,117 @@ function HUD:Create()
 
     f:SetScript("OnMouseUp", function(_, button)
         if button ~= "RightButton" then return end
-        -- Right-click lets go of what the arrow is following: the goto
-        -- marker, or a pinned quest route. The corpse can't be let go.
-        local t = HUD.Following
-        if t and t.kind == "goto" then
-            local E = engine()
-            if E then E:ClearGoto() end
-        elseif not (t and t.kind == "corpse") and Q.Routing then
-            Q.Routing:ClearManual()
-        end
+        HUD:OnRightClick()
     end)
-    f:SetScript("OnEnter", function(frm)
-        GameTooltip:SetOwner(frm, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Navigation arrow")
-        GameTooltip:AddLine("Points at your corpse when dead, else the map's goto marker, else your quest.", 1, 1, 1, true)
-        GameTooltip:AddLine("Drag to move. Right-click to clear the goto marker or release a pinned route.", 1, 1, 1, true)
-        GameTooltip:AddLine("Lock it in place from /gps settings, Quests tab.", 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-    end)
+    f:SetScript("OnEnter", function(frm) HUD:ShowTooltip(frm) end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     self:ApplyOptions()
     return f
+end
+
+function HUD:OnRightClick()
+    -- Right-click lets go of what the arrow is following: the goto
+    -- marker, or a pinned quest route. The corpse can't be let go.
+    local t = HUD.Following
+    if t and t.kind == "player" then
+        local E = engine()
+        if E then E:StopTrackPlayer() end
+    elseif t and t.kind == "goto" then
+        local E = engine()
+        if E then E:ClearGoto() end
+    elseif not (t and (t.kind == "corpse" or t.kind == "flight")) and Q.Routing then
+        Q.Routing:ClearManual()
+    end
+end
+
+function HUD:ShowTooltip(frm)
+    GameTooltip:SetOwner(frm, "ANCHOR_BOTTOM")
+    GameTooltip:SetText("Navigation arrow")
+    GameTooltip:AddLine("Points at your corpse when dead, where your flight lands while flying, else the map's goto marker, else your quest - by flight path or boat when that's quicker.", 1, 1, 1, true)
+    GameTooltip:AddLine("Drag to move. Right-click to clear the goto marker or release a pinned route.", 1, 1, 1, true)
+    if self.TargetWho then
+        GameTooltip:AddLine("Click: target " .. self.TargetWho, 0.4, 0.8, 1, true)
+    end
+    GameTooltip:AddLine("Lock it in place from /gps settings, Quests tab.", 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+end
+
+---------------------------------------------------------------------------------------
+-- Click-to-target (2026-11-18, user request, from Carbonite's HUD
+-- "target button", Track.TBut): click the arrow to target who you're
+-- heading to - a tracked group member (by unit), else the name of the
+-- tracked player, the quest's turn-in NPC or the objective's mob or
+-- object (a /targetexact macro). Targeting needs a secure button, which
+-- can't be moved, shown or changed in combat: it sits over the arrow,
+-- set up between fights, and keeps its last target through a fight.
+-- Drag, right-click and the tooltip pass through to the arrow.
+-- Option: Quests tab, "Click the arrow to target..." (ArrowTargetButton).
+---------------------------------------------------------------------------------------
+
+function HUD:CreateTargetButton()
+    if self.TargetBtn then return self.TargetBtn end
+    local f = self.Frm
+    local b = CreateFrame("Button", "AlchemyGPSQuestArrowTarget", UIParent, "SecureActionButtonTemplate")
+    b:SetFrameStrata("LOW")
+    b:SetFrameLevel(f:GetFrameLevel() + 5)
+    b:RegisterForClicks("AnyUp", "AnyDown")
+    b:RegisterForDrag("LeftButton")
+    b:SetAttribute("type1", "macro")
+    b:HookScript("OnClick", function(_, button, down)
+        if button == "RightButton" and not down then HUD:OnRightClick() end
+    end)
+    b:SetScript("OnDragStart", function()
+        if not Q.Core:Opt("ArrowLocked") and f:IsMovable() then f:StartMoving() end
+    end)
+    b:SetScript("OnDragStop", function()
+        local stop = f:GetScript("OnDragStop")
+        if stop then stop(f) end
+        HUD:PlaceTargetButton()
+    end)
+    b:SetScript("OnEnter", function(btn) HUD:ShowTooltip(btn) end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self.TargetBtn = b
+    return b
+end
+
+function HUD:PlaceTargetButton()
+    local b, f = self.TargetBtn, self.Frm
+    if not b or not f or InCombatLockdown() then return end
+    local cx, cy = f:GetCenter()
+    if not cx then return end
+    local s = f:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    b:ClearAllPoints()
+    b:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx * s, cy * s)
+    b:SetSize(f:GetWidth() * s, f:GetHeight() * s)
+end
+
+-- Out of combat: point the button at t (or hide it).
+function HUD:UpdateTargetButton(t)
+    if InCombatLockdown() then return end
+    local want = t and f_shown(self.Frm) and Q.Core:Opt("ArrowTargetButton") and not Q.Core:Opt("ArrowLocked")
+        and (t.unit or t.npc)
+    local b = self.TargetBtn
+    if not want then
+        self.TargetWho = nil
+        if b and b:IsShown() then b:Hide() end
+        return
+    end
+    b = b or self:CreateTargetButton()
+    local key = (t.unit or "") .. "|" .. (t.npc or "")
+    if b.key ~= key then
+        b.key = key
+        if t.unit then
+            b:SetAttribute("type1", "target")
+            b:SetAttribute("unit1", t.unit)
+        else
+            b:SetAttribute("type1", "macro")
+            b:SetAttribute("macrotext1", "/targetexact " .. t.npc)
+        end
+    end
+    self.TargetWho = t.unit and (UnitName(t.unit)) or t.npc
+    self:PlaceTargetButton()
+    if not b:IsShown() then b:Show() end
 end
 
 function HUD:ApplyStyle()
@@ -141,6 +246,9 @@ function HUD:ApplyOptions()
     f:SetScale(Core:Opt("ArrowScale") or 1)
     -- Locked means click-through as well as immovable.
     f:EnableMouse(not Core:Opt("ArrowLocked"))
+    -- 2026-11-18: the X / Y offset sliders write the saved anchor.
+    AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(f, UIParent)
+    self:PlaceTargetButton()
 end
 
 ---------------------------------------------------------------------------------------
@@ -163,14 +271,22 @@ local function formatDistance(yards)
     return ("%d yds"):format(floor(yards + .5))
 end
 
+local function inBattleground()
+    local _, kind = IsInInstance()
+    return kind == "pvp"
+end
+
 function HUD:Update(elapsed)
     local Routing = Q.Routing
     local t = overrideTarget() or (Routing and Routing.Target)
+    -- 2026-11-18: hidden in battlegrounds when that option is on.
+    if t and Q.Core:Opt("ArrowHideInBG") and inBattleground() then t = nil end
     self.Following = t
     local f = self.Frm
     if not t or not Routing then
         if f and f:IsShown() then f:Hide() end
         self.DistanceYards, self.TargetName, self.ETA = nil, nil, nil
+        self:UpdateTargetButton(nil)
         return
     end
 
@@ -179,8 +295,17 @@ function HUD:Update(elapsed)
         -- Inside an instance (or anywhere else the map can't place the
         -- player): there is no direction to show.
         if f and f:IsShown() then f:Hide() end
+        self:UpdateTargetButton(nil)
         return
     end
+
+    -- 2026-11-18 (user request, from Carbonite): travel routing - when a
+    -- flight or a boat is the quicker way, point at where it starts
+    -- (Map/Travel.lua). Following stays the real destination, so
+    -- right-click still clears it.
+    local Travel = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.Travel
+    local leg = Travel and Travel:NextLeg(t)
+    if leg then t = leg end
 
     f = f or self:Create()
     if not f:IsShown() then
@@ -251,6 +376,10 @@ function HUD:Update(elapsed)
 
     self.NameText:SetText(t.name or "")
     self.DetailText:SetText(t.detail or "")
+    -- The real destination's who-to-target, even when the arrow points
+    -- at a flight master on the way.
+    local who = self.Following
+    self:UpdateTargetButton((who and (who.unit or who.npc)) and who or t)
 
     local str
     if far then
@@ -262,6 +391,10 @@ function HUD:Update(elapsed)
     else
         local col = dirDist < ON_COURSE_DEGREES and "|cffa0a0ff" or ""
         str = col .. formatDistance(yards)
+        -- 2026-11-18 (from Carbonite's Track.ShowDir): degrees off course.
+        if Q.Core:Opt("ArrowDirText") then
+            str = str .. (dirDist < 1 and (" %.1f deg"):format(dirDist) or (" %d deg"):format(floor(dirDist + .5)))
+        end
 
         local speed = Routing.PlyrSpeed or 0
         if speed > .1 then
@@ -310,7 +443,7 @@ function HUD:Start()
     EventBus:Subscribe("QUEST_OPTION_CHANGED", function(_, key)
         if key == "ArrowShown" then
             self:ApplyShown()
-        elseif key == "ArrowLocked" or key == "ArrowScale" then
+        elseif key == "ArrowLocked" or key == "ArrowScale" or key == "ArrowAnchor" then
             self:ApplyOptions()
         end
     end)

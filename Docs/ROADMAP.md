@@ -22,6 +22,55 @@ now tests a mechanism that no longer exists — read each doc against
 today's code before running it, same as Step A item 3 below already
 flags for the preset-search rewrite.
 
+## Current plan (updated 2026-11-18)
+
+### Where things stand
+
+The addon has grown well past "the minimap module":
+- the minimap and big map (M), with Leatrix's 15 themes
+- the quest module: tracker, quest list (L), arrow, map pins and areas
+- dungeon maps
+
+On 2026-11-18 a batch of features from Carbonite and Leatrix Maps was added, one at a time:
+
+- **24 Carbonite features:**
+  - **Map:** trainer icons, subzone names, travel routes with flight paths, following your flight, `/way` and TomTom emulation, tracking a player, arrow extras, your own mouse-click actions, combat behaviour, movement trail, other addons' pins, 11 brightness/opacity sliders, recording your gathered nodes, the GatherMate2_Data import, friends on the map.
+  - **Quests:** Party tab, search, quest text panel, chain parts, IDs and dailies, quest links, auto-watch with smarter routing, progress messages, completion sound, tooltip quest info.
+- **5 Leatrix features:** portal and tram icons, the other faction's travel, clicking travel icons and dungeon entrances to open those maps.
+- **Parked:** Carbonite 1.27 node glow. It's built but switched off, because every possible node spot glowed. See [issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2).
+
+All of it is deployed. **None of it has been tested in game yet.** What's still missing is listed in `Docs/Compare-Carbonite.md` and `Docs/Compare-Leatrix.md`; finished items have been removed from both.
+
+### Step 1 — Test the 2026-11-18 batch
+
+1. Fully restart the client. New files were added: Travel, Waypoints, MouseActions, CombatState, AddonPins, GatherRecorder, AreaLabels, GuideTrainer, QuestDetails, QuestNotify, QuestTooltips, and `Snd\QuestComplete.ogg`.
+2. Walk `Docs/Testing/Carbonite-Features.md`, then `Docs/Testing/Leatrix-Features.md`. `Docs/BigMapPhaseTestPlan.md` (2026-11-17) is also still open.
+3. Same discipline as before: fix one failure, redeploy, re-test that item, then carry on.
+4. Once they pass, mark the features as live-tested and add a `CHANGELOG.md` entry.
+
+### Step 2 — Next features, in order
+
+From the comparison docs. Each is built one at a time, deployed, and given its own test steps:
+
+1. **Auto-accept and auto turn-in** (Carbonite 2.9, 2.10). Small, and people expect them.
+2. **Go to quest giver** (2.8). Small, and it builds on the arrow work.
+3. **Quest window History and Database tabs** (2.1, 2.2).
+4. **Guide window** (1.1). A searchable list of every place the map already draws.
+5. **Tracker options** (2.16–2.22): priority quests, sort modes, hiding finished objectives, progress bars.
+6. **Your own map notes** (1.35).
+7. **Our own minimap button and a keybinding panel** (Carbonite 1.34, Leatrix 1.18 / 1.19), done together.
+8. **Dungeon map extras** (Leatrix 1.9–1.12): boss badges, level drop-down, arrow keys.
+
+### Parked
+
+- **Node glow** ([issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2)). It needs a way to tell which gathering nodes are actually up.
+
+---
+
+## Original minimap-phase plan (2026-11-10 / 11)
+
+Kept as history. Steps A–C and F belong to the minimap phase. Step D is covered now: `Bindings.xml` puts the map and quest list on M and L. Step E (one full regression pass) still applies, after Step 1 above.
+
 ## Step A — Close out Phase 8 testing formally
 
 **Phases 5 (Zoom), 6 (Pan-drag), and 7 (Resize) confirmed passing live

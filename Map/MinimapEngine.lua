@@ -137,6 +137,12 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     self.TerrainBrightness = (AlchemyGPS.db and AlchemyGPS.db.profile
         and AlchemyGPS.db.profile.TerrainBrightness) or 1
 
+    -- 2026-11-18 (user request, from Carbonite): the rest of the per-
+    -- layer sliders (city / dungeon maps, unexplored areas, map icons,
+    -- quest icons, quest areas) - one list, MapContextMenu.SLIDERS.
+    local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+    if MapContextMenu and MapContextMenu.ApplyAll then MapContextMenu.ApplyAll() end
+
     -- 2026-11-16: layer on/off switches now live in Settings > Map and
     -- persist (they used to be session-only title-bar debug toggles).
     self:LoadLayerSettings()
@@ -2457,6 +2463,8 @@ function MinimapEngine:DrawTileFloor(mapId, s)
                 frm.tileId = id
             end
             frm:SetFrameLevel(lvl)
+            local db = self.DungeonBrightness or 1
+            frm.texture:SetVertexColor(db, db, db, 1)
             if self:ClipFrameTL(frm, zx + col * TILE_PX / TILE_MAP_W * zw, zy + row * TILE_PX / TILE_MAP_H * zh,
                     w / TILE_MAP_W * zw, h / TILE_MAP_H * zh) then
                 -- 0-1 over the visible part of the used w x h corner.
@@ -2492,6 +2500,8 @@ function MinimapEngine:DrawCustomFloor(mapId, winfo)
         frm.path = path
     end
     frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + CITY_LEVEL_OFFSET)
+    local db = self.DungeonBrightness or 1
+    frm.texture:SetVertexColor(db, db, db, 1)
     local _, zx, zy, zw, zh = self:GetWorldZoneInfo(DUNGEON_CONT, mapId)
     if not zx or not self:ClipFrameTL(frm, zx, zy, zw, zh) then return end
     -- ClipFrameTL left 0-1 coords for the visible part of the floor;
@@ -2580,7 +2590,9 @@ function MinimapEngine:UpdateAreaMap()
         self.AreaArtRetryMapId = nil
     end
 
-    self:MoveZoneTiles(self.Cont, mapId, self.TileFrms, 1,
+    -- 2026-11-18: city and dungeon maps' own brightness sliders.
+    local bright = (kind == "City" and self.CityBrightness) or (kind == "Dungeon" and self.DungeonBrightness) or 1
+    self:MoveZoneTiles(self.Cont, mapId, self.TileFrms, bright,
         (self.Frm:GetFrameLevel() or 1) + CITY_LEVEL_OFFSET)
 end
 
@@ -3105,7 +3117,7 @@ function MinimapEngine:UpdateOverlay(mapId, bright, noUnexplored)
 
     local path = "Interface\\Worldmap\\" .. txFolder .. "\\"
     local alpha = self.BackgndAlpha or 1
-    local unExAl = UNEXPLORED_ALPHA
+    local unExAl = self.UnexploredBrightness or UNEXPLORED_ALPHA     -- 2026-11-18: a slider
     local exploredWHXY = unex and self:GetCachedExploredTextures(mapId) or {}
 
     local layerInfo = self:GetCachedLayerInfo(mapId)
@@ -3424,6 +3436,218 @@ end
 -- 2026-11-10 ("needs to be a touch bigger").
 local PLAYER_MARKER_SIZE = 28
 
+---------------------------------------------------------------------------------------
+-- Subzone names (2026-11-18, user request, from Carbonite: "Draws area
+-- names like Goldshire or Stormwind Harbor on the map once you zoom in
+-- far enough"). Ported from Nx.Map:UpdateAreaLabels (Carbonite
+-- MapEngine.lua:13540-13650), flat view only:
+--   * the labels are Carbonite's own list (Map/Data/AreaLabels.lua):
+--     {areaID, x%, y%, w%, h%} per map, the names from C_Map.GetAreaInfo
+--     so they follow the client's language
+--   * a label shows once its area is 70 pixels wide on screen and fades
+--     in up to 140 - zoomed out, only the big areas are named
+--   * the map you're on plus every zone of the continent on show (all
+--     continents in the Azeroth view); none inside a dungeon
+-- Not Carbonite's: labels sit one level under the icons (so pins stay on
+-- top), a label that would hang over the map's edge is skipped, and the
+-- whole pass only runs when the view moved (pan, zoom, resize, new map).
+-- On / off: Settings > Map, "Subzone names" (profile.ShowAreaNames).
+---------------------------------------------------------------------------------------
+
+local AREA_LABEL_MIN_PX = 70
+local areaNameCache = {}
+
+local function AreaName(areaID)
+    local name = areaNameCache[areaID]
+    if name == nil then
+        local ok, n = false, nil
+        if C_Map and C_Map.GetAreaInfo then ok, n = pcall(C_Map.GetAreaInfo, areaID) end
+        name = (ok and type(n) == "string" and n ~= "") and n or false
+        areaNameCache[areaID] = name
+    end
+    return name or nil
+end
+
+function MinimapEngine:HideAreaLabels()
+    for _, fs in ipairs(self.AreaLabelFStrs or {}) do fs:Hide() end
+    self.AreaLabelKey = nil
+end
+
+function MinimapEngine:UpdateAreaLabels()
+    local labels = AlchemyGPS.Map.AreaLabels
+    local show = AlchemyGPS.db and AlchemyGPS.db.profile.ShowAreaNames ~= false
+    if not show or not labels or not self.Frm or not self.Cont or self.Cont == DUNGEON_CONT
+            or not self.MapW or not self.ScaleDraw or not self.MapPosXDraw then
+        if self.AreaLabelKey ~= false then
+            self:HideAreaLabels()
+            self.AreaLabelKey = false
+        end
+        return
+    end
+    local key = ("%s|%s|%.1f|%.1f|%.5f|%d|%d"):format(tostring(self.MapId), tostring(self.ShowAllConts),
+        self.MapPosXDraw, self.MapPosYDraw, self.ScaleDraw, self.MapW, self.MapH)
+    if key == self.AreaLabelKey then return end
+    self.AreaLabelKey = key
+
+    local host = self.AreaLabelHost
+    if not host then
+        host = CreateFrame("Frame", nil, self.Frm)
+        host:SetAllPoints(self.Frm)
+        host:EnableMouse(false)
+        self.AreaLabelHost = host
+        self.AreaLabelFStrs = {}
+    end
+    host:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET - 1)
+    local pool = self.AreaLabelFStrs
+
+    local scale, cw, ch = self.ScaleDraw, self.MapW, self.MapH
+    local used, seen = 0, {}
+    local function drawMap(mapId)
+        if not mapId or seen[mapId] then return end
+        seen[mapId] = true
+        local list = labels[mapId]
+        local winfo = list and self.MapWorldInfo[mapId]
+        if not winfo or not winfo.Scale then return end
+        for i = 1, #list do
+            local e = list[i]
+            local wpx = e[4] * winfo.Scale * scale
+            if wpx >= AREA_LABEL_MIN_PX then
+                local name = AreaName(e[1])
+                -- Not "name and GetWorldPos(...)": "and" keeps only the
+                -- first of the two values, leaving my nil.
+                local mx, my
+                if name then mx, my = self:GetWorldPos(mapId, e[2], e[3]) end
+                if mx then
+                    local sx = (mx - self.MapPosXDraw) * scale + cw * .5
+                    local sy = (my - self.MapPosYDraw) * scale + ch * .5
+                    if sx > 0 and sx < cw and sy > 8 and sy < ch - 8 then
+                        used = used + 1
+                        local fs = pool[used]
+                        if not fs then
+                            fs = host:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                            fs:SetJustifyH("CENTER")
+                            fs:SetShadowColor(0, 0, 0, .9)
+                            fs:SetShadowOffset(1, -1)
+                            fs:SetTextColor(1, .95, .8, 1)
+                            fs:SetWordWrap(false)
+                            pool[used] = fs
+                        end
+                        fs:SetText(name)
+                        local half = (fs:GetStringWidth() or 0) / 2
+                        if sx - half < 2 or sx + half > cw - 2 then
+                            fs:Hide()
+                            used = used - 1
+                        else
+                            fs:ClearAllPoints()
+                            fs:SetPoint("CENTER", host, "TOPLEFT", sx, -sy - (self.TitleH or 0))
+                            local a = (wpx - AREA_LABEL_MIN_PX) / AREA_LABEL_MIN_PX
+                            fs:SetAlpha(a > 1 and 1 or a)
+                            fs:Show()
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    drawMap(self.MapId)
+    local conts = self.ShowAllConts and {} or { self.Cont }
+    if self.ShowAllConts then
+        for c = 1, self.ContCnt or 0 do conts[#conts + 1] = c end
+    end
+    for _, c in ipairs(conts) do
+        for _, id in ipairs(self.MapZones and self.MapZones[c] or {}) do drawMap(id) end
+    end
+    for n = used + 1, #pool do pool[n]:Hide() end
+end
+
+---------------------------------------------------------------------------------------
+-- Movement trail (2026-11-18, user request, from Carbonite: "A
+-- breadcrumb trail of dots showing where you've walked. You set the
+-- spacing, the number of dots and how long they last" - "be able to
+-- turn on and off"). Ported from Nx.Map:UpdatePlyrHistory
+-- (MapEngine.lua:8785) and its ring buffer (Map:Init, :273-287): a dot
+-- is dropped each time you've moved the spacing from the last one, the
+-- oldest is reused once there are as many as allowed, and each fades
+-- out over its lifetime. Carbonite's spacing is in map units; here it's
+-- yards. Dots remember their continent, so another continent's trail
+-- isn't drawn on this one. Recorded while the map window is open (the
+-- small map, normally).
+-- Settings > Map, "Movement trail": on / off (profile.ShowTrail),
+-- spacing (TrailYards, 10), dots (TrailCount, 100), lifetime
+-- (TrailSeconds, 90).
+---------------------------------------------------------------------------------------
+
+local TRAIL_TEX = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconCircleFade"
+
+local TRAIL_YARDS_PER_UNIT = 4.575    -- YARDS_PER_WORLDUNIT, declared further down
+
+local function trailOpt(key, default)
+    local db = AlchemyGPS.db
+    local v = db and db.profile[key]
+    if v == nil then return default end
+    return v
+end
+
+function MinimapEngine:HideTrail()
+    for _, f in ipairs(self.TrailFrms or {}) do f:Hide() end
+end
+
+function MinimapEngine:UpdateTrail()
+    if not trailOpt("ShowTrail", true) or not self.PlyrX or self.PlyrPosUnknown or not self.Cont then
+        self:HideTrail()
+        return
+    end
+    local count = math.max(1, math.floor(trailOpt("TrailCount", 100)))
+    local hist = self.TrailHist
+    if not hist or hist.cnt ~= count then
+        hist = { cnt = count, nextI = 1, lastX = nil, lastY = nil }
+        self.TrailHist = hist
+    end
+    local now = GetTime()
+
+    -- Drop a dot once you've moved the spacing from the last one.
+    local spacing = trailOpt("TrailYards", 10) / TRAIL_YARDS_PER_UNIT
+    local moved = not hist.lastX or hist.lastCont ~= self.Cont
+        or ((self.PlyrX - hist.lastX) ^ 2 + (self.PlyrY - hist.lastY) ^ 2) ^ .5 > spacing
+    if moved then
+        hist.lastX, hist.lastY, hist.lastCont = self.PlyrX, self.PlyrY, self.Cont
+        local i = hist.nextI
+        local d = hist[i] or {}
+        hist[i] = d
+        d.t, d.x, d.y, d.cont = now, self.PlyrX, self.PlyrY, self.Cont
+        hist.nextI = i >= count and 1 or i + 1
+    end
+
+    local frms = self.TrailFrms
+    if not frms then
+        frms = {}
+        self.TrailFrms = frms
+    end
+    local life = math.max(1, trailOpt("TrailSeconds", 90))
+    local size = math.min(math.max(3 + (self.ScaleDraw or 1) * .8, 4), 12)
+    local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET - 1
+    local used = 0
+    for i = 1, count do
+        local d = hist[i]
+        local age = d and now - d.t
+        if age and age < life and d.cont == self.Cont then
+            used = used + 1
+            local f = frms[used]
+            if not f then
+                f = self:CreateMiniFrame()
+                f.texture:SetTexture(TRAIL_TEX)
+                frms[used] = f
+            end
+            if self:ClipFrameW(f, d.x, d.y, size, size, 0) then
+                f.texture:SetVertexColor(1, .25, .15, (life - age) / life * .9)
+                f:SetFrameLevel(level)
+            end
+        end
+    end
+    for n = used + 1, #frms do frms[n]:Hide() end
+end
+
 -- Kept verbatim (core W-clip math only) from Nx.Map:ClipFrameW
 -- (MapEngine.lua:10681-10786). Drops the real source's View3D branch
 -- (explicit non-goal, same as every other function in this file) and
@@ -3689,6 +3913,11 @@ local SERVICE_ICON_TEX = {
     -- same way, drawn by the same tool.
     Portal          = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconPortal",
     Tram            = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconTram",
+    -- 2026-11-18 (user request, from Carbonite): trainers, data from
+    -- Carbonite's camelot guides (Map/Data/GuideTrainer.lua). The game's
+    -- own "find trainers" tracking icons, same family as Innkeeper.
+    ClassTrainer      = "Interface\\MINIMAP\\TRACKING\\Class",
+    ProfessionTrainer = "Interface\\MINIMAP\\TRACKING\\Profession",
 }
 
 -- Build-order step 14, 2026-11-11: these three (plus FlightMaster's
@@ -3725,6 +3954,8 @@ local SERVICE_ICON_LABEL = {
     Zeppelin        = "Zeppelin",
     Portal          = "Portal",
     Tram            = "Tram",
+    ClassTrainer      = "Class Trainer",
+    ProfessionTrainer = "Profession Trainer",
 }
 
 ---------------------------------------------------------------------------------------
@@ -3969,6 +4200,12 @@ function MinimapEngine:RefreshServiceIcons()
                     if base then name, dest = base, tonumber(d) end
                     local own = ServiceIconFactionOk(fac)
                     local shown = own or (OPPOSING_KINDS[kind] and IsMapFilterOn("OpposingFaction"))
+                    -- 2026-11-18: class trainers - your own class's only,
+                    -- like Carbonite's "Show Class Trainer".
+                    if shown and kind == "ClassTrainer" then
+                        local _, token = UnitClass("player")
+                        shown = token ~= nil and name:upper() == token .. " TRAINER"
+                    end
                     local wx, wy
                     if shown then wx, wy = self:GetWorldPos(zoneId, tonumber(x), tonumber(y)) end
                     -- 2026-11-18: dungeons sharing one entrance (Blackrock
@@ -4183,6 +4420,7 @@ function MinimapEngine:UpdateServiceIcons()
         local size = pt.size or SERVICE_ICON_SIZE
         if self:ClipFrameW(frm, pt.x, pt.y, size, size, pt.rot) then
             frm:SetFrameLevel(level)
+            frm:SetAlpha(self.PoiOpacity or 1)      -- 2026-11-18: a slider
         end
     end
     for n = #pts + 1, #self.SvcFrms do
@@ -4360,7 +4598,8 @@ function MinimapEngine:UpdateQuestIcons()
             frm:SetFrameLevel(level + (pt.focus and 2 or 0))
             -- Frames are pooled across roles: always set the tint, so
             -- an untinted pin never inherits the last quest's colour.
-            frm.texture:SetVertexColor(pt.r or 1, pt.g or 1, pt.b or 1, pt.dim and 0.22 or 1)
+            frm.texture:SetVertexColor(pt.r or 1, pt.g or 1, pt.b or 1,
+                (pt.dim and 0.22 or 1) * (self.QuestIconOpacity or 1))     -- 2026-11-18: a slider
             -- Same reason: a low-level pickup pin is drawn gray, and
             -- the next pin to use this frame must not stay that way.
             frm.texture:SetDesaturated(pt.desat and true or false)
@@ -4552,6 +4791,8 @@ local GATHER_NEARBY_RANGE_SQ = GATHER_NEARBY_RANGE * GATHER_NEARBY_RANGE
 -- closer-is-brighter cue, not the dominant factor in whether an icon
 -- is visible at all.
 local GATHER_DIM_ALPHA = 0.85
+-- Node glow (1.27) is parked: see UpdateGatherIcons.
+local GATHER_GLOW_ENABLED = false
 -- Backdrop halo behind each icon for contrast against busy map art
 -- (same "anything else to make these more visible" ask). Tightened
 -- 2026-11-10 (user: "a little 2 big... make it hug tight with only a
@@ -4625,7 +4866,9 @@ local function GatherFrameOnEnter(frm)
     local dbType, nodeID = frm.gatherDbType, frm.gatherNodeID
     if not dbType then return end
     local info = GATHER_NODE_INFO and GATHER_NODE_INFO[dbType] and GATHER_NODE_INFO[dbType][nodeID]
-    local name = (info and info.name) or dbType
+    -- 2026-11-18: a recorded node the shipped list doesn't know keeps
+    -- its name as its ID (Map/GatherRecorder.lua).
+    local name = (info and info.name) or (type(nodeID) == "string" and nodeID) or dbType
     local r, g, b, cantHarvest = GatherNodeColor(info, GetCurrentGatherSkill(dbType))
 
     local label
@@ -4641,6 +4884,9 @@ local function GatherFrameOnEnter(frm)
 
     GameTooltip:SetOwner(frm, "ANCHOR_CURSOR")
     GameTooltip:SetText(label, r, g, b)
+    if frm.gatherMine then
+        GameTooltip:AddLine("You gathered here", 0.6, 0.8, 1)
+    end
     GameTooltip:Show()
 end
 
@@ -4730,9 +4976,16 @@ local GATHER_DEDUPE_RANGE_SQ = (GATHER_DEDUPE_YARDS / 4.575) ^ 2
 -- Pcall-wrapped per dbType so one bad zone/type combo in the static
 -- data can't abort the other three categories.
 local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
-    local db = GATHER_DB[dbType]
+    -- 2026-11-18: data imported from GatherMate2_Data replaces the
+    -- shipped tables (Map/GatherRecorder.lua's Import).
+    local Recorder = AlchemyGPS.Modules.Map.GatherRecorder
+    local db = (Recorder and Recorder:Imported(dbType)) or GATHER_DB[dbType]
     local zoneNodes = db and db[mapId]
-    if not zoneNodes then return end
+    -- 2026-11-18: and the nodes you've gathered yourself
+    -- (Map/GatherRecorder.lua) - listed first, so a shipped node in the
+    -- same spot is the duplicate that's dropped.
+    local mine = Recorder and Recorder:Nodes(dbType, mapId)
+    if not zoneNodes and not mine then return end
 
     local infoByID = GATHER_NODE_INFO and GATHER_NODE_INFO[dbType]
     local fallbackTex = GATHER_ICON_TEX[dbType]
@@ -4741,18 +4994,22 @@ local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
     -- (nodeID) so the dedupe pass below only ever compares points that
     -- could possibly be the same physical spawn.
     local bySpecies = {}
-    for coord, nodeID in pairs(zoneNodes) do
-        local gx, gy = DecodeGatherCoord(coord)
-        local wx, wy = engine:GetWorldPos(mapId, gx * 100, gy * 100)
-        if wx then
-            local bucket = bySpecies[nodeID]
-            if not bucket then
-                bucket = {}
-                bySpecies[nodeID] = bucket
+    local function add(nodes, isMine)
+        for coord, nodeID in pairs(nodes) do
+            local gx, gy = DecodeGatherCoord(coord)
+            local wx, wy = engine:GetWorldPos(mapId, gx * 100, gy * 100)
+            if wx then
+                local bucket = bySpecies[nodeID]
+                if not bucket then
+                    bucket = {}
+                    bySpecies[nodeID] = bucket
+                end
+                bucket[#bucket + 1] = { x = wx, y = wy, mine = isMine }
             end
-            bucket[#bucket + 1] = { x = wx, y = wy }
         end
     end
+    if mine then add(mine, true) end
+    if zoneNodes then add(zoneNodes, false) end
 
     -- Pass 2: within each species bucket, drop any point landing
     -- within range of one already kept.
@@ -4771,7 +5028,7 @@ local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
             end
             if not dup then
                 kept[#kept + 1] = p
-                pts[#pts + 1] = { x = p.x, y = p.y, tex = tex, dbType = dbType, nodeID = nodeID }
+                pts[#pts + 1] = { x = p.x, y = p.y, tex = tex, dbType = dbType, nodeID = nodeID, mine = p.mine }
             end
         end
     end
@@ -4856,6 +5113,14 @@ function MinimapEngine:UpdateGatherIcons()
             frm.backdrop = CreateFrame("Frame", nil, self.Frm, "BackdropTemplate")
             frm.backdrop:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
             frm.backdrop:SetBackdropColor(0, 0, 0, 1)
+            -- 2026-11-18 (user request, from Carbonite): node glow - the
+            -- quest pins' focus glow, pulsing behind the icon.
+            frm.glow = frm:CreateTexture(nil, "BACKGROUND")
+            frm.glow:SetTexture("Interface\\Cooldown\\star4")
+            frm.glow:SetBlendMode("ADD")
+            frm.glow:SetPoint("CENTER")
+            frm.glow:SetVertexColor(1, 0.82, 0.3, 1)
+            frm.glow:Hide()
             self.GatherFrms[n] = frm
         end
     end
@@ -4863,13 +5128,28 @@ function MinimapEngine:UpdateGatherIcons()
     local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
     local px, py = self.PlyrX, self.PlyrY
     local size = GATHER_ICON_SIZE * (self.GatherIconScale or 1)
+    -- Node glow (Settings > Map > Gathered nodes): one pulse value for
+    -- every node this tick, GatherGlowSpeed pulses a second.
+    local prof = AlchemyGPS.db and AlchemyGPS.db.profile
+    -- 2026-11-18: switched off (user: "ALL the gathering nodes are
+    -- glowing it should only be the ones that are active"). The data
+    -- only says where a node CAN spawn, not whether one is up now, so
+    -- every spot pulsed. Parked until we can tell live nodes apart -
+    -- see GitHub issue #2. GATHER_GLOW_ENABLED turns it back on.
+    local glowOn = GATHER_GLOW_ENABLED and (not prof or prof.GatherGlow ~= false)
+    local glowNearOnly = prof and prof.GatherGlowNearOnly
+    local pulse = 0
+    if glowOn then
+        local speed = (prof and prof.GatherGlowSpeed) or 1
+        pulse = 0.2 + 0.6 * (0.5 + 0.5 * math.sin(GetTime() * speed * 2 * math.pi))
+    end
     for i, pt in ipairs(pts) do
         local frm = self.GatherFrms[i]
         if frm.svcTex ~= pt.tex then
             frm.texture:SetTexture(pt.tex)
             frm.svcTex = pt.tex
         end
-        frm.gatherDbType, frm.gatherNodeID = pt.dbType, pt.nodeID
+        frm.gatherDbType, frm.gatherNodeID, frm.gatherMine = pt.dbType, pt.nodeID, pt.mine
         if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
             frm:SetFrameLevel(level)
             local near = px and py
@@ -4882,6 +5162,13 @@ function MinimapEngine:UpdateGatherIcons()
             frm.backdrop:SetFrameLevel(math.max(1, level - 1))
             frm.backdrop:SetAlpha(alpha * (self.GatherBackdropOpacity or DEFAULT_GATHER_BACKDROP_OPACITY))
             frm.backdrop:Show()
+            if glowOn and (near or not glowNearOnly) then
+                frm.glow:SetSize(size * 2.4, size * 2.4)
+                frm.glow:SetAlpha(pulse * (self.GatherOpacity or 1))
+                frm.glow:Show()
+            else
+                frm.glow:Hide()
+            end
         else
             frm.backdrop:Hide()
         end
@@ -5650,8 +5937,35 @@ end
 -- dropped and why.
 ---------------------------------------------------------------------------------------
 
+-- 2026-11-18: where on the map the last click was (frame-local pixels),
+-- for actions that work "here" (SetGotoAtClick). Factored out of
+-- OnMouseUp's right-button branch below.
+function MinimapEngine:CaptureClick()
+    local frm = self.Frm
+    if frm and self.MapW and self.MapH then
+        local cx, cy = GetCursorPosition()
+        local effScale = frm:GetEffectiveScale()
+        cx, cy = cx / effScale, cy / effScale
+        local left, top = frm:GetLeft(), frm:GetTop()
+        if left and top then
+            self.ClickFrmX, self.ClickFrmY = cx - left, top - cy
+        end
+    end
+end
+
+-- 2026-11-18 (user request): a click with a job you gave it in
+-- Settings > Map (Map/MouseActions.lua) does that instead.
+local function RunMouseAction(engine, button)
+    local MouseActions = AlchemyGPS.Modules.Map.MouseActions
+    return MouseActions and MouseActions:Run(engine, button)
+end
+
 function MinimapEngine:OnMouseDown(button)
     if button ~= "LeftButton" then return end
+    if RunMouseAction(self, button) then
+        self.MouseActionDown = true
+        return
+    end
 
     -- Deterministic close on top of MapContextMenu's own outside-
     -- click poll: a left-click on the map window itself starts a pan-
@@ -5678,6 +5992,11 @@ end
 function MinimapEngine:OnMouseUp(button)
     if button == "LeftButton" then
         self.Scrolling = false
+        self.MouseActionDown = nil
+    elseif button ~= "RightButton" then
+        RunMouseAction(self, button)     -- middle, 4, 5: only what you set
+    elseif RunMouseAction(self, button) then
+        return
     elseif button == "RightButton" then
         -- New, not a port - Carbonite's own right-click menu
         -- (Nx.Menu, Modules/UI/UIEngine.lua) is thousands of lines
@@ -5910,13 +6229,78 @@ function MinimapEngine:SetGotoAtClick()
     local wx, wy = self:FramePosToWorldPos(self.ClickFrmX, self.ClickFrmY)
     self.GotoWX, self.GotoWY = wx, wy
     self.GotoCont = self.Cont
+    self.GotoName, self.GotoUid = nil, nil
     self.ArrowScroll = 0
 end
 
 -- Wired from MapContextMenu.lua's "Clear Goto" row, and called
 -- automatically on arrival by UpdateGoto below.
 function MinimapEngine:ClearGoto()
+    local uid = self.GotoUid
     self.GotoWX, self.GotoWY, self.GotoCont = nil, nil, nil
+    self.GotoName, self.GotoUid = nil, nil
+    -- 2026-11-18: a waypoint (/way, TomTom - Map/Waypoints.lua) is done
+    -- with, and the closest of the rest becomes the goto.
+    local Waypoints = AlchemyGPS.Modules.Map.Waypoints
+    if Waypoints then Waypoints:OnGotoCleared(uid) end
+end
+
+-- 2026-11-18: the waypoints that aren't the goto (Map/Waypoints.lua), as
+-- dimmer goto markers.
+function MinimapEngine:UpdateWaypointPins()
+    local Waypoints = AlchemyGPS.Modules.Map.Waypoints
+    local pool = self.WaypointPinFrms
+    if not pool then
+        pool = {}
+        self.WaypointPinFrms = pool
+    end
+    local used = 0
+    if Waypoints and self.Cont then
+        local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
+        for _, uid in ipairs(Waypoints.List) do
+            if uid ~= self.GotoUid and Waypoints:Resolve(uid) and uid.cont == self.Cont then
+                used = used + 1
+                local f = pool[used]
+                if not f then
+                    f = self:CreateMiniFrame()
+                    AlchemyGPS.UI.StyleOptions:ApplyIcon(f.texture, "GotoMarker")
+                    pool[used] = f
+                end
+                if self:ClipFrameW(f, uid.wx, uid.wy, GOTO_ICON_SIZE * .8, GOTO_ICON_SIZE * .8, 0) then
+                    f.texture:SetVertexColor(1, 1, 1, .55)
+                    f:SetFrameLevel(level)
+                end
+            end
+        end
+    end
+    for n = used + 1, #pool do pool[n]:Hide() end
+end
+
+-- 2026-11-18: the next step of a travel route (Map/Travel.lua) for a
+-- destination, or nil to head straight there.
+local function TravelLeg(dest)
+    local Travel = AlchemyGPS.Modules.Map.Travel
+    return Travel and Travel:NextLeg(dest)
+end
+
+-- UpdateGoto with a travel leg: the goto dot (if it's on this map) and
+-- the trail to the leg (if that is) - no arrival check, that is the
+-- goto's own.
+function MinimapEngine:UpdateGotoLeg(leg)
+    if self.GotoFrm and self.Cont == self.GotoCont
+            and self:ClipFrameW(self.GotoFrm, self.GotoWX, self.GotoWY, GOTO_ICON_SIZE, GOTO_ICON_SIZE, 0) then
+        self.GotoFrm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET)
+        if self.GotoYdLabel then self.GotoYdLabel:Hide() end
+    else
+        if self.GotoFrm then self.GotoFrm:Hide() end
+        if self.GotoYdLabel then self.GotoYdLabel:Hide() end
+    end
+    if self.Cont ~= leg.cont then
+        for i = 1, #self.GotoTrailFrms do self.GotoTrailFrms[i]:Hide() end
+        return
+    end
+    local dx, dy = leg.x - self.PlyrX, leg.y - self.PlyrY
+    self:DrawAntTrail(self.GotoTrailFrms, dx, dy, (dx * dx + dy * dy) ^ .5)
 end
 
 function MinimapEngine:HideGotoFrames()
@@ -5938,6 +6322,21 @@ end
 -- instance, where Cont is nil) just hides rather than pointing
 -- somewhere meaningless.
 function MinimapEngine:UpdateGoto()
+    self:UpdateWaypointPins()
+    -- 2026-11-18: travel routing (Map/Travel.lua) - when a flight or a
+    -- boat is quicker, the trail leads to where it starts; the goto dot
+    -- stays where it is.
+    if self.GotoWX then
+        local dest = self.GotoDest or {}
+        self.GotoDest = dest
+        dest.x, dest.y, dest.cont, dest.kind = self.GotoWX, self.GotoWY, self.GotoCont, "goto"
+        dest.name = self.GotoName or "Goto marker"
+        local leg = TravelLeg(dest)
+        if leg then
+            self:UpdateGotoLeg(leg)
+            return
+        end
+    end
     if not self.GotoWX or self.Cont ~= self.GotoCont then
         self:HideGotoFrames()
         return
@@ -6286,6 +6685,9 @@ end
 function MinimapEngine:UpdateQuestRoute()
     local Quest = AlchemyGPS.Modules.Quest
     local t = Quest and Quest.Routing and Quest.Routing.Target
+    -- 2026-11-18: travel routing - the trail leads to the flight master
+    -- or boat first (Map/Travel.lua).
+    t = (t and TravelLeg(t)) or t
     if not t or not self.Cont or t.cont ~= self.Cont or t.inside
         or (Quest.Core and Quest.Core:Opt("RouteTrail") == false) then
         self:HideQuestRouteFrames()
@@ -6792,10 +7194,14 @@ function MinimapEngine:Update(elapsed)
     -- UpdateAreaMap. Not zoom-gated: inside a city or dungeon its art
     -- is the main map at every zoom.
     self:UpdateAreaMap()
+    -- 2026-11-18: subzone names (UpdateAreaLabels).
+    self:UpdateAreaLabels()
 
     -- Build-order step 9a: independent of both tile layers - see
     -- UpdatePlayerMarker's own header.
     self:UpdatePlayerMarker()
+    -- 2026-11-18: where you've walked (UpdateTrail).
+    self:UpdateTrail()
 
     -- Build-order step 10: independent of the tile/icon layers above -
     -- see UpdateGoto's own header for why this runs every tick.
@@ -6886,6 +7292,15 @@ function MinimapEngine:Update(elapsed)
         if not ok and self.DungeonPinError ~= err then
             self.DungeonPinError = err
             AlchemyGPS.Core.Logger:Get("Map"):error("dungeon pins failed: %s", tostring(err))
+        end
+    end
+
+    -- 2026-11-18: other addons' world map pins (AddonPins.lua).
+    if self.UpdateAddonPins then
+        local ok, err = pcall(self.UpdateAddonPins, self)
+        if not ok and self.AddonPinError ~= err then
+            self.AddonPinError = err
+            AlchemyGPS.Core.Logger:Get("Map"):error("addon pins failed: %s", tostring(err))
         end
     end
 

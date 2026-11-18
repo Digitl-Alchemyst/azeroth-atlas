@@ -817,3 +817,39 @@ end
 function Catalog:GetPrerequisite(questID)
     return Prev[questID]
 end
+
+-- 2026-11-18 (user request, from Carbonite: "Part 2 of 4" for chains).
+-- part, total for a quest in a chain of two or more, else nil. Back
+-- through the prerequisites (Prev), forward through the header's next
+-- quest. Cached; a loop in the data can't run away (50 steps at most).
+local chainCache = {}
+function Catalog:GetChainPart(questID)
+    local hit = chainCache[questID]
+    if hit ~= nil then
+        if hit == false then return nil end
+        return hit[1], hit[2]
+    end
+    local before, id, seen = 0, questID, { [questID] = true }
+    while Prev[id] and not seen[Prev[id]] and before < 50 do
+        id = Prev[id]
+        seen[id] = true
+        before = before + 1
+    end
+    local after = 0
+    id = questID
+    while after < 50 do
+        local h = self:GetHeader(id)
+        local nextId = h and h.nextId
+        if not nextId or nextId == 0 or seen[nextId] or not self.Quests[nextId] then break end
+        id = nextId
+        seen[id] = true
+        after = after + 1
+    end
+    local total = before + 1 + after
+    if total < 2 then
+        chainCache[questID] = false
+        return nil
+    end
+    chainCache[questID] = { before + 1, total }
+    return before + 1, total
+end

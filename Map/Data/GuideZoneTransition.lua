@@ -183,13 +183,26 @@ local function addPoint(mapId, x, y, name, otherMapId, fac)
     bucket[mapId] = bucket[mapId] and (bucket[mapId] .. "|" .. entry) or entry
 end
 
+-- 2026-11-18: the same connections as pairs, for travel routing
+-- (Map/Travel.lua): Map.TravelLinks = { { kind, fac, m1, x1, y1, name1,
+-- m2, x2, y2, name2, twoWay }, ... }, kind "Boat" / "Zeppelin" /
+-- "Portal" / "Tram", or "Border" for a plain walk-through zone border;
+-- twoWay from the flags' 1 bit (a one-way portal only goes 1 -> 2).
+local links = {}
 for _, raw in ipairs(RAW_CONNECTIONS) do
     local flags = tonumber(raw:match("^(%d+)|"))
     local name1, mapId1, x1, y1, name2, mapId2, x2, y2 = ParseConnection(raw)
     local fac = factionOf(flags)
     addPoint(mapId1, x1, y1, name1, mapId2, fac)
     addPoint(mapId2, x2, y2, name2, mapId1, fac)
+    local kind = (name1 or ""):match("^(%a+) to ")
+    if not KINDS[kind] then kind = "Border" end
+    if mapId1 and mapId2 then
+        links[#links + 1] = { kind, fac, mapId1, x1, y1, name1 or "", mapId2, x2, y2, name2 or "",
+            (flags or 1) % 2 == 1 }
+    end
 end
+Map.TravelLinks = links
 
 Map.GuideData = Map.GuideData or {}
 Map.GuideData["ZoneTransition"] = byZone

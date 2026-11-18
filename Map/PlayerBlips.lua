@@ -19,6 +19,13 @@
 --     Only guildmates who also run Alchemy GPS show up, and only while
 --     sharing is on (Settings > Map, on by default). Your position is
 --     never sent from inside a dungeon.
+--   * Friends (2026-11-18, user request, from Carbonite): the same
+--     message, sent as a hidden addon whisper (a couple every 2 seconds,
+--     each friend every 10 seconds or more) to each
+--     online friends-list character (Settings > Map, "Share my position
+--     with friends"). A whisper is only believed when its sender is on
+--     YOUR friends list, so a stranger can't put a dot on your map. A
+--     friend who's also a guildmate stays green. Yellow dots.
 --   * Enemies: the game never reports an enemy player's position.
 --     Carbonite's old enemy tracker ("Punks") marked an enemy at YOUR
 --     position at the moment you detected them - in combat-log range,
@@ -39,13 +46,20 @@ local TEX = {
     raid  = GFX .. "IconPlyrF",
     guild = GFX .. "IconPlyrG",
     enemy = GFX .. "IconPlyrZ",
+    friend = GFX .. "IconPlyrZ",     -- tinted yellow when drawn
 }
 local FACTION_TEX = {
     Horde    = "Interface\\WorldStateFrame\\HordeIcon",
     Alliance = "Interface\\WorldStateFrame\\AllianceIcon",
 }
-local KIND_LABEL = { party = "Party", raid = "Raid", guild = "Guild", enemy = "Enemy" }
-local FILTER_KEY = { party = "Party", raid = "Raid", guild = "Guild", enemy = "Enemy" }
+local KIND_LABEL = { party = "Party", raid = "Raid", guild = "Guild", enemy = "Enemy", friend = "Friend" }
+local FILTER_KEY = { party = "Party", raid = "Raid", guild = "Guild", enemy = "Enemy", friend = "Friend" }
+-- Friends: whispered a couple at a time (the game drops addon messages
+-- sent faster than about one a second), each at most every 10 seconds.
+local FRIEND_TICK = 2             -- seconds between sends
+local FRIEND_PER_TICK = 2         -- friends whispered per send
+local FRIEND_EVERY = 10           -- seconds before the same friend again
+local FRIEND_TTL = 60             -- drop a friend not heard from in this long
 
 local DOT_SIZE = 14
 local FACTION_SIZE = 20
@@ -158,27 +172,76 @@ if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
     C_ChatInfo.RegisterAddonMessagePrefix(COMM_PREFIX)
 end
 
-local function sendGuildPosition()
-    if not IsInGuild() or not optOn("ShareGuildPosition", true) then return end
-    if IsInInstance() then return end
+-- Our position message, or nil when there's nothing to share (inside
+-- an instance, or nowhere on the map).
+local function positionMessage()
+    if IsInInstance() then return nil end
     local map, x, y = playerZonePos()
-    if not map then return end
+    if not map then return nil end
     local cont = MinimapEngine:FindContinent(map)
-    if not cont or cont == MinimapEngine.DUNGEON_CONT then return end
+    if not cont or cont == MinimapEngine.DUNGEON_CONT then return nil end
     local _, class = UnitClass("player")
     -- GUID: lets every receiver - including this client, which gets its
     -- own broadcast back - know for certain whose position it is.
     -- Full name: for the tooltip, since the sender name the game
     -- attaches may carry only part of it.
-    local msg = ("P|%d|%.2f|%.2f|%s|%d|%s|%s"):format(map, x, y, class or "",
+    return ("P|%d|%.2f|%.2f|%s|%d|%s|%s"):format(map, x, y, class or "",
         UnitLevel("player") or 0, UnitGUID("player") or "",
         (unitFullName("player") or ""):gsub("|", ""))
-    C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, "GUILD")
+end
+
+local function sendGuildPosition()
+    if not IsInGuild() or not optOn("ShareGuildPosition", true) then return end
+    local msg = positionMessage()
+    if msg then C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, "GUILD") end
+end
+
+-- 2026-11-18: friends-list characters who are online right now.
+local function onlineFriends()
+    local out = {}
+    if not (C_FriendList and C_FriendList.GetNumFriends) then return out end
+    for i = 1, C_FriendList.GetNumFriends() or 0 do
+        local info = C_FriendList.GetFriendInfoByIndex(i)
+        if info and info.connected and info.name then
+            out[#out + 1] = info.name
+        end
+    end
+    return out
+end
+
+local friendSentAt = {}   -- [name] = GetTime() of our last whisper
+
+local function sendFriendPosition()
+    if not optOn("ShareFriendPosition", true) then return end
+    local friends = onlineFriends()
+    if #friends == 0 then return end
+    local now = GetTime()
+    -- The friends waiting longest first.
+    table.sort(friends, function(a, b) return (friendSentAt[a] or 0) < (friendSentAt[b] or 0) end)
+    local msg
+    for i = 1, math.min(FRIEND_PER_TICK, #friends) do
+        local name = friends[i]
+        if now - (friendSentAt[name] or 0) < FRIEND_EVERY then break end
+        msg = msg or positionMessage()
+        if not msg then return end
+        C_ChatInfo.SendAddonMessage(COMM_PREFIX, msg, "WHISPER", name)
+        friendSentAt[name] = now
+    end
+end
+
+-- Is this whisper's sender on our friends list?
+local function isFriend(sender)
+    if not sender or not (C_FriendList and C_FriendList.GetFriendInfo) then return false end
+    local short = Ambiguate and Ambiguate(sender, "none") or sender
+    return C_FriendList.GetFriendInfo(short) ~= nil or C_FriendList.GetFriendInfo(sender) ~= nil
 end
 
 if C_Timer and C_Timer.NewTicker then
     C_Timer.NewTicker(GUILD_SEND_INTERVAL, function()
         pcall(sendGuildPosition)
+    end)
+    C_Timer.NewTicker(FRIEND_TICK, function()
+        pcall(sendFriendPosition)
     end)
 end
 
@@ -268,7 +331,9 @@ events:SetScript("OnEvent", function(_, event, ...)
         checkUnit((...))
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, msg, channel, sender = ...
-        if prefix ~= COMM_PREFIX or channel ~= "GUILD" or not msg then return end
+        if prefix ~= COMM_PREFIX or not msg then return end
+        -- Guild broadcasts, and (2026-11-18) whispers from friends only.
+        if channel ~= "GUILD" and not (channel == "WHISPER" and isFriend(sender)) then return end
         local kind, map, x, y, class, level, guid, fullName = strsplit("|", msg)
         if kind ~= "P" then return end
         -- Your own broadcast comes back to you on the guild channel.
@@ -277,10 +342,15 @@ events:SetScript("OnEvent", function(_, event, ...)
         if not readable(guid) or isMyGUID(guid) then return end
         map, x, y = tonumber(map), tonumber(x), tonumber(y)
         if not map or not x or not y then return end
+        local now = GetTime()
+        local old = guild[guid]
         guild[guid] = {
             name = readable(fullName) and fullName or displayName(sender) or "?",
             map = map, x = x, y = y, class = readable(class) and class or nil,
-            level = tonumber(level), sender = sender, t = GetTime(),
+            level = tonumber(level), sender = sender, t = now,
+            -- Heard on the guild channel lately: a guildmate (green),
+            -- whatever else they are.
+            guildT = (channel == "GUILD" and now) or (old and old.guildT),
         }
     end
 end)
@@ -300,11 +370,160 @@ local function BlipOnEnter(frm)
     if pt.kind == "enemy" and pt.seen then
         GameTooltip:AddLine(("Seen near you %ds ago"):format(GetTime() - pt.seen), 1, 0.5, 0.5)
     end
+    if MinimapEngine:IsTrackingPlayer(pt.guid) then
+        GameTooltip:AddLine("The arrow is tracking them", 0.4, 0.8, 1)
+    end
+    GameTooltip:AddLine("Right-click: track, whisper, invite", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
 
 local function BlipOnLeave()
     GameTooltip:Hide()
+end
+
+---------------------------------------------------------------------------------------
+-- Tracking a player (2026-11-18, user request, from Carbonite: "Right-
+-- click a party, raid or friend dot to set the arrow on them. The same
+-- menu offers Whisper, Invite and Report AFK" - Carbonite's player-icon
+-- menu, Map:OnButPlyrMenu / Menu_OnTrackPlyr). The arrow (and a light-
+-- blue ant trail on the map) follows them until you stop it - right-
+-- click the arrow or the dot - or they leave your group, stop sharing
+-- (guild) or fade off the map (enemies: where you last saw them).
+-- Followed by GUID, so a name change or a rejoin doesn't confuse it.
+---------------------------------------------------------------------------------------
+
+local tracked         -- { guid, kind, name }
+local trackTarget = {}
+
+local function say(fmt, ...)
+    if DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffAlchemy GPS|r: " .. fmt:format(...))
+    end
+end
+
+local function groupUnitFor(guid)
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            if UnitGUID("raid" .. i) == guid then return "raid" .. i end
+        end
+    else
+        for i = 1, GetNumSubgroupMembers() do
+            if UnitGUID("party" .. i) == guid then return "party" .. i end
+        end
+    end
+end
+
+-- A unit's world position and continent wherever the map is looking.
+local function unitWorldAnywhere(unit)
+    local map = C_Map.GetBestMapForUnit(unit)
+    if not map then return nil end
+    local ok, pos = pcall(C_Map.GetPlayerMapPosition, map, unit)
+    if not ok or not pos then return nil end
+    local x, y = pos:GetXY()
+    if not x or not y or (x == 0 and y == 0) then return nil end
+    map = MinimapEngine:CanonicalizeMapID(map)
+    local cont = MinimapEngine:FindContinent(map)
+    local wx, wy
+    if cont then wx, wy = MinimapEngine:GetWorldPos(map, x * 100, y * 100) end
+    if not wx then return nil end
+    return wx, wy, cont
+end
+
+function MinimapEngine:IsTrackingPlayer(guid)
+    return tracked ~= nil and guid ~= nil and tracked.guid == guid
+end
+
+function MinimapEngine:TrackPlayer(pt)
+    if not pt or not pt.guid then return end
+    tracked = { guid = pt.guid, kind = pt.kind, name = pt.name or "?",
+        -- what /target needs: the name chat uses, else the first name
+        target = pt.whisper or (pt.name or ""):match("^(%S+)") }
+    say("tracking %s", tracked.name)
+end
+
+function MinimapEngine:StopTrackPlayer(why)
+    if not tracked then return end
+    if why then say("stopped tracking %s - %s", tracked.name, why) end
+    tracked = nil
+    for _, f in ipairs(self.TrackTrailFrms or {}) do f:Hide() end
+end
+
+-- The tracked player as an arrow target (QuestRouting's shape, kind =
+-- "player"), or nil.
+function MinimapEngine:TrackedPlayerTarget()
+    if not tracked then return nil end
+    local wx, wy, cont, detail, unit
+    if tracked.kind == "party" or tracked.kind == "raid" then
+        unit = groupUnitFor(tracked.guid)
+        if not unit then
+            self:StopTrackPlayer("they left your group")
+            return nil
+        end
+        wx, wy, cont = unitWorldAnywhere(unit)
+        detail = "Right-click the arrow to stop tracking"
+    elseif tracked.kind == "guild" or tracked.kind == "friend" then
+        local g = guild[tracked.guid]
+        if not g then
+            self:StopTrackPlayer("they stopped sharing where they are")
+            return nil
+        end
+        cont = self:FindContinent(g.map)
+        wx, wy = self:GetWorldPos(g.map, g.x, g.y)
+        detail = "Right-click the arrow to stop tracking"
+    else
+        local e = enemies[tracked.guid]
+        if not e then
+            self:StopTrackPlayer("not seen for two minutes")
+            return nil
+        end
+        wx, wy, cont = e.wx, e.wy, e.cont
+        detail = ("Where you saw them %ds ago"):format(GetTime() - e.t)
+    end
+    if not wx or not cont then return nil end    -- in a dungeon, say
+    local t = trackTarget
+    t.kind, t.x, t.y, t.cont, t.inside = "player", wx, wy, cont, nil
+    t.name, t.detail = "Tracking " .. tracked.name, detail
+    t.unit, t.npc = unit, tracked.target      -- the arrow's click-to-target
+    return t
+end
+
+local function inBattleground()
+    local _, kind = IsInInstance()
+    return kind == "pvp"
+end
+
+local function BlipOnMouseUp(frm, button)
+    local pt = frm.blip
+    if button ~= "RightButton" or not pt then return end
+    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    if not (BigMap and BigMap.OpenMenu) then return end
+    GameTooltip:Hide()
+    local items = { { pt.name or "?", nil, nil, true } }
+    if MinimapEngine:IsTrackingPlayer(pt.guid) then
+        items[#items + 1] = { "Stop tracking", function() MinimapEngine:StopTrackPlayer() end }
+    elseif pt.guid then
+        items[#items + 1] = { "Track with the arrow", function() MinimapEngine:TrackPlayer(pt) end }
+    end
+    if pt.whisper and pt.kind ~= "enemy" then
+        items[#items + 1] = { "Whisper", function()
+            if ChatFrame_SendTell then ChatFrame_SendTell(pt.whisper) end
+        end }
+    end
+    if pt.whisper and (pt.kind == "guild" or pt.kind == "friend") then
+        items[#items + 1] = { "Invite to group", function()
+            if C_PartyInfo and C_PartyInfo.InviteUnit then
+                C_PartyInfo.InviteUnit(pt.whisper)
+            elseif InviteUnit then
+                InviteUnit(pt.whisper)
+            end
+        end }
+    end
+    if pt.unit and inBattleground() and ReportPlayerIsPVPAFK then
+        items[#items + 1] = { "Report AFK", function()
+            if UnitExists(pt.unit) then ReportPlayerIsPVPAFK(pt.unit) end
+        end }
+    end
+    BigMap.OpenMenu(frm, items)
 end
 
 local function collect(engine)
@@ -325,7 +544,8 @@ local function collect(engine)
         if wx then
             local _, class = UnitClass(unit)
             pts[#pts + 1] = { x = wx, y = wy, kind = kind, name = unitFullName(unit) or "?",
-                class = class, level = UnitLevel(unit) }
+                class = class, level = UnitLevel(unit), guid = guid, unit = unit,
+                whisper = (UnitName(unit)) }
         end
     end
     if inRaid then
@@ -349,15 +569,19 @@ local function collect(engine)
     -- Guild (skip anyone already drawn as a group member)
     local now = GetTime()
     for guid, g in pairs(guild) do
-        if now - g.t > GUILD_TTL or isMyGUID(guid) then
+        -- 2026-11-18: guild, or a friend heard only by whisper.
+        local kind = (g.guildT and now - g.guildT <= GUILD_TTL) and "guild" or "friend"
+        if now - g.t > (kind == "guild" and GUILD_TTL or FRIEND_TTL) or isMyGUID(guid) then
             guild[guid] = nil
-        elseif filterOn("guild") and not inGroup[guid] then
-            local cont = engine:FindContinent(g.map)
-            if cont and cont == engine.Cont then
-                local wx, wy = engine:GetWorldPos(g.map, g.x, g.y)
-                if wx then
-                    pts[#pts + 1] = { x = wx, y = wy, kind = "guild", name = g.name,
-                        class = g.class, level = g.level }
+        else
+            if filterOn(kind) and not inGroup[guid] then
+                local cont = engine:FindContinent(g.map)
+                if cont and cont == engine.Cont then
+                    local wx, wy = engine:GetWorldPos(g.map, g.x, g.y)
+                    if wx then
+                        pts[#pts + 1] = { x = wx, y = wy, kind = kind, name = g.name,
+                            class = g.class, level = g.level, guid = guid, whisper = g.sender }
+                    end
                 end
             end
         end
@@ -372,7 +596,7 @@ local function collect(engine)
         elseif filterOn("enemy") and e.cont == engine.Cont then
             local fade = 1 - (1 - ENEMY_MIN_ALPHA) * (age / ENEMY_TTL)
             local pt = { x = e.wx, y = e.wy, kind = "enemy", name = e.name,
-                class = e.class, level = e.level, seen = e.t, alpha = fade }
+                class = e.class, level = e.level, seen = e.t, alpha = fade, guid = guid }
             if factionIcons and e.faction and FACTION_TEX[e.faction] then
                 pt.tex = FACTION_TEX[e.faction]
                 pt.size = FACTION_SIZE
@@ -406,6 +630,7 @@ function MinimapEngine:UpdatePlayerBlips()
         frm:EnableMouse(true)
         frm:SetScript("OnEnter", BlipOnEnter)
         frm:SetScript("OnLeave", BlipOnLeave)
+        frm:SetScript("OnMouseUp", BlipOnMouseUp)
         frms[n] = frm
     end
 
@@ -421,10 +646,13 @@ function MinimapEngine:UpdatePlayerBlips()
         end
         frm.blip = pt
         local size = pt.size or DOT_SIZE
+        if tracked and pt.guid == tracked.guid then size = size * 1.4 end
         if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
             frm:SetFrameLevel(level)
             if pt.kind == "enemy" and not pt.tex then
                 frm.texture:SetVertexColor(1, 0.15, 0.15, 1)
+            elseif pt.kind == "friend" then
+                frm.texture:SetVertexColor(1, 0.85, 0.15, 1)
             else
                 frm.texture:SetVertexColor(1, 1, 1, 1)
             end
@@ -433,6 +661,16 @@ function MinimapEngine:UpdatePlayerBlips()
     end
     for n = #pts + 1, #frms do
         frms[n]:Hide()
+    end
+
+    -- 2026-11-18: the ant trail to a tracked player, light blue.
+    self.TrackTrailFrms = self.TrackTrailFrms or {}
+    local t = tracked and self:TrackedPlayerTarget()
+    if t and t.cont == self.Cont and self.PlyrX then
+        local dx, dy = t.x - self.PlyrX, t.y - self.PlyrY
+        self:DrawAntTrail(self.TrackTrailFrms, dx, dy, (dx * dx + dy * dy) ^ .5, .4, .8, 1, 1)
+    else
+        for _, f in ipairs(self.TrackTrailFrms) do f:Hide() end
     end
 end
 
