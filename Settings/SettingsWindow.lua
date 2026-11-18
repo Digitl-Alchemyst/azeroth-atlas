@@ -208,6 +208,18 @@ local function buildMap(panel)
         function(value) AlchemyGPS.db.profile.ShareGuildPosition = value end)
     y = y - 26
 
+    -- 2026-11-17: the big map (M) - Map/BigMap.lua.
+    y = y - 8
+    y = addHeader(content, y, "Big map (M)")
+    addCheckbox(content, y, "Player and cursor coordinates",
+        function() return minimapDB().BigMapCoords ~= false end,
+        function(value) minimapDB().BigMapCoords = value end)
+    y = y - 26
+    addCheckbox(content, y, "Zone name and level range under the cursor",
+        function() return minimapDB().BigMapZoneLevels ~= false end,
+        function(value) minimapDB().BigMapZoneLevels = value end)
+    y = y - 26
+
     y = y - 8
     y = addHeader(content, y, "Navigation")
     addCheckbox(content, y, "Center: keep you in the middle of the map",
@@ -521,17 +533,49 @@ local function buildStyle(panel)
     local y = -4
     swatchRefreshers = {}
 
-    y = buildCategoryRow(child, y, "Window Skin", buildWindowSkinItems(),
-        function() return AlchemyGPS.db.profile.Skin and AlchemyGPS.db.profile.Skin.Name end,
-        function(id)
-            AlchemyGPS.Skin:Set(id)
-            if win then win:ApplySkin() end
-            -- The quest tracker is built on the same small-window
-            -- chrome as this window, so Skin:ResetWindows can't reach
-            -- it either.
-            local Tracker = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Tracker
-            if Tracker and Tracker.Win then Tracker.Win:ApplySkin() end
-        end)
+    local function setWindowSkin(id)
+        AlchemyGPS.Skin:Set(id)
+        if win then win:ApplySkin() end
+        -- The quest tracker is built on the same small-window
+        -- chrome as this window, so Skin:ResetWindows can't reach
+        -- it either.
+        local Tracker = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Tracker
+        if Tracker and Tracker.Win then Tracker.Win:ApplySkin() end
+    end
+
+    -- 2026-11-18 (user request: every theme on either map): one list -
+    -- the window skins and the map themes (Map/BigMapThemes.lua) - in
+    -- both rows. A skin picked for the minimap is the window skin, worn
+    -- by every window, as the old "Window Skin" row did.
+    local Themes = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.BigMapThemes
+    local BigMap = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.BigMap
+    if Themes and BigMap then
+        local function items(forBig)
+            local list = {}
+            for _, t in ipairs(Themes:GetList(forBig)) do
+                local bg, accent = Themes:Preview(t.id)
+                list[#list + 1] = { id = t.id, label = t.name, bg = bg, accent = accent }
+            end
+            return list
+        end
+        y = buildCategoryRow(child, y, "Minimap Theme (a window skin here styles every window)", items(false),
+            function() return BigMap:MiniThemeChoice() end,
+            function(id)
+                if type(id) == "string" then
+                    BigMap:SetMiniThemeId(nil)
+                    setWindowSkin(id)
+                else
+                    BigMap:SetMiniThemeId(id)
+                end
+            end)
+        y = buildCategoryRow(child, y, "Big Map Theme (when the map is big)", items(true),
+            function() return BigMap:ThemeId() end,
+            function(id) BigMap:SetThemeId(id) end)
+    else
+        y = buildCategoryRow(child, y, "Window Skin", buildWindowSkinItems(),
+            function() return AlchemyGPS.db.profile.Skin and AlchemyGPS.db.profile.Skin.Name end,
+            setWindowSkin)
+    end
 
     for _, cat in ipairs(AlchemyGPS.UI.StyleOptions.Categories) do
         y = buildCategoryRow(child, y, cat.label, buildTextureItems(cat.key),

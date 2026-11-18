@@ -48,6 +48,7 @@ Q.Pins = Pins
 -- (UI/StyleOptions.lua: QuestIcon, QuestObjectiveIcon, QuestGiverIcon).
 local OBJECTIVE_SIZE = 14
 local ACTIVE_SCALE = 1.35       -- pins of the quest the arrow is on
+local FOCUS_SCALE = 1.7         -- pins of the quest hovered in the quest list
 
 -- A colour per quest, so its objective pins and map areas read as one
 -- set and match the swatch on its tracker row.
@@ -385,6 +386,9 @@ function Pins:Collect(engine, pts)
     local mapId, cont = engine.MapId, engine.Cont
     local target = Q.Routing and Q.Routing.Target
     local activeQuest = target and target.kind == "quest" and target.questID or nil
+    -- 2026-11-17: the quest hovered in the quest list (Pins:SetFocus) -
+    -- shown whatever the filters and tracking say, everything else faded.
+    local focus = self.FocusQuest
 
     local live = Api:GetQuestsOnMap(mapId)
     local liveById
@@ -404,13 +408,25 @@ function Pins:Collect(engine, pts)
 
     for _, q in ipairs(State.Quests) do
         local questID = q.questID
-        local scale = (questID == activeQuest) and ACTIVE_SCALE or 1
+        local scale = (questID == focus and FOCUS_SCALE) or (questID == activeQuest and ACTIVE_SCALE) or 1
 
         if q.ready then
-            if showTurnIn then
+            if showTurnIn or questID == focus then
                 local lines = { { "Ready to turn in", 0.4, 1, 0.4 } }
                 local placed = false
-                local e = liveById and liveById[questID]
+                local endpoints = Catalog:GetEndpoints(questID, true)
+                -- 2026-11-17: the database's turn-in comes first, as in
+                -- routing. Blizzard's marker is only a fallback: on this
+                -- server it can point back at the giver (Twice Misplaced
+                -- Trust 97332, taken from Lozgil in Booty Bay, is handed
+                -- in to Whizzbuzz in the Riverglades).
+                local dbKnown = Catalog:GetEndpointDungeons(questID, true) ~= nil
+                for i = 1, endpoints and #endpoints or 0 do
+                    if dbKnown then break end
+                    local _, zone, x, y = Catalog:UnpackSE(endpoints[i])
+                    dbKnown = (x > 0 or y > 0) and Catalog:GetContinent(zone) ~= nil
+                end
+                local e = not dbKnown and liveById and liveById[questID]
                 if e then
                     local wx, wy = Map:GetWorldPos(mapId, e.x * 100, e.y * 100)
                     if wx then
@@ -421,7 +437,6 @@ function Pins:Collect(engine, pts)
                         placed = true
                     end
                 end
-                local endpoints = Catalog:GetEndpoints(questID, true)
                 if endpoints then
                     for i = 1, #endpoints do
                         local name, zone, x, y = Catalog:UnpackSE(endpoints[i])
@@ -458,7 +473,7 @@ function Pins:Collect(engine, pts)
                     end
                 end
             end
-        elseif showObjective and State:IsWatched(questID) then
+        elseif (showObjective and State:IsWatched(questID)) or questID == focus then
             local r, g, b = self:QuestColor(questID)
             local placed = false
             local dungeons    -- [instanceId] = tooltip lines of the objectives inside it
@@ -563,6 +578,41 @@ function Pins:Collect(engine, pts)
             pts[#pts + 1] = pt
         end
     end
+
+    -- Focus: that quest's pins stand out (drawn on top, with a glow -
+    -- MinimapEngine:UpdateQuestIcons), every other pin is faded.
+    self.FocusCount = 0
+    if focus then
+        local n = 0
+        for _, pt in ipairs(pts) do
+            if pt.questID == focus then
+                pt.focus = true
+                n = n + 1
+            else
+                pt.dim = true
+            end
+        end
+        self.FocusCount = n
+    end
+end
+
+-- Lights one quest up on the map (nil: back to normal). Called while the
+-- quest is hovered in the quest list.
+function Pins:SetFocus(questID)
+    if self.FocusQuest == questID then return end
+    self.FocusQuest = questID
+    local E = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine
+    if E and E.Frm and E.MapId then
+        E:RefreshQuestIcons()
+        E:UpdateQuestIcons()
+    end
+    if Q.Overlay then Q.Overlay.Dirty = true end
+end
+
+-- Whether the map is up to show a focused quest on.
+function Pins:MapShown()
+    local E = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine
+    return E and E.Frm and E.Frm:IsVisible() and true or false
 end
 
 ---------------------------------------------------------------------------------------

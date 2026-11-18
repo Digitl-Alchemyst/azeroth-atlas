@@ -1,6 +1,8 @@
 -- Alchemy GPS | Quest / HUDArrow
--- The floating arrow that points at QuestRouting's current destination,
--- with what it is, how far, and roughly how long.
+-- The floating arrow that points at where you're going, with what it is,
+-- how far, and roughly how long. 2026-11-17 (user request): it follows,
+-- first to last, your corpse (or the dungeon entrance to run back to),
+-- the map's goto marker, then QuestRouting's current destination.
 --
 -- Ported from Carbonite/Modules/HUD/HUDEngine.lua's HUD:Update
 -- (:206-371) - the arrow's direction relative to where the player is
@@ -36,6 +38,30 @@ local ETA_EVERY = 10            -- caption refreshes between ETA recalculations
 local ON_COURSE_DEGREES = 5
 
 local atan2, deg, floor = math.atan2, math.deg, math.floor
+
+local function engine() return AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine end
+
+-- The corpse, else the goto marker, as a destination shaped like
+-- QuestRouting's targets (x, y, cont, name, detail), or nil. One table,
+-- reused every frame.
+local alt = {}
+local function overrideTarget()
+    local E = engine()
+    if not E then return nil end
+    if E.CorpseWX and UnitIsDeadOrGhost("player") then
+        alt.kind, alt.x, alt.y, alt.cont = "corpse", E.CorpseWX, E.CorpseWY, E.CorpseCont
+        alt.name = E.CorpseLabel or "Your corpse"
+        alt.detail = E.CorpseLabel and "Run back in to your corpse" or "Run back to your corpse"
+        alt.inside = nil
+        return alt
+    end
+    if E.GotoWX then
+        alt.kind, alt.x, alt.y, alt.cont = "goto", E.GotoWX, E.GotoWY, E.GotoCont
+        alt.name, alt.detail, alt.inside = "Goto marker", "Right-click the arrow to clear", nil
+        return alt
+    end
+    return nil
+end
 
 function HUD:Create()
     if self.Frm then return self.Frm end
@@ -77,14 +103,22 @@ function HUD:Create()
     AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(f, UIParent)
 
     f:SetScript("OnMouseUp", function(_, button)
-        if button == "RightButton" and Q.Routing then
+        if button ~= "RightButton" then return end
+        -- Right-click lets go of what the arrow is following: the goto
+        -- marker, or a pinned quest route. The corpse can't be let go.
+        local t = HUD.Following
+        if t and t.kind == "goto" then
+            local E = engine()
+            if E then E:ClearGoto() end
+        elseif not (t and t.kind == "corpse") and Q.Routing then
             Q.Routing:ClearManual()
         end
     end)
     f:SetScript("OnEnter", function(frm)
         GameTooltip:SetOwner(frm, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Quest arrow")
-        GameTooltip:AddLine("Drag to move. Right-click to release a pinned route.", 1, 1, 1, true)
+        GameTooltip:SetText("Navigation arrow")
+        GameTooltip:AddLine("Points at your corpse when dead, else the map's goto marker, else your quest.", 1, 1, 1, true)
+        GameTooltip:AddLine("Drag to move. Right-click to clear the goto marker or release a pinned route.", 1, 1, 1, true)
         GameTooltip:AddLine("Lock it in place from /gps settings, Quests tab.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
@@ -131,9 +165,10 @@ end
 
 function HUD:Update(elapsed)
     local Routing = Q.Routing
-    local t = Routing and Routing.Target
+    local t = overrideTarget() or (Routing and Routing.Target)
+    self.Following = t
     local f = self.Frm
-    if not t then
+    if not t or not Routing then
         if f and f:IsShown() then f:Hide() end
         self.DistanceYards, self.TargetName, self.ETA = nil, nil, nil
         return
@@ -196,6 +231,19 @@ function HUD:Update(elapsed)
 
     self.DistanceYards = yards
     self.TargetName = t.name
+
+    -- Reached the goto marker (the map clears it too, but only while its
+    -- window is updating).
+    if t.kind == "goto" and not far then
+        local E = engine()
+        if E and yards < (E.GOTO_ARRIVAL_YARDS or 7) then
+            E:ClearGoto()
+            if E.HideGotoFrames then E:HideGotoFrames() end
+            UIErrorsFrame:AddMessage("Goto reached", 1, 1, 1, 1)
+            PlaySoundFile(567455)
+            return
+        end
+    end
 
     self._textAt = (self._textAt or 0) + elapsed
     if self._textAt < TEXT_EVERY then return end

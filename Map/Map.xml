@@ -40,6 +40,8 @@
     <Script file="Data\GuideAuctioneer.lua" />
     <Script file="Data\GuideDungeonEntrance.lua" />
     <Script file="Data\GuideZoneTransition.lua" />
+    <!-- 2026-11-18: which way each zone-exit arrow points. -->
+    <Script file="Data\ZoneArrowAngles.lua" />
     <!-- Build-order step 11: spirit healer data, same "static service
          icon" shape as the rest of this block, pure data, no
          dependencies. -->
@@ -59,6 +61,7 @@
     <!-- Build-order step 9f: per-species name/icon/skill-level data
          for the same four categories, pure data, no dependencies. -->
     <Script file="Data\GatherNodeInfo.lua" />
+    <Script file="Data\ZoneLevels.lua" />
     <Script file="MinimapWindow.lua" />
     <Script file="NativeMinimapHide.lua" />
     <Script file="ScrollScale.lua" />
@@ -69,8 +72,13 @@
     <Script file="PlayerBlips.lua" />
     <Script file="Data\DungeonRoomData.lua" />
     <Script file="DungeonRooms.lua" />
+    <!-- 2026-11-17: Leatrix Maps' dungeon pins (entrances, level arrows,
+         bosses with portrait display IDs), generated data. -->
+    <Script file="Data\LeatrixDungeonPins.lua" />
     <Script file="DungeonPins.lua" />
     <Script file="MinimapDock.lua" />
     <Script file="MapContextMenu.lua" />
     <Script file="FilterMenu.lua" />
+    <Script file="BigMapThemes.lua" />
+    <Script file="BigMap.lua" />
 </Ui>

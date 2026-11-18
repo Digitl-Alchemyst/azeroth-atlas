@@ -133,10 +133,19 @@ StyleOptions.Categories = {
         key = "FlightMaster", label = "Flight Master Icon",
         options = {
             { id = "Tracking", label = "Tracking Icon (default)", tex = "Interface\\MINIMAP\\TRACKING\\FlightMaster" },
-            { id = "Alliance", label = "Taxi Node - Alliance (Leatrix)", atlas = "TaxiNode_Alliance" },
-            { id = "Horde",    label = "Taxi Node - Horde (Leatrix)",    atlas = "TaxiNode_Horde" },
-            { id = "Neutral",  label = "Taxi Node - Neutral (Leatrix)",  atlas = "TaxiNode_Neutral" },
+            -- 2026-11-17 (user request): one set instead of three single
+            -- icons - each flight master shows its own faction's node
+            -- (TaxiNodeInfo.faction: 0 neutral, 1 Horde, 2 Alliance).
+            -- See StyleOptions:ForFaction.
+            { id = "Faction", label = "Taxi Nodes by faction (Leatrix)", atlas = "TaxiNode_Neutral",
+              variants = {
+                  [0] = { atlas = "TaxiNode_Neutral" },
+                  [1] = { atlas = "TaxiNode_Horde" },
+                  [2] = { atlas = "TaxiNode_Alliance" },
+              } },
         },
+        -- The three single-faction choices this set replaced.
+        renamed = { Alliance = "Faction", Horde = "Faction", Neutral = "Faction" },
     },
     {
         key = "SpiritHealer", label = "Spirit Healer Icon",
@@ -182,6 +191,7 @@ function StyleOptions:GetOption(key)
 
     local sv = AlchemyGPS.db and AlchemyGPS.db.profile.Style
     local chosenId = sv and sv[key]
+    if cat.renamed and cat.renamed[chosenId] then chosenId = cat.renamed[chosenId] end
 
     for _, opt in ipairs(cat.options) do
         if opt.id == chosenId then return opt end
@@ -193,21 +203,36 @@ end
 -- Texture object - every consumer (MinimapEngine.lua's live icons,
 -- SettingsWindow.lua's swatch previews) goes through this so the
 -- atlas-vs-texcoord-vs-plain branching exists exactly once.
+local FALLBACK_TC = { 0.08, 0.92, 0.08, 0.92 }   -- an icon's border trimmed off
+
 function StyleOptions:ApplyIconSpec(tex, spec)
     if not spec then return end
 
-    if spec.atlas then
+    -- 2026-11-17: an atlas this client doesn't have falls back to the
+    -- spec's own `fallback` texture (Leatrix's recipe), else a question
+    -- mark - never a blank icon.
+    if spec.atlas and C_Texture and C_Texture.GetAtlasInfo and not C_Texture.GetAtlasInfo(spec.atlas) then
+        tex:SetTexture(spec.fallback or "Interface\\Icons\\INV_Misc_QuestionMark")
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        tex.agpsAtlas, tex.agpsTC = nil, FALLBACK_TC
+    elseif spec.atlas then
         -- Explicit `false`: keep the icon's own fixed on-screen size
         -- (SERVICE_ICON_SIZE etc.) rather than the atlas's native one.
         tex:SetAtlas(spec.atlas, false)
-        tex:SetTexCoord(0, 1, 0, 1)
+        -- 2026-11-17: no SetTexCoord after SetAtlas - the atlas sets its
+        -- own coordinates within its file, and a reset to 0-1 would show
+        -- the whole file. agpsAtlas / agpsTC tell MinimapEngine:ClipFrameW
+        -- the same thing.
+        tex.agpsAtlas, tex.agpsTC = spec.atlas, nil
     elseif spec.coords then
         tex:SetTexture(spec.tex)
         tex:SetTexCoord(spec.coords[1], spec.coords[2], spec.coords[3], spec.coords[4])
+        tex.agpsAtlas, tex.agpsTC = nil, spec.coords
     else
         tex:SetTexture(spec.tex)
         -- Reset in case this texture object last held a cropped icon.
         tex:SetTexCoord(0, 1, 0, 1)
+        tex.agpsAtlas, tex.agpsTC = nil, nil
     end
 end
 
@@ -221,7 +246,20 @@ end
 function StyleOptions:GetChoice(key)
     local sv = AlchemyGPS.db and AlchemyGPS.db.profile.Style
     local cat = byKey[key]
-    return (sv and sv[key]) or (cat and cat.options[1].id)
+    local id = sv and sv[key]
+    if cat and cat.renamed and cat.renamed[id] then id = cat.renamed[id] end
+    return id or (cat and cat.options[1].id)
+end
+
+-- The spec for one faction out of an option that is a set (`variants`,
+-- keyed 0 neutral / 1 Horde / 2 Alliance); a plain option is returned
+-- as it is. The variant tables are static, so reference compares still
+-- work as a diff-cache key.
+function StyleOptions:ForFaction(spec, faction)
+    if spec and spec.variants then
+        return spec.variants[faction] or spec.variants[0] or spec
+    end
+    return spec
 end
 
 function StyleOptions:SetChoice(key, id)

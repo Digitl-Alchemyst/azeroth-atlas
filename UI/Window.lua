@@ -319,17 +319,52 @@ end
 -- Create border frames
 ---------------------------------------------------------------------------------------
 
+-- 2026-11-18: a window can wear its own look (Map/BigMapThemes.lua puts
+-- any theme on the map window, small or big): self.SkinOverride =
+-- { Backdrop, BdCol, BgCol }, each optional - what's missing comes from
+-- the window skin.
+function Window:SkinBackdrop()
+    local o = self.SkinOverride
+    return (o and o.Backdrop) or Nx.Skin:GetBackdrop()
+end
+
+function Window:SkinBorderCol()
+    local o = self.SkinOverride
+    return (o and o.BdCol) or Nx.Skin:GetBorderCol()
+end
+
+function Window:SkinBGCol()
+    local o = self.SkinOverride
+    if o and o.BgCol then return o.BgCol end
+    if not self.Sizeable and self.Border then return Nx.Skin:GetFixedSizeBGCol() end
+    return Nx.Skin:GetBGCol()
+end
+
 function Window:CreateBorders()
-    local bk = Nx.Skin:GetBackdrop()
-    self.Frm:SetBackdrop(bk)
+    self.Frm:SetBackdrop(self:SkinBackdrop())
 end
 
 function Window:SetBordersFade(fade)
 
     if self.Border then
 
-        local col = Nx.Skin:GetBorderCol()
+        local col = self:SkinBorderCol()
         self.Frm:SetBackdropBorderColor(col[1], col[2], col[3], col[4] * fade)
+    end
+end
+
+-- Repaints the frame edge and background in the current look (after a
+-- skin or theme change). SetBackdrop resets the background colour to
+-- white, so the colour is set again with the window's own fade.
+function Window:ReSkin()
+    self:CreateBorders()
+    local fade = self.BackgndFade or 1
+    self:SetBordersFade(fade)
+    local f = self.Frm
+    if f and f.SetBackdropColor then
+        local col = self:SkinBGCol()
+        local a = fade * (self.BackgndAlphaDiff or 0) + (self.BackgndAlphaMin or 1)
+        f:SetBackdropColor(col[1], col[2], col[3], col[4] * a)
     end
 end
 
@@ -1959,10 +1994,7 @@ function Window:OnUpdate(elapsed)
             this.texture:SetVertexColor(1, 1, 1, a)
         else
 
-            local col = Nx.Skin:GetBGCol()
-            if not win.Sizeable and win.Border then
-                col = Nx.Skin:GetFixedSizeBGCol()
-            end
+            local col = win:SkinBGCol()
 
             this:SetBackdropColor(col[1], col[2], col[3], col[4] * a)
         end

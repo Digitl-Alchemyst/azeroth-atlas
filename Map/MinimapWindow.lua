@@ -38,6 +38,10 @@ local MinimapWindow = Module:New("MinimapWindow", {
                 -- 2026-11-16: M / L key overrides (see ApplyKeys) and
                 -- Carbonite's auto-scale (MinimapEngine:AutoScaleTarget).
                 OverrideMLKeys = true,
+                -- 2026-11-17: big map (Map/BigMap.lua).
+                BlizzardBigMap = true,
+                BigMapCoords = true,
+                BigMapZoneLevels = true,
                 AutoScale = true,
                 AutoScaleMin = 0.05,
                 AutoScaleMax = 4,
@@ -475,6 +479,14 @@ function MinimapWindow:Open()
     content:SetScript("OnUpdate", function(_, elapsed)
         MinimapEngine:Update(elapsed)
     end)
+
+    -- 2026-11-17: the big map's toolbar, coordinates, zone levels and
+    -- Blizzard-style frame (Map/BigMap.lua).
+    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    if BigMap then
+        BigMap:Attach(self, win, content)
+        win.Frm:HookScript("OnHide", function() BigMap:OnMapHidden() end)
+    end
 
     win:Show(true)
     win.Frm:SetFrameStrata(MAP_STRATA)

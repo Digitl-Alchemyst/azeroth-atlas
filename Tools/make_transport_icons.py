@@ -1,5 +1,6 @@
-"""Draw Gfx/Map/IconBoat.tga and Gfx/Map/IconZeppelin.tga (64x64 RGBA) -
-the map's boat and zeppelin icons. Drawn here (2026-11-16) so the addon
+"""Draw Gfx/Map/IconBoat.tga, IconZeppelin.tga, IconPortal.tga and
+IconTram.tga (64x64 RGBA) - the map's boat, zeppelin, portal and tram
+icons (portal and tram added 2026-11-18). Drawn here (2026-11-16) so the addon
 owns them: no client icon reads as a boat or a zeppelin at map size, and
 Leatrix Maps uses one shared travel icon for every kind of transport.
 
@@ -69,6 +70,57 @@ def zeppelin():
     return im
 
 
+def portal():
+    """A swirling mage portal in a stone arch (2026-11-18)."""
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    badge(d, (70, 44, 110, 255))                       # dusk purple
+    # stone arch
+    d.rounded_rectangle((58, 40, 198, 222), radius=70, fill=INK)
+    d.rounded_rectangle((66, 48, 190, 214), radius=62, fill=(150, 140, 128, 255))
+    # the portal itself: rings from deep violet to bright pink-white
+    rings = [(76, 58, 180, 206, (90, 30, 150, 255)),
+             (88, 74, 168, 196, (140, 60, 210, 255)),
+             (100, 92, 156, 186, (190, 110, 240, 255)),
+             (112, 110, 144, 176, (240, 200, 255, 255))]
+    for x1, y1, x2, y2, c in rings:
+        d.ellipse((x1, y1, x2, y2), fill=c)
+    # swirl arcs
+    d.arc((84, 68, 172, 200), 200, 330, fill=(250, 230, 255, 255), width=6)
+    d.arc((96, 86, 160, 190), 20, 150, fill=(250, 230, 255, 255), width=5)
+    # base step
+    d.rectangle((70, 206, 186, 222), fill=INK)
+    d.rectangle((76, 208, 180, 216), fill=(120, 110, 100, 255))
+    return im
+
+
+def tram():
+    """A Deeprun Tram car on its rail (2026-11-18)."""
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    badge(d, (60, 70, 80, 255))                        # tunnel grey
+    # rail
+    d.rectangle((24, 190, S - 24, 202), fill=INK)
+    d.rectangle((30, 192, S - 30, 198), fill=(170, 170, 176, 255))
+    # car body
+    d.rounded_rectangle((46, 78, 210, 184), radius=18, fill=INK)
+    d.rounded_rectangle((54, 86, 202, 176), radius=12, fill=(196, 150, 54, 255))
+    # roof stripe
+    d.rectangle((54, 96, 202, 106), fill=(150, 104, 30, 255))
+    # windows
+    for x in (66, 108, 150):
+        d.rounded_rectangle((x, 114, x + 34, 146), radius=5, fill=INK)
+        d.rounded_rectangle((x + 4, 118, x + 30, 142), radius=4, fill=(150, 210, 240, 255))
+    # wheels
+    for x in (84, 172):
+        d.ellipse((x - 18, 168, x + 18, 204), fill=INK)
+        d.ellipse((x - 11, 175, x + 11, 197), fill=(110, 110, 116, 255))
+    # pantograph to the overhead cable
+    d.line((128, 78, 112, 48), fill=INK, width=6)
+    d.line((112, 48, 148, 48), fill=INK, width=6)
+    return im
+
+
 def save(im, name):
     path = os.path.normpath(os.path.join(OUT, name))
     im.resize((64, 64), Image.LANCZOS).save(path)
@@ -78,3 +130,5 @@ def save(im, name):
 if __name__ == '__main__':
     save(boat(), 'IconBoat.tga')
     save(zeppelin(), 'IconZeppelin.tga')
+    save(portal(), 'IconPortal.tga')
+    save(tram(), 'IconTram.tga')

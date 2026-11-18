@@ -30,8 +30,8 @@
 -- and both endpoints are written into the same "[ownerMapId] =
 -- 'fac,x,y|fac,x,y'" shape every other Guide data file already uses -
 -- RefreshServiceIcons needs zero new parsing code for this category.
--- Faction is always 0 (shown to both) - none of these are faction-
--- restricted the way a capital-city banker/innkeeper can be.
+-- Faction: was always 0 (shown to both) until 2026-11-18; now read
+-- from each connection's flags - see addPoint's header below.
 ---------------------------------------------------------------------------------------
 
 local AlchemyGPS = _G.AlchemyGPS
@@ -113,7 +113,12 @@ local RAW_CONNECTIONS = {
     "7|2|Boat to Tanaris|2548|80.1|54.4|Boat to Riverglades|1446|68.3|23.0",
     "2|0|Portal to Stormwind|1416|12.0|56.2|Portal to Dalaran|1453|50.0|87.0",
     "3|2|Boat to Dalaran|2521|65.8|83.4|Boat to Zephras Isle|1416|12.7|52.0",
-    "5|2|Boat to Mulgore|2521|57.9|80.7|Boat to Zephras Isle|1412|34.3|25.7",
+    -- 2026-11-18: a zeppelin, not a boat (Leatrix Maps: "Zeppelin to
+    -- Thunder Bluff" / "Zeppelin to Zephras Isle").
+    "5|2|Zeppelin to Mulgore|2521|57.9|80.7|Zeppelin to Zephras Isle|1412|34.3|25.7",
+    -- 2026-11-18: the Feathermoon Stronghold boat, missing from
+    -- Carbonite's list - Leatrix Maps' two Feralas "Boat to" pins.
+    "3|2|Boat to Feathermoon|1444|43.1|42.8|Boat to Feralas|1444|31.0|39.5",
 }
 
 local function ParseConnection(s)
@@ -139,24 +144,51 @@ end
 -- 2026-11-16 (user request: "special icons for zeppelins and boats
 -- moving between continents"): boats and zeppelins go to categories of
 -- their own (GuideData.Boat / .Zeppelin - own icon, own filter row);
--- trams, portals and plain borders stay Zone Transitions. Told apart by
--- the name every boat / zeppelin row carries ("Boat to ...").
-local byZone, byKind = {}, { Boat = {}, Zeppelin = {} }
-local function addPoint(mapId, x, y, name, otherMapId)
+-- plain borders stay Zone Transitions. Told apart by the name every
+-- boat / zeppelin / portal / tram row carries ("Boat to ...").
+--
+-- 2026-11-18 (user request, from Leatrix Maps): portals and trams get
+-- kinds of their own too (GuideData.Portal / .Tram), and every point
+-- now carries:
+--   * its faction, from the connection's flags - Carbonite's own
+--     reading (MapEngine.lua's transport branch): bit 2 = Alliance,
+--     bit 4 = Horde, both or neither = everyone. Written in the
+--     Guide data's hide-code convention (1 = Alliance only, 2 = Horde
+--     only, 0 = both - see ServiceIconFactionOk in MinimapEngine.lua),
+--     so the other faction's boats are hidden unless the map's "Other
+--     faction's travel" filter is on.
+--   * the map it leads to, after a "#" at the end of the name
+--     ("Boat to Darkshore#1439"), so clicking the icon on the big map
+--     can open that map.
+local KINDS = { Boat = true, Zeppelin = true, Portal = true, Tram = true }
+local byZone, byKind = {}, { Boat = {}, Zeppelin = {}, Portal = {}, Tram = {} }
+
+local function factionOf(flags)
+    local bits = flags and (flags % 8 - flags % 2) or 0     -- flags & 6
+    if bits == 2 then return 1 end
+    if bits == 4 then return 2 end
+    return 0
+end
+
+local function addPoint(mapId, x, y, name, otherMapId, fac)
     if not mapId or not x or not y then return end
     if not name or name == "" then
         name = Map.ZoneNames and Map.ZoneNames[otherMapId] or ""
     end
-    local kind = name:match("^(Boat) to ") or name:match("^(Zeppelin) to ")
+    local kind = name:match("^(%a+) to ")
+    if not KINDS[kind] then kind = nil end
     local bucket = kind and byKind[kind] or byZone
-    local entry = ("0,%g,%g,%s"):format(x, y, name)
+    local entry = ("%d,%g,%g,%s"):format(fac, x, y, name)
+    if otherMapId then entry = entry .. "#" .. otherMapId end
     bucket[mapId] = bucket[mapId] and (bucket[mapId] .. "|" .. entry) or entry
 end
 
 for _, raw in ipairs(RAW_CONNECTIONS) do
+    local flags = tonumber(raw:match("^(%d+)|"))
     local name1, mapId1, x1, y1, name2, mapId2, x2, y2 = ParseConnection(raw)
-    addPoint(mapId1, x1, y1, name1, mapId2)
-    addPoint(mapId2, x2, y2, name2, mapId1)
+    local fac = factionOf(flags)
+    addPoint(mapId1, x1, y1, name1, mapId2, fac)
+    addPoint(mapId2, x2, y2, name2, mapId1, fac)
 end
 
 Map.GuideData = Map.GuideData or {}
@@ -166,3 +198,7 @@ Map.GuideData["Boat"] = byKind.Boat
 Map.GuideData["Boat"].Mode = 32
 Map.GuideData["Zeppelin"] = byKind.Zeppelin
 Map.GuideData["Zeppelin"].Mode = 32
+Map.GuideData["Portal"] = byKind.Portal
+Map.GuideData["Portal"].Mode = 32
+Map.GuideData["Tram"] = byKind.Tram
+Map.GuideData["Tram"].Mode = 32

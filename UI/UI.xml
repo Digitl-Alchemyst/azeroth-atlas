@@ -18,4 +18,7 @@
          need AlchemyGPS.UI (created by Widget.lua) but not SmallWindow. -->
     <Script file="TabBar.lua" />
     <Script file="StyleOptions.lua" />
+
+    <!-- 2026-11-17: theme parts bin for the final theming stage (data only). -->
+    <Script file="ThemeLibrary.lua" />
 </Ui>

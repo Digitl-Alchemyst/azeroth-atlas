@@ -1876,6 +1876,19 @@ function MinimapEngine:MoveCurZoneTiles()
         return
     end
 
+    -- 2026-11-17: the Azeroth view draws every continent.
+    if self.ShowAllConts and self.ContFrms then
+        local lvl = (self.Frm:GetFrameLevel() or 1) + BASE_LEVEL_OFFSET
+        for cont, pool in pairs(self.ContFrms) do
+            if self.DebugHideBase then
+                self:HideZoneTileFrames(pool)
+            else
+                self:MoveZoneTiles(cont, 0, pool, self.BackgndAlpha or 1, lvl)
+            end
+        end
+        return
+    end
+
     local level = (self.Frm:GetFrameLevel() or 1) + BASE_LEVEL_OFFSET
     local info = self.MapInfo and self.MapInfo[self.Cont]
     local fileName = info and info.FileName
@@ -2293,6 +2306,9 @@ end
 function MinimapEngine:ResolveDungeonMap(rawMap)
     local inInstance, instType = IsInInstance()
     local instanceID = tonumber((select(8, GetInstanceInfo())))
+    -- 2026-11-17: a dungeon picked from the big map's menu, from outside.
+    local browsing = self.BrowseInstance
+    if browsing then inInstance, instType, instanceID = true, "party", browsing end
     local known = instanceID and (CUSTOM_ART[instanceID]
         or (AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
             and AlchemyGPS.QuestData.Instances[instanceID]))
@@ -2303,7 +2319,7 @@ function MinimapEngine:ResolveDungeonMap(rawMap)
         end
         return nil
     end
-    local best = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    local best = not browsing and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player") or nil
     if not readable(best) then best = nil end
     local playerMap = (best and isDungeonMapType(best)) and best or nil
     local key = tostring(instanceID) .. ":" .. tostring(playerMap)
@@ -2338,7 +2354,7 @@ function MinimapEngine:ResolveDungeonMap(rawMap)
     end
     -- No map from the game: the room it names tells the level
     -- (DungeonRooms.lua). Kept while between named rooms.
-    local roomLevel = not playerMap and self.GetRoomLevel and self:GetRoomLevel(self.DungeonFloors)
+    local roomLevel = not playerMap and not browsing and self.GetRoomLevel and self:GetRoomLevel(self.DungeonFloors)
     if roomLevel then
         self.RoomFloorKnown = true
         if roomLevel ~= self.PlayerFloor then
@@ -2588,6 +2604,9 @@ function MinimapEngine:UpdateTitle()
     end
     if not self.PlyrPosUnknown and self.PlyrRZX and self.PlyrRZY then
         title = ("%s  |cffa0a0a0%.1f, %.1f|r"):format(title, self.PlyrRZX, self.PlyrRZY)
+    end
+    if self:IsBrowsing() then
+        title = ("|cffffd100%s|r  |cffa0a0a0(you: %s)|r"):format(self.BrowseName or "?", title)
     end
     if title ~= self._LastTitle then
         self._LastTitle = title
@@ -3230,6 +3249,16 @@ function MinimapEngine:UpdateZoneOverlays()
             end
         end
     end
+    -- 2026-11-17: and every other continent's zones in the Azeroth view.
+    if self.ShowAllConts then
+        for cont = 1, self.ContCnt or 0 do
+            if cont ~= self.Cont then
+                for _, zoneId in ipairs(self.MapZones[cont] or {}) do
+                    self:UpdateOverlay(zoneId, .8, true)
+                end
+            end
+        end
+    end
     if self.MapId then
         self:UpdateOverlay(self.MapId, 1)
     end
@@ -3463,7 +3492,19 @@ function MinimapEngine:ClipFrameW(frm, bx, by, w, h, dir)
     frm:SetPoint("TOPLEFT", vx1, -vy1 - self.TitleH)
     frm:SetWidth(fw)
     frm:SetHeight(fh)
-    frm.texture:SetTexCoord(texX1, texX2, texY1, texY2)
+    -- 2026-11-17: an icon that is part of a bigger file keeps to its part
+    -- (UI/StyleOptions.lua ApplyIconSpec marks it): a sheet crop is
+    -- clipped within its crop; an atlas keeps its own coordinates.
+    local tex = frm.texture
+    local tc = tex.agpsTC
+    if tex.agpsAtlas then
+        -- left as the atlas set it
+    elseif tc then
+        local cw, ch = tc[2] - tc[1], tc[4] - tc[3]
+        tex:SetTexCoord(tc[1] + texX1 * cw, tc[1] + texX2 * cw, tc[3] + texY1 * ch, tc[3] + texY2 * ch)
+    else
+        tex:SetTexCoord(texX1, texX2, texY1, texY2)
+    end
 
     -- Facing rotation, for the player marker. Real Carbonite's own
     -- ClipFrameW (MapEngine.lua:10792-10805+) does this via UV-space
@@ -3559,13 +3600,24 @@ end
 -- needs a migration to default everyone's existing saved profile to
 -- visible.
 local function IsMapFilterOn(key)
+    -- 2026-11-18: FilterMenu knows which rows start off ("Other
+    -- faction's travel"); ask it when it's loaded.
+    local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+    if FilterMenu and FilterMenu.IsFilterOn then return FilterMenu.IsFilterOn(key) end
     local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
     return not filters or filters[key] ~= false
 end
 
 local SERVICE_ICON_SIZE = 16
 -- 2026-11-16: boats and zeppelins a size up - the way off a continent.
-local SERVICE_ICON_SIZE_BY_KIND = { Boat = 22, Zeppelin = 22 }
+-- 2026-11-18: portals and trams join them.
+local SERVICE_ICON_SIZE_BY_KIND = { Boat = 22, Zeppelin = 22, Portal = 22, Tram = 22 }
+-- Kinds shown on a continent / Azeroth view (2026-11-17).
+local WIDE_VIEW_KINDS = { DungeonEntrance = true, Boat = true, Zeppelin = true, Portal = true, Tram = true }
+-- Kinds the "Other faction's travel" filter can bring back (2026-11-18,
+-- user request, from Leatrix Maps' "Show opposing faction points of
+-- interest": flight points, boats, zeppelins, trams and portals).
+local OPPOSING_KINDS = { Boat = true, Zeppelin = true, Portal = true, Tram = true }
 
 -- Standard Blizzard minimap-tracking-filter textures (not Carbonite's
 -- own icon atlas) - long-standing paths, present since Classic.
@@ -3633,6 +3685,10 @@ local SERVICE_ICON_TEX = {
     -- addon by Tools/make_transport_icons.py.
     Boat            = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconBoat",
     Zeppelin        = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconZeppelin",
+    -- 2026-11-18: portals and trams, split out of ZoneTransition the
+    -- same way, drawn by the same tool.
+    Portal          = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconPortal",
+    Tram            = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconTram",
 }
 
 -- Build-order step 14, 2026-11-11: these three (plus FlightMaster's
@@ -3667,16 +3723,108 @@ local SERVICE_ICON_LABEL = {
     GuardFlag       = "Guard Directions",
     Boat            = "Boat",
     Zeppelin        = "Zeppelin",
+    Portal          = "Portal",
+    Tram            = "Tram",
 }
+
+---------------------------------------------------------------------------------------
+-- Click a travel or dungeon icon to open where it goes (2026-11-18, user
+-- request, from Leatrix Maps). On the big map only - the small map is
+-- the "where am I" view and always follows you.
+--   zone exit, boat, zeppelin, portal, tram   opens the map it leads to
+--   dungeon / raid entrance                   opens the dungeon's map; when
+--                                             several share one entrance
+--                                             (Blackrock Mountain, Ahn'Qiraj)
+--                                             a small list picks one
+-- Leatrix does the same on the world map (a "click catcher" over the
+-- hovered pin, then C_Map.OpenWorldMap); here it's BrowseTo, the same
+-- call the big map's Zones and Dungeons menus make.
+---------------------------------------------------------------------------------------
+
+local function BigMapShown()
+    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    return BigMap and BigMap.IsBig and BigMap:IsBig() or false
+end
+
+local function NormDungeonName(n)
+    return ((n or ""):lower():gsub("^the ", ""):gsub("[^%w]", ""))
+end
+
+-- The big map's browsable dungeons whose name matches an entrance's.
+local function DungeonsNamed(names)
+    local found = {}
+    local list = MinimapEngine:GetBrowseDungeons()
+    for _, want in ipairs(names or {}) do
+        local w = NormDungeonName(want)
+        for _, d in ipairs(list) do
+            if NormDungeonName(d.name) == w then found[#found + 1] = d end
+        end
+    end
+    return found
+end
+
+-- What clicking the point would open, as a tooltip line, or nil.
+local function ServiceClickHint(pt)
+    if not pt or not BigMapShown() then return nil end
+    if pt.dest and pt.dest ~= MinimapEngine.MapId then
+        return "Click to open " .. MinimapEngine:MapName(pt.dest)
+    end
+    if pt.dungeons then
+        local n = #DungeonsNamed(pt.dungeons)
+        if n == 1 then return "Click to open its map" end
+        if n > 1 then return "Click to pick a map" end
+    end
+    return nil
+end
+
+local function ServiceFrameOnClick(frm)
+    local pt = frm.svcPt
+    if not pt or not BigMapShown() then return end
+    local E = MinimapEngine
+    if pt.dest and pt.dest ~= E.MapId then
+        GameTooltip:Hide()
+        E:BrowseTo("map", pt.dest)
+        return
+    end
+    if pt.dungeons then
+        local found = DungeonsNamed(pt.dungeons)
+        if #found == 1 then
+            GameTooltip:Hide()
+            E:BrowseTo("dungeon", found[1].id, found[1].name)
+        elseif #found > 1 then
+            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            local items = {}
+            for _, d in ipairs(found) do
+                items[#items + 1] = { d.name, function() E:BrowseTo("dungeon", d.id, d.name) end }
+            end
+            if BigMap and BigMap.OpenMenu then BigMap.OpenMenu(frm, items) end
+        end
+    end
+end
 
 local function ServiceFrameOnEnter(frm)
     GameTooltip:SetOwner(frm, "ANCHOR_CURSOR")
     GameTooltip:SetText(frm.svcLabel or "?")
+    local pt = frm.svcPt
+    if pt and pt.factionNote then
+        GameTooltip:AddLine(pt.factionNote, 1, 0.45, 0.45)
+    end
+    local hint = ServiceClickHint(pt)
+    if hint then GameTooltip:AddLine(hint, 0.5, 0.85, 1) end
     GameTooltip:Show()
 end
 
 local function ServiceFrameOnLeave()
     GameTooltip:Hide()
+end
+
+local function ServiceFrameOnMouseUp(frm, button)
+    if button == "LeftButton" then
+        ServiceFrameOnClick(frm)
+    elseif button == "RightButton" then
+        -- The map's own right-click menu, as if the icon weren't there.
+        MinimapEngine:OnMouseUp("RightButton")
+    end
 end
 
 -- Not yet confirmed either way - same TRACKING family as the now-
@@ -3790,7 +3938,20 @@ function MinimapEngine:RefreshServiceIcons()
                 and StyleOptions:GetOption(kind)
                 or { tex = tex }
             local data = self.GuideData and self.GuideData[kind]
-            local entry = data and data[self.MapId]
+            -- 2026-11-17: a continent or Azeroth view shows the points of
+            -- interest of every zone on it (dungeons, boats, zeppelins).
+            local zoneList = { self.MapId }
+            if self.WideView then
+                zoneList = {}
+                if WIDE_VIEW_KINDS[kind] then
+                    local conts = self.ShowAllConts and { 1, 2, 3 } or { self.Cont }
+                    for _, c in ipairs(conts) do
+                        for _, id in ipairs(self.MapZones[c] or {}) do zoneList[#zoneList + 1] = id end
+                    end
+                end
+            end
+            for _, zoneId in ipairs(zoneList) do
+            local entry = data and data[zoneId]
             if entry then
                 -- Build-order step 12, 2026-11-11: trailing ",name" is
                 -- optional (the `,?` before it) - every pre-existing
@@ -3800,9 +3961,30 @@ function MinimapEngine:RefreshServiceIcons()
                 -- GuideZoneTransition.lua's own conversion loops were
                 -- changed to actually populate it.
                 for fac, x, y, name in entry:gmatch("(%d+),([%d%.]+),([%d%.]+),?([^|]*)") do
-                    if ServiceIconFactionOk(tonumber(fac)) then
-                        local wx, wy = self:GetWorldPos(self.MapId, tonumber(x), tonumber(y))
-                        if wx then
+                    fac = tonumber(fac)
+                    -- 2026-11-18: "Boat to Darkshore#1439" - the map the
+                    -- point leads to (GuideZoneTransition.lua).
+                    local dest
+                    local base, d = name:match("^(.-)#(%d+)$")
+                    if base then name, dest = base, tonumber(d) end
+                    local own = ServiceIconFactionOk(fac)
+                    local shown = own or (OPPOSING_KINDS[kind] and IsMapFilterOn("OpposingFaction"))
+                    local wx, wy
+                    if shown then wx, wy = self:GetWorldPos(zoneId, tonumber(x), tonumber(y)) end
+                    -- 2026-11-18: dungeons sharing one entrance (Blackrock
+                    -- Mountain, Ahn'Qiraj) become one icon listing them all.
+                    local merged
+                    if wx and kind == "DungeonEntrance" then
+                        for _, other in ipairs(pts) do
+                            if other.dungeons and other.zone == zoneId and other.px == x and other.py == y then
+                                other.dungeons[#other.dungeons + 1] = name
+                                other.label = other.label .. " / " .. name
+                                merged = true
+                                break
+                            end
+                        end
+                    end
+                    if wx and not merged then
                             -- Build-order step 12, fourth follow-up,
                             -- 2026-11-11: reverted the third follow-
                             -- up's Innkeeper-shows-zone-name special
@@ -3814,11 +3996,27 @@ function MinimapEngine:RefreshServiceIcons()
                             -- /Banker/SpiritHealer; only FlightMaster's
                             -- own node.name carries a location now.
                             local label = (name ~= "" and name) or SERVICE_ICON_LABEL[kind]
-                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = iconSpec, label = label,
-                                size = SERVICE_ICON_SIZE_BY_KIND[kind] }
-                        end
+                            local pt = { x = wx, y = wy, iconSpec = iconSpec, label = label,
+                                size = SERVICE_ICON_SIZE_BY_KIND[kind], dest = dest }
+                            if not own then
+                                pt.factionNote = (fac == 1 and "Alliance only") or "Horde only"
+                            end
+                            if kind == "DungeonEntrance" and name ~= "" then
+                                pt.dungeons, pt.zone, pt.px, pt.py = { name }, zoneId, x, y
+                            end
+                            -- 2026-11-18 (user request): the exit arrow points
+                            -- into the zone it leads to, like Leatrix's
+                            -- (Map/Data/ZoneArrowAngles.lua, made by
+                            -- Tools/gen_zone_arrow_angles.py). Only the arrow
+                            -- style turns - the map-scroll icon stays upright.
+                            if kind == "ZoneTransition" and iconSpec.atlas == "Garr_LevelUpgradeArrow" then
+                                local angles = AlchemyGPS.Map.ZoneArrowAngles
+                                pt.rot = angles and angles[zoneId .. ":" .. x .. ":" .. y]
+                            end
+                            pts[#pts + 1] = pt
                     end
                 end
+            end
             end
         end
     end
@@ -3847,8 +4045,10 @@ function MinimapEngine:RefreshServiceIcons()
     if IsMapFilterOn("FlightMaster") and C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
         local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, self.MapId)
         if ok and type(nodes) == "table" then
+            local showOther = IsMapFilterOn("OpposingFaction")
             for _, node in ipairs(nodes) do
-                if TaxiFactionOk(tonumber(node.faction)) then
+                local own = TaxiFactionOk(tonumber(node.faction))
+                if own or showOther then
                     local pos = node.position
                     local nx, ny = pos and pos.x, pos and pos.y
                     if pos and (nx == nil or ny == nil) and pos.GetXY then
@@ -3880,7 +4080,14 @@ function MinimapEngine:RefreshServiceIcons()
                                 or SERVICE_ICON_LABEL.FlightMaster
                             -- Build-order step 14: style-backed, same as
                             -- DungeonEntrance/ZoneTransition/SpiritHealer above.
-                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = StyleOptions:GetOption("FlightMaster"), label = label }
+                            -- 2026-11-17: a "by faction" set gives each node
+                            -- its own faction's icon.
+                            local spec = StyleOptions:ForFaction(StyleOptions:GetOption("FlightMaster"),
+                                tonumber(node.faction) or 0)
+                            pts[#pts + 1] = { x = wx, y = wy, iconSpec = spec, label = label,
+                                -- C_TaxiMap: 1 = Horde, 2 = Alliance.
+                                factionNote = not own and ((tonumber(node.faction) == 1 and "Horde only")
+                                    or "Alliance only") or nil }
                         end
                     end
                 end
@@ -3958,6 +4165,7 @@ function MinimapEngine:UpdateServiceIcons()
             frm:EnableMouse(true)
             frm:SetScript("OnEnter", ServiceFrameOnEnter)
             frm:SetScript("OnLeave", ServiceFrameOnLeave)
+            frm:SetScript("OnMouseUp", ServiceFrameOnMouseUp)
             self.SvcFrms[n] = frm
         end
     end
@@ -3971,8 +4179,9 @@ function MinimapEngine:UpdateServiceIcons()
             frm.svcIconSpec = pt.iconSpec
         end
         frm.svcLabel = pt.label
+        frm.svcPt = pt
         local size = pt.size or SERVICE_ICON_SIZE
-        if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
+        if self:ClipFrameW(frm, pt.x, pt.y, size, size, pt.rot) then
             frm:SetFrameLevel(level)
         end
     end
@@ -4146,13 +4355,34 @@ function MinimapEngine:UpdateQuestIcons()
         frm.questPt = pt
         local size = pt.size or QUEST_ICON_SIZE
         if self:ClipFrameW(frm, pt.x, pt.y, size, size) then
-            frm:SetFrameLevel(level)
+            -- 2026-11-17: a quest hovered in the quest list (Quest/QuestPins
+            -- .lua Pins:SetFocus): its pins on top with a glow, the rest faded.
+            frm:SetFrameLevel(level + (pt.focus and 2 or 0))
             -- Frames are pooled across roles: always set the tint, so
             -- an untinted pin never inherits the last quest's colour.
-            frm.texture:SetVertexColor(pt.r or 1, pt.g or 1, pt.b or 1, 1)
+            frm.texture:SetVertexColor(pt.r or 1, pt.g or 1, pt.b or 1, pt.dim and 0.22 or 1)
             -- Same reason: a low-level pickup pin is drawn gray, and
             -- the next pin to use this frame must not stay that way.
             frm.texture:SetDesaturated(pt.desat and true or false)
+            if pt.focus then
+                local glow = frm.focusGlow
+                if not glow then
+                    glow = frm:CreateTexture(nil, "BACKGROUND")
+                    glow:SetTexture("Interface\\Cooldown\\star4")
+                    glow:SetBlendMode("ADD")
+                    glow:SetPoint("CENTER")
+                    frm.focusGlow = glow
+                end
+                glow:SetSize(size * 2.6, size * 2.6)
+                if pt.r then
+                    glow:SetVertexColor(pt.r, pt.g, pt.b, 1)
+                else
+                    glow:SetVertexColor(1, 0.82, 0.2, 1)
+                end
+                glow:Show()
+            elseif frm.focusGlow then
+                frm.focusGlow:Hide()
+            end
         end
     end
     for n = #pts + 1, #self.QuestFrms do
@@ -4620,10 +4850,12 @@ function MinimapEngine:UpdateGatherIcons()
             -- (not 4) specifically so this lands on the reserved,
             -- otherwise-unused level 4, clear of Terrain's level 3 -
             -- see SERVICE_LEVEL_OFFSET's own header comment.
+            -- 2026-11-17: a plain solid square. It used the window skin's
+            -- backdrop, whose border is sized for windows: on a box this
+            -- small the edge pieces overlapped and drew a "#".
             frm.backdrop = CreateFrame("Frame", nil, self.Frm, "BackdropTemplate")
-            frm.backdrop:SetBackdrop(AlchemyGPS.Skin:GetBackdrop())
+            frm.backdrop:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
             frm.backdrop:SetBackdropColor(0, 0, 0, 1)
-            frm.backdrop:SetBackdropBorderColor(0, 0, 0, 1)
             self.GatherFrms[n] = frm
         end
     end
@@ -5026,18 +5258,64 @@ end
 -- Cheap to call every Update() tick (the mapId == self.MapId check
 -- below is the only work done once nothing has actually changed).
 function MinimapEngine:RefreshCurrentZone()
-    local mapId = self:GetDisplayableMapForPlayer()
-    -- 2026-11-16: inside a dungeon, the floor the player is on (which
-    -- for a WoW Forever dungeon can be one of ResolveDungeonMap's made-
-    -- up art floors - the client may report no map, or an outdoor one).
-    mapId = self:ResolveDungeonMap(mapId) or mapId
-    if not mapId or mapId == 0 or mapId == self.MapId then return end
+    -- 2026-11-17: the big map can browse Azeroth, a continent, a zone or a
+    -- dungeon (BrowseTo). The viewed map is MapId/Cont/Zone as before;
+    -- the player's own map is PlyrMapId/PlyrCont/PlyrZone.
+    local browsing = self:IsBrowsing()
+    local mapId
+    if browsing then
+        local raw = self:GetDisplayableMapForPlayer()
+        if raw ~= self.PlyrMapId then
+            self.PlyrMapId = raw
+            self.PlyrCont = raw and raw ~= 0 and self:FindContinent(raw) or nil
+            self.PlyrZone = self.PlyrCont and raw or nil
+        end
+        if self.BrowseInstance then
+            mapId = self:ResolveDungeonMap(nil)
+            if not mapId then
+                -- Nothing to draw for that dungeon: back to the player.
+                self.BrowseFailed = self.BrowseName
+                self:StopBrowse()
+                return
+            end
+        else
+            mapId = self.BrowseMapId
+        end
+    else
+        mapId = self:GetDisplayableMapForPlayer()
+        -- 2026-11-16: inside a dungeon, the floor the player is on (which
+        -- for a WoW Forever dungeon can be one of ResolveDungeonMap's made-
+        -- up art floors - the client may report no map, or an outdoor one).
+        mapId = self:ResolveDungeonMap(mapId) or mapId
+    end
+    if not mapId or mapId == 0 or mapId == self.MapId then
+        if not browsing then
+            self.PlyrMapId, self.PlyrCont, self.PlyrZone = self.MapId, self.Cont, self.Zone
+        end
+        return
+    end
 
-    local cont = self:FindContinent(mapId) or self:RegisterInstanceMap(mapId)
+    local cont, zone, wide, allConts
+    if browsing and mapId == self.AZEROTH_MAP then
+        cont = (self.PlyrCont and self.PlyrCont >= 1 and self.PlyrCont <= 2) and self.PlyrCont or 2
+        zone = self.MapZones[0][cont]
+        wide, allConts = true, true
+    elseif browsing and self:ContinentForRoot(mapId) then
+        cont = self:ContinentForRoot(mapId)
+        zone = mapId
+        wide = true
+    else
+        cont = self:FindContinent(mapId) or self:RegisterInstanceMap(mapId)
+        zone = cont and mapId or nil
+    end
     self.MapId = mapId
     self.Cont = cont
     self.PlyrPosUnknown = nil
-    self.Zone = cont and mapId or nil
+    self.Zone = zone
+    self.WideView, self.ShowAllConts = wide, allConts
+    if not browsing then
+        self.PlyrMapId, self.PlyrCont, self.PlyrZone = mapId, cont, self.Zone
+    end
 
     -- Build-order step 9b: static service icons (mailbox/innkeeper/
     -- flight master) are per-mapID, so they only need resolving here,
@@ -5082,8 +5360,12 @@ function MinimapEngine:RefreshCurrentZone()
     -- i.e. exactly `x + zw/2, y + zh/2` in this function's own
     -- GetWorldZoneInfo return values.
     local _, x, y, zw, zh = self:GetWorldZoneInfo(cont, mapId)
+    if allConts then x, y, zw, zh = self:GetAzerothRect() end
     local ZoomController = AlchemyGPS.Modules.Map.ZoomController
-    if ZoomController and x then
+    if ZoomController and x and browsing and self.MapW and self.MapH and zw > 0 then
+        -- Browsing: fit what was picked into the window.
+        ZoomController:Move(x + zw / 2, y + zh / 2, min(self.MapW / zw, self.MapH / zh) * .9, 15)
+    elseif ZoomController and x then
         -- 2026-11-16: a dungeon floor opens zoomed to fit the window
         -- (it's far smaller than a zone, so the outdoor zoom would show
         -- it as a speck); the outdoor zoom comes back on leaving.
@@ -5097,6 +5379,217 @@ function MinimapEngine:RefreshCurrentZone()
         end
         ZoomController:Move(x + zw / 2, y + zh / 2, scale, 15)
     end
+    -- Back from browsing ("My Map"): land on the player, not the zone's
+    -- middle, even with Center off.
+    if self.ReturnToPlayer and not browsing then
+        self.ReturnToPlayer = nil
+        if ZoomController and self.PlyrX and not self.PlyrPosUnknown then
+            ZoomController:Move(self.PlyrX, self.PlyrY, nil, 15)
+        end
+    end
+end
+
+---------------------------------------------------------------------------------------
+-- Browsing (2026-11-17, user request: big map buttons that "shift focus
+-- to each continent or Azeroth or go into zone or go into dungeon or
+-- city maps", and one to get back to our own map).
+--   BrowseTo("azeroth")            every continent at once
+--   BrowseTo("map", mapId)         a continent root (12 / 13) or a zone
+--   BrowseTo("dungeon", instanceID) a dungeon's floors, from outside
+--   StopBrowse()                   back to the player's own map
+-- While browsing the map doesn't follow the player; the player marker
+-- still draws wherever the player is.
+---------------------------------------------------------------------------------------
+
+MinimapEngine.AZEROTH_MAP = 947
+
+function MinimapEngine:IsBrowsing()
+    return (self.BrowseMapId or self.BrowseInstance) and true or false
+end
+
+-- Continent index for a continent root map (MapZones[0]: 12, 13), or nil.
+function MinimapEngine:ContinentForRoot(mapId)
+    local roots = self.MapZones and self.MapZones[0]
+    for cont = 1, self.ContCnt or 0 do
+        if roots and roots[cont] == mapId and self.MapInfo[cont] and self.MapInfo[cont].FileName then
+            return cont
+        end
+    end
+    return nil
+end
+
+-- World rectangle (x, y, w, h) holding every continent's drawn art.
+function MinimapEngine:GetAzerothRect()
+    local x1, y1, x2, y2
+    for cont = 1, self.ContCnt or 0 do
+        local info = self.MapInfo[cont]
+        local _, x, y, w, h = self:GetWorldZoneInfo(cont, 0)
+        if info and info.FileName and x then
+            -- Only the middle columns of a continent image are drawn
+            -- (ContBlks), so only they count.
+            local mask = self.ContBlks and self.ContBlks[cont]
+            local c1, c2 = 4, 1
+            for col = 1, 4 do
+                if not mask or mask[col] ~= 0 then
+                    c1, c2 = min(c1, col), max(c2, col)
+                end
+            end
+            local lx, rx = x + w * (c1 - 1) / 4, x + w * c2 / 4
+            x1 = x1 and min(x1, lx) or lx
+            x2 = x2 and max(x2, rx) or rx
+            y1 = y1 and min(y1, y) or y
+            y2 = y2 and max(y2, y + h) or (y + h)
+        end
+    end
+    if not x1 then return nil end
+    return x1, y1, x2 - x1, y2 - y1
+end
+
+function MinimapEngine:MapName(mapId)
+    if mapId == self.AZEROTH_MAP then return "Azeroth" end
+    local cont = self:ContinentForRoot(mapId)
+    if cont then return self.MapInfo[cont].Name end
+    local winfo = self.MapWorldInfo and self.MapWorldInfo[mapId]
+    if winfo and winfo.Name then return winfo.Name end
+    local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapId)
+    return info and info.name or ("Map " .. tostring(mapId))
+end
+
+function MinimapEngine:BrowseTo(kind, id, name)
+    if kind == "azeroth" then
+        self.BrowseMapId, self.BrowseInstance = self.AZEROTH_MAP, nil
+    elseif kind == "dungeon" then
+        self.BrowseMapId, self.BrowseInstance = nil, id
+    else
+        self.BrowseMapId, self.BrowseInstance = id, nil
+    end
+    self.BrowseName = name or (kind == "azeroth" and "Azeroth") or (id and self:MapName(id))
+    self.BrowseFailed = nil
+    if not self.BrowseSavedScale then self.BrowseSavedScale = self.Scale end
+    self.MapId = nil            -- RefreshCurrentZone redraws on the next tick
+    self.ViewFloor = nil
+end
+
+function MinimapEngine:StopBrowse()
+    if not self:IsBrowsing() then return end
+    self.BrowseMapId, self.BrowseInstance, self.BrowseName = nil, nil, nil
+    self.WideView, self.ShowAllConts = nil, nil
+    self.MapId = nil
+    self.ViewFloor = nil
+    local scale = self.BrowseSavedScale
+    self.BrowseSavedScale = nil
+    self.ReturnToPlayer = true
+    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    if ZoomController and self.PlyrX then
+        ZoomController:Move(self.PlyrX, self.PlyrY, scale, 15)
+    end
+end
+
+-- Back to the player: stop browsing, and re-centre even when not
+-- browsing (after a manual pan).
+function MinimapEngine:ShowPlayer()
+    if self:IsBrowsing() then
+        self:StopBrowse()
+        return
+    end
+    self:SetViewFloor(nil)
+    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    if ZoomController and self.PlyrX and not self.PlyrPosUnknown then
+        ZoomController:Move(self.PlyrX, self.PlyrY, nil, 10)
+    end
+end
+
+-- Zones to list for a continent: { {id, name, city}, ... } sorted by name.
+local CITY_MAPS = { [1453] = true, [1454] = true, [1455] = true, [1456] = true, [1457] = true, [1458] = true }
+MinimapEngine.CITY_MAPS = CITY_MAPS
+function MinimapEngine:GetContinentZones(cont)
+    local list = {}
+    for _, id in ipairs(self.MapZones and self.MapZones[cont] or {}) do
+        local winfo = self.MapWorldInfo[id]
+        if winfo and winfo.X and winfo.Scale then
+            list[#list + 1] = { id = id, name = self:MapName(id), city = CITY_MAPS[id] }
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+-- Dungeons and raids that have something to draw: { {id, name}, ... }.
+function MinimapEngine:GetBrowseDungeons()
+    local seen, list = {}, {}
+    local Instances = AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances or {}
+    local Catalog = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Catalog
+    local rooms = AlchemyGPS.DungeonRoomData or {}
+    local fdjNames = _G.FDJ and _G.FDJ.INSTANCE_ID_TO_DUNGEON or {}
+    local function nameOf(id)
+        local key = Catalog and Catalog.InstanceKey and Catalog:InstanceKey(id)
+        local packed = key and Instances[key]
+        local n = packed and packed:match("^([^|]+)")
+        if n then return n end
+        if type(fdjNames[id]) == "string" then return fdjNames[id] end
+        local first = rooms.ClientFloors and rooms.ClientFloors[id] and rooms.ClientFloors[id][1]
+        local info = first and C_Map.GetMapInfo and C_Map.GetMapInfo(first)
+        return info and info.name or nil
+    end
+    local function add(id)
+        id = tonumber(id)
+        if not id or seen[id] then return end
+        seen[id] = true
+        local n = nameOf(id)
+        if n then list[#list + 1] = { id = id, name = n } end
+    end
+    for id in pairs(rooms.ClientFloors or {}) do add(id) end
+    for id in pairs(rooms.TileFloors or {}) do add(id) end
+    for id in pairs(fdjNames) do add(id) end
+    for id in pairs(Instances) do if id > 2000 then add(id) end end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+---------------------------------------------------------------------------------------
+-- Coordinates (2026-11-17, user request: player and cursor coordinates)
+---------------------------------------------------------------------------------------
+
+-- Zone percent (0-100) of a world point on mapId's map, or nil.
+function MinimapEngine:WorldToZone(mapId, wx, wy)
+    if not mapId or not wx then return nil end
+    local cont = self:FindContinent(mapId)
+    local info = cont and self.MapInfo[cont]
+    local winfo = self.MapWorldInfo[mapId]
+    if not info or not winfo or not winfo.X or not winfo.Scale or winfo.Scale == 0 then return nil end
+    return (wx - info.X - winfo.X) / winfo.Scale, (wy - info.Y - winfo.Y) * 1.5 / winfo.Scale
+end
+
+-- The zone under a world point (the smallest one, so a city wins over
+-- the zone around it) and its percent coordinates.
+function MinimapEngine:ZoneAtWorld(wx, wy)
+    local best, bx, by, bscale
+    local conts = self.ShowAllConts and { 1, 2, 3 } or { self.Cont }
+    for _, cont in ipairs(conts) do
+        for _, id in ipairs(cont and self.MapZones[cont] or {}) do
+            local zx, zy = self:WorldToZone(id, wx, wy)
+            if zx and zx >= 0 and zx <= 100 and zy >= 0 and zy <= 100 then
+                local sc = self.MapWorldInfo[id].Scale
+                if not bscale or sc < bscale then best, bx, by, bscale = id, zx, zy, sc end
+            end
+        end
+    end
+    return best, bx, by
+end
+
+-- World position under the cursor, or nil when it's off the map.
+function MinimapEngine:CursorWorldPos()
+    local f = self.Frm
+    if not f or not f:IsVisible() or not f:IsMouseOver() then return nil end
+    local cx, cy = GetCursorPosition()
+    local es = f:GetEffectiveScale()
+    local left, top = f:GetLeft(), f:GetTop()
+    if not left or not top then return nil end
+    local fx, fy = cx / es - left, top - cy / es
+    if fy < (self.TitleH or 0) then return nil end
+    local wx = self.MapPosXDraw + (fx - self.MapW / 2) / self.ScaleDraw
+    local wy = self.MapPosYDraw + (fy - (self.TitleH or 0) - self.MapH / 2) / self.ScaleDraw
+    return wx, wy
 end
 
 ---------------------------------------------------------------------------------------
@@ -5329,6 +5822,7 @@ local TRAIL_ARROW_SPACING = 15
 local TRAIL_ARROW_MAX = 40
 -- Real Carbonite's own default Target.Radius (MapEngine.lua:8866).
 local GOTO_ARRIVAL_YARDS = 7
+MinimapEngine.GOTO_ARRIVAL_YARDS = GOTO_ARRIVAL_YARDS     -- Quest/HUDArrow.lua
 -- Same constant as Update()'s own PlyrSpeed block above - see this
 -- section's header comment for why it's a fresh local here rather
 -- than touching that already-working line. Shared by UpdateCorpseTrack
@@ -5683,6 +6177,9 @@ function MinimapEngine:GetNearestEntrance()
 end
 
 function MinimapEngine:UpdateCorpseTrack()
+    -- 2026-11-17: the navigation arrow (Quest/HUDArrow.lua) reads the
+    -- corpse spot, so it only stands while there is one to show.
+    self.CorpseWX, self.CorpseWY, self.CorpseCont, self.CorpseLabel = nil, nil, nil, nil
     if not UnitIsDeadOrGhost("player") then
         local t = deathStore()
         if t and t.id then t.id, t.name = nil, nil end
@@ -5734,7 +6231,10 @@ function MinimapEngine:UpdateCorpseTrack()
 
     -- Remembered for auto-scale (AutoScaleTarget), cleared in
     -- HideCorpseFrames.
-    self.CorpseWX, self.CorpseWY, self.CorpseCont = wx, wy, self.Cont
+    -- The player's continent, not the one on show (the big map can be
+    -- browsing another).
+    self.CorpseWX, self.CorpseWY, self.CorpseCont = wx, wy, self.PlyrCont or self.Cont
+    self.CorpseLabel = label
 
     local dx = wx - self.PlyrX
     local dy = wy - self.PlyrY
@@ -6094,7 +6594,10 @@ function MinimapEngine:Update(elapsed)
     -- - see its own removal comment, build-order step 21 same-day
     -- sixth follow-up.)
     self:RefreshCurrentZone()
-    if self.Cont then
+    -- 2026-11-17 (big map browsing): the player's position always comes
+    -- from the player's own map (PlyrMapId/PlyrCont/PlyrZone), which is
+    -- the viewed map too unless the map is browsing somewhere else.
+    if self.PlyrCont then
         -- Live player world position, replacing build-order step 4's
         -- fixed-at-canvas-center stand-in. Formula corrected 2026-11-09
         -- after a live screenshot showed the rendered art badly
@@ -6116,7 +6619,7 @@ function MinimapEngine:Update(elapsed)
         -- GetPlayerMapPosition's 0..1 top-to-bottom Y already matches
         -- Carbonite's own world-Y-increases-south convention, so
         -- flipping it was backwards).
-        local _, zx, zy, zw, zh = self:GetWorldZoneInfo(self.Cont, self.Zone)
+        local _, zx, zy, zw, zh = self:GetWorldZoneInfo(self.PlyrCont, self.PlyrZone)
         -- self.Cont guard added 2026-11-10: GetWorldZoneInfo's own
         -- "invalid cont/zone" fallback returns 0 for zx (not nil, see
         -- that function above) - 0 is truthy in Lua, so without this
@@ -6142,11 +6645,11 @@ function MinimapEngine:Update(elapsed)
         -- movement (that needs Carbonite's full zone/instance database
         -- - a separate, much bigger port, not attempted here) - it only
         -- stops the existing patch from vanishing while indoors.
-        if self.Cont and zx then
+        if self.PlyrCont and zx then
             -- 2026-11-16: a Forever art floor reads the client map it
             -- matches, if any (GetPositionMap); pcall since a dungeon
             -- map can refuse the call.
-            local posMap = self:GetPositionMap(self.MapId)
+            local posMap = self:GetPositionMap(self.PlyrMapId)
             local pos
             if posMap and C_Map and C_Map.GetPlayerMapPosition then
                 local ok, p = pcall(C_Map.GetPlayerMapPosition, posMap, "player")
@@ -6215,13 +6718,14 @@ function MinimapEngine:Update(elapsed)
                 -- there's somewhere to go it owns the view. Otherwise
                 -- "Center" (saved as AutoFollow) keeps the player in the
                 -- middle of the map.
-                if ZoomController and not self.Scrolling and self:IsViewingPlayerFloor() then
+                if ZoomController and not self.Scrolling and self:IsViewingPlayerFloor()
+                        and not self:IsBrowsing() then
                     if not self:AutoScaleTarget() and autoFollow then
                         ZoomController:Move(self.PlyrX, self.PlyrY, nil, 30)
                     end
                 end
                 self.PlyrPosUnknown = nil
-            elseif self.Cont == self.DUNGEON_CONT then
+            elseif self.PlyrCont == self.DUNGEON_CONT then
                 -- This dungeon's map doesn't report where the player is
                 -- (some instances don't) - show the map, hide the marker.
                 self.PlyrPosUnknown = true
@@ -6399,6 +6903,14 @@ function MinimapEngine:Update(elapsed)
     local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
     if MinimapWindow and MinimapWindow.SyncStrata then MinimapWindow:SyncStrata() end
     if MinimapWindow and MinimapWindow.UpdateLevelBar then MinimapWindow:UpdateLevelBar() end
+    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    if BigMap and BigMap.Win then
+        local ok, err = pcall(BigMap.Update, BigMap)
+        if not ok and self.BigMapError ~= err then
+            self.BigMapError = err
+            AlchemyGPS.Core.Logger:Get("Map"):error("big map failed: %s", tostring(err))
+        end
+    end
 
     self:UpdateDebugOverlay()
 end

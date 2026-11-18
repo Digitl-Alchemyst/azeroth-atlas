@@ -100,6 +100,11 @@ local function rowOnClick(row, button)
 end
 
 local function rowOnEnter(row)
+    -- 2026-11-17: hovering a quest lights it up on the map.
+    local Pins = Q.Pins
+    if Pins and Pins.SetFocus and row.kind ~= "zone" and row.questID then
+        Pins:SetFocus(row.questID)
+    end
     if row.kind == "zone" then
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         GameTooltip:SetText(row.zone)
@@ -124,10 +129,18 @@ local function rowOnEnter(row)
     end
     if q.ready then GameTooltip:AddLine("Ready to turn in", 0.4, 1, 0.4) end
     if Q.Party then Q.Party:AddTooltip(q.questID) end
+    if Pins and Pins.MapShown and Pins:MapShown() and (Pins.FocusCount or 0) == 0 then
+        GameTooltip:AddLine("Not on the map on show", 0.6, 0.6, 0.6)
+    end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Click: route here    Right-click: menu (quest text, share, abandon)", 0.6, 0.6, 0.6, true)
     GameTooltip:AddLine("Tick box or Shift-click: track / untrack", 0.6, 0.6, 0.6)
     GameTooltip:Show()
+end
+
+local function rowOnLeave()
+    GameTooltip:Hide()
+    if Q.Pins and Q.Pins.SetFocus then Q.Pins:SetFocus(nil) end
 end
 
 local function createRow(parent)
@@ -163,7 +176,7 @@ local function createRow(parent)
     check.tick = tick
     check:SetScript("OnClick", checkOnClick)
     check:SetScript("OnEnter", function(c) rowOnEnter(c:GetParent()) end)
-    check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    check:SetScript("OnLeave", rowOnLeave)
     row.check = check
 
     local text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -181,7 +194,7 @@ local function createRow(parent)
 
     row:SetScript("OnClick", rowOnClick)
     row:SetScript("OnEnter", rowOnEnter)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnLeave", rowOnLeave)
     return row
 end
 
@@ -438,6 +451,40 @@ function List:Create()
 
     win:HookScript("OnShow", function() self:Render() end)
     return win
+end
+
+---------------------------------------------------------------------------------------
+-- Docking (2026-11-17, user request: a button on the big map "that will
+-- pop out an attached quest list"). Dock(frame) shows the list beside
+-- the frame, full height - outside its right edge when there's room on
+-- screen, else inside it. Dock(nil) puts it back where it was saved.
+---------------------------------------------------------------------------------------
+
+function List:IsDocked()
+    return self.DockedTo ~= nil
+end
+
+function List:Dock(frame)
+    local win = self:Create()
+    self.DockedTo = frame
+    if frame then
+        win:ClearAllPoints()
+        local right, screenRight = frame:GetRight(), UIParent:GetRight()
+        local scale = frame:GetEffectiveScale() / win:GetEffectiveScale()
+        local w = win:GetWidth()
+        if right and screenRight and right * scale + w + 4 <= screenRight then
+            win:SetPoint("TOPLEFT", frame, "TOPRIGHT", 2, 0)
+            win:SetHeight(math.max(180, frame:GetHeight() * scale))
+        else
+            win:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -48)
+            win:SetHeight(math.max(180, frame:GetHeight() * scale - 80))
+        end
+        win:Show()
+        self:Render()
+    else
+        AlchemyGPS.UI.Mixins.Resizable.RestoreSize(win)
+        AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
+    end
 end
 
 function List:Toggle()

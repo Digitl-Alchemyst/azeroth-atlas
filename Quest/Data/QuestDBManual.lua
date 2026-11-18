@@ -22,6 +22,9 @@ local QuestData = AlchemyGPS.QuestData
 
 QuestData.Names = QuestData.Names or {}
 QuestData.Names[252019] = QuestData.Names[252019] or "Abra Cadabra"
+-- Riverglades dock, 79.45, 52.71: turn-in for Twice Misplaced Trust (97332)
+-- and giver of the Riverglades coast quests (95118-95123).
+QuestData.Names[259961] = QuestData.Names[259961] or "Wharfmaster Whizzbuzz"
 
 ---------------------------------------------------------------------------------------
 -- The Drowned City (instance 2970), new to WoW Forever. Entrance:

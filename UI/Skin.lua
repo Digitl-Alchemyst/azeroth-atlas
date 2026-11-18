@@ -315,18 +315,12 @@ function Skin:ResetWindows()
     local Window = Nx.Window
     if not (Window and Window.Wins) then return end
     for win in pairs(Window.Wins) do
-        if win.CreateBorders then win:CreateBorders() end
-
-        local fade = win.BackgndFade or 1
-        if win.SetBordersFade then win:SetBordersFade(fade) end
-
-        if win.Frm and win.Frm.SetBackdropColor then
-            local col = self:GetBGCol()
-            if not win.Sizeable and win.Border then
-                col = self:GetFixedSizeBGCol()
-            end
-            local a = fade * (win.BackgndAlphaDiff or 0) + (win.BackgndAlphaMin or 1)
-            win.Frm:SetBackdropColor(col[1], col[2], col[3], col[4] * a)
+        -- 2026-11-18: Window:ReSkin is this same repaint, and keeps a
+        -- window's own theme (SkinOverride) if it has one.
+        if win.ReSkin then
+            win:ReSkin()
+        elseif win.CreateBorders then
+            win:CreateBorders()
         end
     end
 end

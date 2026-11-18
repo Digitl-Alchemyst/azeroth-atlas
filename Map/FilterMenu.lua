@@ -71,6 +71,13 @@ local FILTERS = {
     { key = "ZoneTransition",  label = "Zone Transitions" },
     { key = "Boat",            label = "Boats" },
     { key = "Zeppelin",        label = "Zeppelins" },
+    -- 2026-11-18 (user request, from Leatrix Maps): portals and trams
+    -- out of Zone Transitions into rows of their own, and a switch for
+    -- the other faction's flight masters, boats, zeppelins, portals and
+    -- trams - off unless turned on (default = false).
+    { key = "Portal",          label = "Portals" },
+    { key = "Tram",            label = "Trams" },
+    { key = "OpposingFaction", label = "Other faction's travel", default = false },
     { key = "GuardFlag",       label = "Guard Directions" },
     { key = "SpiritHealer",    label = "Spirit Healers" },
     -- Quest companion (2026-11-15): the three quest pin roles
@@ -90,9 +97,18 @@ local MENU_WIDTH = 190
 
 local menu
 
+-- A row's state when it was never changed: on, unless the row says
+-- default = false.
+local DEFAULT_OFF = {}
+for _, f in ipairs(FILTERS) do
+    if f.default == false then DEFAULT_OFF[f.key] = true end
+end
+
 local function IsFilterOn(key)
     local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
-    return not filters or filters[key] ~= false
+    local v = filters and filters[key]
+    if v == nil then return not DEFAULT_OFF[key] end
+    return v ~= false
 end
 
 local function SetFilterOn(key, on)
@@ -181,7 +197,9 @@ local function create()
     return menu
 end
 
-function FilterMenu:Open(anchorFrame)
+-- leftAlign (2026-11-17): open down and to the right of the anchor (the
+-- big map's toolbar button sits at the map's left edge).
+function FilterMenu:Open(anchorFrame, leftAlign)
     local m = create()
 
     for _, f in ipairs(FILTERS) do
@@ -189,7 +207,11 @@ function FilterMenu:Open(anchorFrame)
     end
 
     m:ClearAllPoints()
-    m:SetPoint("TOPRIGHT", anchorFrame, "BOTTOMRIGHT", 0, -4)
+    if leftAlign then
+        m:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -4)
+    else
+        m:SetPoint("TOPRIGHT", anchorFrame, "BOTTOMRIGHT", 0, -4)
+    end
     m:Show()
 end
 
@@ -202,10 +224,10 @@ function FilterMenu:IsShown()
     return menu ~= nil and menu:IsShown()
 end
 
-function FilterMenu:Toggle(anchorFrame)
+function FilterMenu:Toggle(anchorFrame, leftAlign)
     if self:IsShown() then
         self:Close()
     else
-        self:Open(anchorFrame)
+        self:Open(anchorFrame, leftAlign)
     end
 end

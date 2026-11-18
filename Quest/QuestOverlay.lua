@@ -42,6 +42,8 @@ Q.Overlay = Overlay
 local MAX_RECTS = 6000      -- area strips considered at once (only those in view get a texture)
 local MAX_SEGMENTS = 600    -- patrol line pieces drawn at once
 local AREA_ALPHA = 0.26
+local FOCUS_ALPHA = 0.5     -- areas of the quest hovered in the quest list
+local DIM_ALPHA = 0.06      -- every other area meanwhile
 local DROP_COLOR = { 1, 0.6, 0.2 }
 local PATROL_COLOR = { 0.2, 1, 1 }
 local REBUILD_EVERY = 2     -- seconds; pickup pins can change without an event
@@ -264,13 +266,29 @@ function Overlay:Rebuild(engine)
 
     local budget = MAX_RECTS
     local showAreas = Core:Opt("ShowQuestAreas")
-    if showAreas and isFilterOn("QuestObjective") then
+    -- 2026-11-17: the quest hovered in the quest list (Pins:SetFocus) is
+    -- shaded whatever the options and tracking say.
+    local focus = Pins and Pins.FocusQuest
+    self.FocusBuilt = focus
+    local areasOn = showAreas and isFilterOn("QuestObjective")
+    if areasOn or focus then
         -- The quest the arrow is on first, so it is never the one cut
         -- off by MAX_RECTS.
         local target = Q.Routing and Q.Routing.Target
         local activeQuest = target and target.kind == "quest" and target.questID or nil
-        local quests = State:GetWatchedQuests()
+        local quests = areasOn and State:GetWatchedQuests() or {}
+        if focus then
+            local have = false
+            for _, q in ipairs(quests) do
+                if q.questID == focus then have = true break end
+            end
+            local fq = not have and State:GetQuest(focus)
+            if fq then quests[#quests + 1] = fq end
+        end
         table.sort(quests, function(a, b)
+            if (a.questID == focus) ~= (b.questID == focus) then
+                return a.questID == focus
+            end
             if (a.questID == activeQuest) ~= (b.questID == activeQuest) then
                 return a.questID == activeQuest
             end
@@ -310,7 +328,7 @@ function Overlay:Rebuild(engine)
                             local d = (a.shape.ax - o.shape.ax) ^ 2 + (a.shape.ay - o.shape.ay) ^ 2
                             if not bestD or d < bestD then best, bestD = o, d end
                         end
-                        links[#links + 1] = { best.shape.ax, best.shape.ay, a.shape.ax, a.shape.ay, r, g, b }
+                        links[#links + 1] = { best.shape.ax, best.shape.ay, a.shape.ax, a.shape.ay, r, g, b, q.questID }
                         joined[#joined + 1] = a
                     end
                 end
@@ -339,6 +357,12 @@ function Overlay:Rebuild(engine)
     local count = #areas
     for rank, a in ipairs(areas) do
         a.slot = (count <= SLOTS) and (rank - 1) or floor((rank - 1) * SLOTS / count)
+    end
+    -- The focused quest's areas over everything else.
+    if focus then
+        for _, a in ipairs(areas) do
+            if a.questID == focus then a.slot = SLOTS - 1 end
+        end
     end
 
     if Core:Opt("ShowPatrolPaths") and Rules then
@@ -456,6 +480,7 @@ function Overlay:Draw(engine)
     local function sy(wy) return (wy - posY) * scale + halfH end
 
     -- Areas.
+    local focus = self.FocusBuilt
     local used = 0
     for _, a in ipairs(self.Areas or {}) do
         local shape = a.shape
@@ -476,7 +501,9 @@ function Overlay:Draw(engine)
                             f.rects[used] = t
                         end
                         t:SetDrawLayer(layer, sub)
-                        t:SetColorTexture(a.r, a.g, a.b, AREA_ALPHA)
+                        local alpha = AREA_ALPHA
+                        if focus then alpha = (a.questID == focus) and FOCUS_ALPHA or DIM_ALPHA end
+                        t:SetColorTexture(a.r, a.g, a.b, alpha)
                         t:ClearAllPoints()
                         t:SetPoint("TOPLEFT", f, "TOPLEFT", x1, -y1)
                         t:SetSize(x2 - x1, y2 - y1)
@@ -509,7 +536,7 @@ function Overlay:Draw(engine)
                             dash = newLine(f, "OVERLAY", 1, 2)
                             f.dashes[used] = dash
                         end
-                        dash:SetColorTexture(l[5], l[6], l[7], 0.9)
+                        dash:SetColorTexture(l[5], l[6], l[7], (focus and l[8] ~= focus) and 0.15 or 0.9)
                         dash:SetStartPoint("TOPLEFT", f, x1 + ux * d, -(y1 + uy * d))
                         dash:SetEndPoint("TOPLEFT", f, x1 + ux * e, -(y1 + uy * e))
                         dash:Show()
