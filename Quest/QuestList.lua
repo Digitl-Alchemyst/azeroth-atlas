@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestList
+-- Azeroth Atlas | Quest / QuestList
 -- The full quest list: every quest in the log - tracked or not - under
 -- its zone or dungeon, with a tick box per quest and per zone that
 -- decides what the tracker shows. The tracker is the short "what am I
@@ -13,13 +13,13 @@
 --
 -- New UI on the small-window chrome (UI/SmallWindow.lua), like the
 -- tracker. Opened from the tracker's "List" button, the Settings
--- window, or /gps quest list. Reads QuestState; tracking changes go
+-- window, or /aatlas quest list. Reads QuestState; tracking changes go
 -- through QuestState too, so the tracker, map pins and arrow follow.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Widget = AlchemyGPS.UI.Widget
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Widget = AzerothAtlas.UI.Widget
+local Q = AzerothAtlas.Modules.Quest
 
 local List = {}
 Q.List = List
@@ -31,7 +31,13 @@ local CHECK = 14
 local TEXT_X = CHECK + 6
 local RIGHT_W = 70
 local QUEST_INDENT = 10
-local OBJECTIVE_INDENT = 34
+-- 2026-11-18: a quest's +/- sits right of its tick box, where a zone's
+-- sits (user screenshot); the title moves over by this much.
+local EXPAND_W = 13
+local OBJECTIVE_INDENT = 46
+-- Every row starts this far in: the zones' tick boxes touched the
+-- window's left border and were cut off by it (user screenshot).
+local LEFT_PAD = 4
 local SCROLLBAR_W = 26
 
 local floor = math.floor
@@ -41,7 +47,7 @@ local function dungeonNames()
     local names = List._dungeonNames
     if not names then
         names = {}
-        for _, packed in pairs((AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances) or {}) do
+        for _, packed in pairs((AzerothAtlas.QuestData and AzerothAtlas.QuestData.Instances) or {}) do
             local name = packed:match("^([^|]+)")
             if name then names[name] = true end
         end
@@ -72,10 +78,9 @@ local function rowOnClick(row, button)
         folded[row.zone] = (not folded[row.zone]) and true or nil
         List:Render()
     elseif row.kind == "pquest" then
-        -- A party member's quest: routes like ours when it's in our log.
-        if State:GetQuest(row.questID) and Routing and button ~= "RightButton" then
-            Routing:ToggleManualQuest(row.questID)
-            List:Render()
+        -- A party member's quest: clicks like ours when it's in our log.
+        if State:GetQuest(row.questID) and button ~= "RightButton" then
+            List:QuestClick(row.questID)
         end
     elseif row.kind == "quest" or row.kind == "objective" or row.kind == "text" then
         local questID = row.questID
@@ -107,15 +112,43 @@ local function rowOnClick(row, button)
                 end,
                 redraw = function() List:Render() end,
             })
-        elseif IsShiftKeyDown() then
-            State:SetWatched(questID, not State:IsWatched(questID))
-        elseif Routing then
-            -- The side panel, when open, follows the quest clicked.
-            if Q.Details and Q.Details:IsShowing() then Q.Details:Show(questID) end
-            Routing:ToggleManualQuest(questID)
-            List:Render()
+        else
+            List:QuestClick(questID)
         end
     end
+end
+
+-- 2026-11-18 (user): left-click on a quest -
+--   click        its quest text (the side panel, or under the quest)
+--   Shift-click  route the arrow there / stop
+--   Ctrl-click   track / untrack
+function List:QuestClick(questID)
+    local Core, Routing, State = Q.Core, Q.Routing, Q.State
+    if IsShiftKeyDown() then
+        if Routing then Routing:ToggleManualQuest(questID) end
+        self:Render()
+    elseif IsControlKeyDown() then
+        State:SetWatched(questID, not State:IsWatched(questID))
+    else
+        local Details = Q.Details
+        if Details and Details:SidePanelOn() then
+            Details:Toggle(questID)
+        else
+            local text = Core:Char("ListText")
+            text[questID] = (not text[questID]) and true or nil
+            self:Render()
+        end
+    end
+end
+
+-- 2026-11-18 (user): the +/- beside a quest with objectives folds them
+-- open or shut - the same as the menu's "Show objectives".
+local function expandOnClick(btn)
+    local questID = btn:GetParent().questID
+    if not questID then return end
+    local open = Q.Core:Char("ListOpen")
+    open[questID] = (not open[questID]) and true or nil
+    List:Render()
 end
 
 local function rowOnEnter(row)
@@ -137,7 +170,7 @@ local function rowOnEnter(row)
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         GameTooltip:SetText(row.memberName or "?")
         if row.full then
-            GameTooltip:AddLine("Runs Alchemy GPS: their whole quest log", 1, 1, 1)
+            GameTooltip:AddLine("Runs Azeroth Atlas: their whole quest log", 1, 1, 1)
         else
             GameTooltip:AddLine("Only the quests you share are known", 1, 1, 1)
         end
@@ -157,12 +190,19 @@ local function rowOnEnter(row)
     if not q then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:SetText(q.title)
+    local other = Q.Catalog and Q.Catalog:OtherClassQuest(q.questID)
+    if other then
+        GameTooltip:AddLine(("%s quest - shared with you; it may not be completable as your class"):format(other),
+            1, 0.4, 0.4, true)
+    end
     for _, o in ipairs(q.objectives) do
         if o.text ~= "" then
             if o.finished then
                 GameTooltip:AddLine(o.text, 0.5, 0.75, 0.5)
             else
                 GameTooltip:AddLine(o.text, 1, 1, 1)
+                local note = Q.Catalog and Q.Catalog:ObjectiveNote(q.questID, o.text)
+                if note then GameTooltip:AddLine("  " .. note.tip, 0.4, 0.8, 1, true) end
             end
         end
     end
@@ -177,9 +217,10 @@ local function rowOnEnter(row)
         GameTooltip:AddLine("Not on the map on show", 0.6, 0.6, 0.6)
     end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Click: route here    Right-click: menu (quest text, share, abandon)", 0.6, 0.6, 0.6, true)
-    GameTooltip:AddLine("Tick box or Shift-click: track / untrack", 0.6, 0.6, 0.6)
-    GameTooltip:AddLine("Shift-right-click: link in chat", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("Click: quest text    Shift-click: route here", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Ctrl-click or tick box: track / untrack", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("+ / -: show / hide objectives", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("Right-click: menu    Shift-right-click: link in chat", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
 
@@ -224,6 +265,21 @@ local function createRow(parent)
     check:SetScript("OnLeave", rowOnLeave)
     row.check = check
 
+    -- 2026-11-18: +/- left of a quest's tick box (List:Render shows it).
+    local expand = CreateFrame("Button", nil, row)
+    expand:SetSize(EXPAND_W, CHECK)
+    expand:SetPoint("TOPLEFT", 0, -2)
+    local sign = expand:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sign:SetPoint("CENTER", 0, 1)
+    sign:SetTextColor(0.75, 0.75, 0.75)
+    expand.sign = sign
+    local glow = expand:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints()
+    glow:SetColorTexture(1, 1, 1, 0.12)
+    expand:SetScript("OnClick", expandOnClick)
+    expand:Hide()
+    row.expand = expand
+
     local text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     text:SetJustifyH("LEFT")
     text:SetJustifyV("TOP")
@@ -254,7 +310,10 @@ end
 
 -- Lays a row out at offset y; returns its height. `state` for the tick
 -- box: true, false, "some", or nil for no box.
-local function placeRow(row, parent, y, width, indent, fontObject, text, rightText, state)
+-- `gap`: extra room between the tick box and the text (a quest's +/-).
+local function placeRow(row, parent, y, width, indent, fontObject, text, rightText, state, gap)
+    row.expand:Hide()
+    width = width - LEFT_PAD
     local check = row.check
     if state == nil then
         check:Hide()
@@ -271,7 +330,7 @@ local function placeRow(row, parent, y, width, indent, fontObject, text, rightTe
         end
     end
 
-    local textX = indent + (state ~= nil and TEXT_X or 0)
+    local textX = indent + (state ~= nil and TEXT_X or 0) + (gap or 0)
     row.text:SetFontObject(fontObject)
     row.text:ClearAllPoints()
     row.text:SetPoint("TOPLEFT", textX, -2)
@@ -282,7 +341,7 @@ local function placeRow(row, parent, y, width, indent, fontObject, text, rightTe
     local h = floor((row.text:GetStringHeight() or 10) + 0.5) + 5
     if h < CHECK + 4 then h = CHECK + 4 end
     row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", LEFT_PAD, -y)
     row:SetSize(width, h)
     row:Show()
     return h
@@ -320,6 +379,9 @@ List.IsDaily = isDaily
 -- " (part 2/4)", " #1234", " (Daily)" after a title, as set.
 local function titleExtras(questID, q)
     local s = ""
+    -- 2026-11-18: a class quest shared with another class.
+    local other = Q.Catalog and Q.Catalog:OtherClassQuest(questID)
+    if other then s = s .. (" |cffff6060(%s quest)|r"):format(other) end
     if isDaily(q) then s = s .. " |cff66b3ff(Daily)|r" end
     if Q.Core:Opt("ListShowChain") ~= false and Q.Catalog then
         local part, total = Q.Catalog:GetChainPart(questID)
@@ -423,7 +485,7 @@ function List:RenderParty(width)
         row.active:Hide()
 
         if not folded[key] or self.Search then
-            if not m.full then note("Not running Alchemy GPS - only the quests you share.") end
+            if not m.full then note("Not running Azeroth Atlas - only the quests you share.") end
             if #quests == 0 then note("No quests to show.") end
             -- Sorted by level, then title.
             local rows = {}
@@ -560,12 +622,23 @@ function List:Render()
                 title = title .. titleExtras(questID, q)
                 if Q.Party then title = title .. Q.Party:Badge(questID) end
                 y = y + placeRow(qrow, child, y, width, QUEST_INDENT, GameFontNormalSmall, title,
-                    distanceText(info[questID]) or (not watched and "untracked") or nil, watched)
+                    distanceText(info[questID]) or (not watched and "untracked") or nil, watched, EXPAND_W)
                 qrow.text:SetAlpha(watched and 1 or 0.6)
                 if questID == activeQuest or (Q.Details and Q.Details:IsShowing(questID)) then
                     qrow.active:Show()
                 else
                     qrow.active:Hide()
+                end
+                -- +/- when the quest has objectives to show.
+                local hasObjectives = false
+                for _, o in ipairs(q.objectives) do
+                    if o.text ~= "" then hasObjectives = true break end
+                end
+                if hasObjectives then
+                    qrow.expand:ClearAllPoints()
+                    qrow.expand:SetPoint("TOPLEFT", qrow, "TOPLEFT", QUEST_INDENT + TEXT_X - 4, -2)
+                    qrow.expand.sign:SetText(open[questID] and "-" or "+")
+                    qrow.expand:Show()
                 end
 
                 if open[questID] then
@@ -576,8 +649,9 @@ function List:Render()
                             used = used + 1
                             local orow = self:AcquireRow(used)
                             orow.kind, orow.zone, orow.questID = "objective", nil, questID
+                            local tag = (not o.finished and Q.Catalog) and Q.Catalog:ObjectiveTag(questID, o.text) or ""
                             y = y + placeRow(orow, child, y, width, OBJECTIVE_INDENT,
-                                GameFontHighlightSmall, o.text, nil, nil) - 3
+                                GameFontHighlightSmall, o.text .. tag, nil, nil) - 3
                             if o.finished then
                                 orow.text:SetTextColor(0.5, 0.7, 0.5)
                             else
@@ -649,8 +723,8 @@ function List:Create()
         anchor.point, anchor.relPoint, anchor.x, anchor.y = "CENTER", "CENTER", 0, 20
     end
 
-    local win = AlchemyGPS.UI.Window:Create{
-        name = "AlchemyGPSQuestList",
+    local win = AzerothAtlas.UI.Window:Create{
+        name = "AzerothAtlasQuestList",
         title = "Quest List",
         width = 340,
         height = 460,
@@ -664,8 +738,8 @@ function List:Create()
         onResizeStop = function() self:Render() end,
     }
     self.Win = win
-    AlchemyGPS.UI.Mixins.Resizable.RestoreSize(win)
-    AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
+    AzerothAtlas.UI.Mixins.Resizable.RestoreSize(win)
+    AzerothAtlas.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
 
     local content = win.content
 
@@ -691,7 +765,7 @@ function List:Create()
     self:UpdateBar()
 
     -- 2026-11-18 (user request, from Carbonite): type to filter the list.
-    local search = CreateFrame("EditBox", "AlchemyGPSQuestListSearch", content, "SearchBoxTemplate")
+    local search = CreateFrame("EditBox", "AzerothAtlasQuestListSearch", content, "SearchBoxTemplate")
     search:SetHeight(20)
     search:SetPoint("TOPLEFT", 6, -24)
     search:SetPoint("TOPRIGHT", -6, -24)
@@ -717,7 +791,7 @@ function List:Create()
     summary:SetTextColor(0.7, 0.7, 0.7)
     self.Summary = summary
 
-    local scroll = Widget.CreateScrollFrame(content, "AlchemyGPSQuestListScroll")
+    local scroll = Widget.CreateScrollFrame(content, "AzerothAtlasQuestListScroll")
     scroll:SetPoint("TOPLEFT", 0, -TOP_BAR_H)
     scroll:SetPoint("BOTTOMRIGHT", -SCROLLBAR_W, 4)
     self.Scroll = scroll
@@ -756,8 +830,8 @@ function List:Dock(frame)
         win:Show()
         self:Render()
     else
-        AlchemyGPS.UI.Mixins.Resizable.RestoreSize(win)
-        AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
+        AzerothAtlas.UI.Mixins.Resizable.RestoreSize(win)
+        AzerothAtlas.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
     end
 end
 

@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestRules
+-- Azeroth Atlas | Quest / QuestRules
 -- "Could this character pick this quest up right now?" - and the other
 -- things Quest/Data/QuestDBRules.lua knows that the Carbonite rows
 -- don't: quests started by a dropped item, the paths wandering quest
@@ -22,12 +22,14 @@
 -- chain showed as available at once. QuestPrev is still used, but only
 -- for the handful of quests QuestieDB has no record of.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local Q = AzerothAtlas.Modules.Quest
 local Api = Q.Api
 
-local QuestData = AlchemyGPS.QuestData or {}
+local QuestData = AzerothAtlas.QuestData or {}
 local RuleData = QuestData.Rules or {}
+-- 2026-11-19: hand-written rules (Quest/Data/QuestDBManual.lua) win.
+for questID, packed in pairs(QuestData.ManualRules or {}) do RuleData[questID] = packed end
 local StartItemData = QuestData.StartItems or {}
 local PatrolData = QuestData.Patrols or {}
 local QuestItemData = QuestData.QuestItems or {}

@@ -1,12 +1,12 @@
--- Alchemy GPS | UI / TabBar
+-- Azeroth Atlas | UI / TabBar
 -- Build-order step 13 (2026-11-11): the Settings window's first tab
 -- strip ("General"/"Style"), explicit user request. Ported near-
 -- verbatim from Carbonite/UI/TabBar.lua - already small, modern,
 -- built on stock Blizzard PanelTabButtonTemplate (no NineSlice/atlas
 -- hand-rolling, no AceGUI dependency), so there was nothing to trim.
--- Namespace rename only (Carbonite.UI.TabBar -> AlchemyGPS.UI.TabBar).
+-- Namespace rename only (Carbonite.UI.TabBar -> AzerothAtlas.UI.TabBar).
 --
---   local bar = AlchemyGPS.UI.TabBar:New {
+--   local bar = AzerothAtlas.UI.TabBar:New {
 --       parent  = parentFrame,
 --       anchor  = { point = "TOPLEFT", x = 0, y = 0 },
 --       tabs    = {
@@ -21,9 +21,9 @@
 --   bar:GetSelected()
 --   bar:SetEnabled("style", false)
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local TabBar = {}
-AlchemyGPS.UI.TabBar = TabBar
+AzerothAtlas.UI.TabBar = TabBar
 
 local Methods = {}
 

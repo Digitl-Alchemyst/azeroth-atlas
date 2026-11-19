@@ -1,4 +1,4 @@
-AlchemyGPSFishDB = {
+AzerothAtlasFishDB = {
     [1413] =  -- The Barrens
         {
         [4799400600] = 109,

@@ -1,4 +1,4 @@
-# Alchemy GPS vs Leatrix Maps — what Leatrix has that we don't
+# Azeroth Atlas vs Leatrix Maps — what Leatrix has that we don't
 
 *Written 2026-11-18. Covers map features only (Leatrix Maps has no quest features).*
 

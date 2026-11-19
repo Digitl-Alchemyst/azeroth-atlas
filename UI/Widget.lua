@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Widget
+-- Azeroth Atlas | UI / Widget
 -- Base "create a skinned frame" factory. Trimmed port of
 -- Carbonite/UI/Widget.lua: only the Frame factory + backdrop helper
 -- Window.lua actually uses. Carbonite's Button/EditBox/Slider/
@@ -15,10 +15,10 @@
 -- own already-proven UI/Widget.lua, per the build plan's porting
 -- technique of reusing real working code instead of re-deriving it.
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local Widget = {}
-AlchemyGPS.UI = AlchemyGPS.UI or {}
-AlchemyGPS.UI.Widget = Widget
+AzerothAtlas.UI = AzerothAtlas.UI or {}
+AzerothAtlas.UI.Widget = Widget
 
 -- Wraps SetBackdrop with sensible defaults. On 9.x+ a Frame needs the
 -- BackdropTemplate to expose SetBackdrop; CreateFrame below handles

@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Mixins / Draggable
+-- Azeroth Atlas | UI / Mixins / Draggable
 -- Drop-in mixin that makes any Frame movable by left-click drag.
 -- Persists position into the frame's `dbAnchor` table (if provided)
 -- so user-positioned windows survive a /reload.
@@ -6,10 +6,10 @@
 -- Ported verbatim (namespace rename only) from AlchemyNavigation's
 -- own already-proven UI/Mixins/Draggable.lua.
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local Draggable = {}
-AlchemyGPS.UI.Mixins = AlchemyGPS.UI.Mixins or {}
-AlchemyGPS.UI.Mixins.Draggable = Draggable
+AzerothAtlas.UI.Mixins = AzerothAtlas.UI.Mixins or {}
+AzerothAtlas.UI.Mixins.Draggable = Draggable
 
 function Draggable:EnableDragging(dbAnchor)
     self.dbAnchor = dbAnchor

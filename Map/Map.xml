@@ -4,7 +4,7 @@
          Later build-order phases append ZoomController/ScrollScale/
          MiniMap/Coords/FrameToWorld here as they're ported. -->
     <!-- Pure data, no dependencies - loads first so MinimapEngine.lua's
-         AlchemyGPS.Map alias (build-order step 8) finds it already
+         AzerothAtlas.Map alias (build-order step 8) finds it already
          populated, whichever of the two happens to load first. -->
     <Script file="Data\NxMapData.lua" />
     <!-- Build-order step 21: zone "revealed" overlay region data, pure

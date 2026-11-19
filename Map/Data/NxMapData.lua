@@ -20,7 +20,7 @@
 -- along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 8): this file is Carbonite's
+-- Azeroth Atlas port note (build-order step 8): this file is Carbonite's
 -- real Camelot-flavor (WoW Forever) zone/continent data table, copied
 -- nearly byte-for-byte from Carbonite/Data/camelot/NxMapData.lua - the
 -- plan's standing "port real working data/code, don't re-derive it by
@@ -43,9 +43,9 @@
 -- directly, the same way Carbonite's real MoveZoneTiles does - the
 -- lazy resolver is for mapIDs missing from this catalog entirely,
 -- mostly instances/dungeons, an explicit non-goal).
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
-AlchemyGPS.Map = AlchemyGPS.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
+AzerothAtlas.Map = AzerothAtlas.Map or {}
 local Map = Nx.Map
 local L = setmetatable({}, { __index = function(_, k) return k end })
 

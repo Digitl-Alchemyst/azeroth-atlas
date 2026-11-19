@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / FilterMenu
+-- Azeroth Atlas | Map / FilterMenu
 -- Build-order step 9k (2026-11-10): a "Filter" button on the map
 -- window's title bar that opens a checklist menu - explicit user
 -- request, modeled on "the normal Blizzard one" (a button that opens
@@ -42,7 +42,7 @@
 -- other row here). Same shape as Banker, same "no new code needed
 -- below" situation as Spirit Healer above.
 --
--- Persisted as AlchemyGPS.db.profile.MapFilters[key] (true/false/nil -
+-- Persisted as AzerothAtlas.db.profile.MapFilters[key] (true/false/nil -
 -- nil/missing means "on", same "absent means default" convention
 -- MinimapWindow.lua's AutoFollow checkbox already uses, so a brand
 -- new filter key added later doesn't need a migration to default
@@ -52,11 +52,11 @@
 -- kinds share RefreshServiceIcons) rather than waiting for the next
 -- zone change or tick, so the checkbox has instant visual effect.
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 local FilterMenu = {}
-AlchemyGPS.Modules.Map.FilterMenu = FilterMenu
+AzerothAtlas.Modules.Map.FilterMenu = FilterMenu
 
 -- Order matches the user's own request order.
 local FILTERS = {
@@ -112,18 +112,18 @@ for _, f in ipairs(FILTERS) do
 end
 
 local function IsFilterOn(key)
-    local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
+    local filters = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.MapFilters
     local v = filters and filters[key]
     if v == nil then return not DEFAULT_OFF[key] end
     return v ~= false
 end
 
 local function SetFilterOn(key, on)
-    if not (AlchemyGPS.db and AlchemyGPS.db.profile) then return end
-    AlchemyGPS.db.profile.MapFilters = AlchemyGPS.db.profile.MapFilters or {}
-    AlchemyGPS.db.profile.MapFilters[key] = on
+    if not (AzerothAtlas.db and AzerothAtlas.db.profile) then return end
+    AzerothAtlas.db.profile.MapFilters = AzerothAtlas.db.profile.MapFilters or {}
+    AzerothAtlas.db.profile.MapFilters[key] = on
 
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
     -- .Frm: Settings > Map can change a filter before the map window
     -- has ever been opened, when there are no icon pools yet - the
     -- first open reads the saved filters anyway.
@@ -151,7 +151,7 @@ local function create()
     if menu then return menu end
 
     local height = 16 + #FILTERS * ROW_HEIGHT
-    menu = CreateFrame("Frame", "AlchemyGPSFilterMenu", UIParent, "BackdropTemplate")
+    menu = CreateFrame("Frame", "AzerothAtlasFilterMenu", UIParent, "BackdropTemplate")
     menu:SetSize(MENU_WIDTH, height)
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({

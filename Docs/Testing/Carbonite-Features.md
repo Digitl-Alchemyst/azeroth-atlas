@@ -1,4 +1,4 @@
-# Alchemy GPS — Carbonite Features Test Plan
+# Azeroth Atlas — Carbonite Features Test Plan
 
 Nov 18, 2026 · @Digital Alchemyst
 
@@ -8,10 +8,10 @@ This plan covers every Carbonite feature added on Nov 18: the ✅ rows (and chec
 
 - **Restart the game fully once** before testing; `/reload` won't load the new files. After that, `/reload` is enough between fixes. The new files are `GuideTrainer.lua`, `AreaLabels.lua`, `Travel.lua`, `Waypoints.lua`, `MouseActions.lua`, `CombatState.lua`, `AddonPins.lua`, `GatherRecorder.lua`, `QuestDetails.lua`, `QuestNotify.lua`, `QuestTooltips.lua`, the new TGA images and `Snd\QuestComplete.ogg`.
 - **Show Lua errors**: type `/console scriptErrors 1`, or use BugSack. Any red error box counts as a fail for the step you were on.
-- **You'll need**: a capital city, a flight master (open its map once), a herbalism or mining character, a quest log with a few quests (at least one in a chain), and for some steps a group member or friend who also runs Alchemy GPS.
-- **Where settings are**: `/gps settings`, then the **Map** or **Quests** tab. The names in bold below are the headings and checkboxes in those tabs.
+- **You'll need**: a capital city, a flight master (open its map once), a herbalism or mining character, a quest log with a few quests (at least one in a chain), and for some steps a group member or friend who also runs Azeroth Atlas.
+- **Where settings are**: `/aatlas settings`, then the **Map** or **Quests** tab. The names in bold below are the headings and checkboxes in those tabs.
 - **Recording results**: set each step's Result to Pass, Fail or Not tested. For a fail, add a comment saying what you saw, with a screenshot if you can.
-- **Quest problems**: type `/gps quest dump <questID>` and paste the lines into your comment.
+- **Quest problems**: type `/aatlas quest dump <questID>` and paste the lines into your comment.
 
 # Part 1 — Map
 
@@ -60,7 +60,7 @@ This plan covers every Carbonite feature added on Nov 18: the ✅ rows (and chec
 | 1.9.4 | Walk onto a waypoint | It clears, and the arrow moves to the closest one left. |  |
 | 1.9.5 | `/way reset all` | Every waypoint clears. |  |
 | 1.9.6 | With Questie (or another addon that uses TomTom), use its "set waypoint" option | The waypoint lands on **our** map and arrow. |  |
-| 1.9.7 | Untick **Act as TomTom**, then `/reload` | `/way` is no longer ours. `/gps way` still works. |  |
+| 1.9.7 | Untick **Act as TomTom**, then `/reload` | `/way` is no longer ours. `/aatlas way` still works. |  |
 | 1.9.8 | Enable the real TomTom addon | No errors. TomTom keeps its own arrow and ours stays out of the way. |  |
 
 ## 1.10 Track a player
@@ -157,7 +157,7 @@ This plan covers every Carbonite feature added on Nov 18: the ✅ rows (and chec
 
 ## 1.27 Node glow — parked
 
-Switched off on Nov 18 because every possible node spot glowed, not just the nodes that are actually up. Its settings are hidden until it's revisited ([issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2)).
+Switched off on Nov 18 because every possible node spot glowed, not just the nodes that are actually up. Its settings are hidden until it's revisited ([issue #2](https://github.com/Digitl-Alchemyst/azeroth-atlas/issues/2)).
 
 | # | Do this | Expect | Result |
 | --- | --- | --- | --- |
@@ -166,7 +166,7 @@ Switched off on Nov 18 because every possible node spot glowed, not just the nod
 
 ## 1.28 Friends on the map
 
-You need a friend on your friends list, not in your group, who also runs Alchemy GPS.
+You need a friend on your friends list, not in your group, who also runs Azeroth Atlas.
 
 | # | Do this | Expect | Result |
 | --- | --- | --- | --- |
@@ -184,7 +184,7 @@ You need a friend on your friends list, not in your group, who also runs Alchemy
 | # | Do this | Expect | Result |
 | --- | --- | --- | --- |
 | 2.3.1 | In a group, open the quest list (L) and click **Party** | Each member gets a header, then their quests. The title reads "Quest List - Party". |  |
-| 2.3.2 | Look at a member who runs Alchemy GPS | Their **whole** log shows. |  |
+| 2.3.2 | Look at a member who runs Azeroth Atlas | Their **whole** log shows. |  |
 | 2.3.3 | Look at a member who doesn't | Only the quests you share show, with a note saying so. |  |
 | 2.3.4 | Look at quests you both have | They say **you too**. Clicking one routes the arrow to it. |  |
 | 2.3.5 | Click **Shared only**, then **Show all** | Shared only leaves just the quests you both have; Show all brings the rest back. |  |

@@ -1,4 +1,4 @@
--- Alchemy GPS | Core / EventBus
+-- Azeroth Atlas | Core / EventBus
 -- Thin pub/sub layer on top of CallbackHandler-1.0. Used for in-addon
 -- events such as "MAP_MINIMAP_OPENED" so modules can talk to each
 -- other without holding direct refs. For actual WoW game events keep
@@ -8,11 +8,11 @@
 -- subscriber-isolation behavior below is load-bearing, not cosmetic -
 -- keep it).
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local CallbackHandler = LibStub("CallbackHandler-1.0")
 
 local EventBus = {}
-AlchemyGPS.Core.EventBus = EventBus
+AzerothAtlas.Core.EventBus = EventBus
 
 EventBus.callbacks = CallbackHandler:New(EventBus, "Subscribe", "Unsubscribe", "UnsubscribeAll")
 
@@ -27,8 +27,8 @@ local rawSubscribe = EventBus.Subscribe
 local owners = setmetatable({}, { __mode = "k" })   -- weak keys: GC the fn → owner mapping if fn dies
 
 -- CallbackHandler dispatches subscribers unprotected, so the first one that
--- errors aborts the rest of the chain for that event. On ALCHEMYGPS_ENABLE
--- that is fatal by design: SlashCommands:Init() (which creates /gps) and
+-- errors aborts the rest of the chain for that event. On AZEROTHATLAS_ENABLE
+-- that is fatal by design: SlashCommands:Init() (which creates /aatlas) and
 -- every module registration behind it simply never run, and the addon
 -- looks half-dead with no hint as to why. Wrap each subscriber so a
 -- failure is reported and contained instead of taking its siblings down.
@@ -46,7 +46,7 @@ function EventBus:Subscribe(event, fn)
         safe = function(...)
             local ok, err = pcall(fn, ...)
             if not ok then
-                local Logger = AlchemyGPS.Core and AlchemyGPS.Core.Logger
+                local Logger = AzerothAtlas.Core and AzerothAtlas.Core.Logger
                 if Logger then
                     Logger:Get("EventBus"):error("%s subscriber failed: %s",
                         tostring(event), tostring(err))

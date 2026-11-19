@@ -1,4 +1,4 @@
-# Alchemy GPS — Leatrix Features Test Plan
+# Azeroth Atlas — Leatrix Features Test Plan
 
 Nov 18, 2026 · @Digital Alchemyst
 

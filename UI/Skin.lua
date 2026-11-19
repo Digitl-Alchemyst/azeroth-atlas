@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Skin
+-- Azeroth Atlas | UI / Skin
 -- Build-order step 13 (2026-11-11): full 12-skin switchable registry,
 -- explicit user request ("give me a tab in settings... style I swap
 -- in and out"). Was a trimmed port of Carbonite's Nx.Skin hardcoded
@@ -15,7 +15,7 @@
 -- block, confirmed on disk - only two edits from the original: (1)
 -- Blackout/Simple Blue's `edgeFile` pointed at Carbonite's own live
 -- install path (`Interface\Addons\Carbonite\Gfx\Skin\EdgeSquare`) -
--- rewritten to AlchemyGPS's own copy (Gfx/Skin/EdgeSquare.tga, copied
+-- rewritten to AzerothAtlas's own copy (Gfx/Skin/EdgeSquare.tga, copied
 -- in this same build step) so this doesn't depend on Carbonite being
 -- installed/enabled, the same "add them to our addon" reasoning
 -- behind every other asset this step copied in. (2) Carbonite's own
@@ -33,17 +33,17 @@
 -- verbatim (UIEngine.lua:1488-1513) - the real accessors Nx.Window
 -- already reads.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
 
 Nx.Skin = Nx.Skin or {}
 local Skin = Nx.Skin
 
-local LOCAL_EDGE_SQUARE = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Skin\\EdgeSquare"
+local LOCAL_EDGE_SQUARE = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Skin\\EdgeSquare"
 
 function Skin:Init()
 
-    self.Path = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Skin\\"
+    self.Path = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Skin\\"
 
     self.Skins = {
         ["Blackout"] = {
@@ -205,13 +205,13 @@ function Skin:Init()
         },
     }
 
-    -- Build-order step 13 fix, 2026-11-11: AlchemyGPS.db does NOT
+    -- Build-order step 13 fix, 2026-11-11: AzerothAtlas.db does NOT
     -- exist yet at this point - Core/SavedVariables.lua only creates
-    -- it later, on the ALCHEMYGPS_INITIALIZE event (PLAYER_LOGIN), not
+    -- it later, on the AZEROTHATLAS_INITIALIZE event (PLAYER_LOGIN), not
     -- at file-load time (same timing gap MinimapWindow.lua's own
     -- OnEnable comment already documents for the exact same reason).
     -- Calling Set() here with a DB read, and Set() unconditionally
-    -- writing AlchemyGPS.db.profile.Skin.*, crashed this file's own
+    -- writing AzerothAtlas.db.profile.Skin.*, crashed this file's own
     -- load with "attempt to index a nil value (field 'db')" every
     -- single addon load - which aborted Window:Create() further down
     -- the chain (CreateBorders succeeds since self.Data was already
@@ -221,11 +221,11 @@ function Skin:Init()
     -- report, not the ResetWindows backdrop-color gap fixed earlier
     -- same day (a real, smaller bug, but not this one). Init() now
     -- only ever sets the hardcoded default here; the real saved choice
-    -- is re-applied below once AlchemyGPS.db actually exists.
+    -- is re-applied below once AzerothAtlas.db actually exists.
     self:Set("Modern Dark", true)
 
-    AlchemyGPS.Core.EventBus:Subscribe("ALCHEMYGPS_INITIALIZE", function()
-        local saved = AlchemyGPS.db and AlchemyGPS.db.profile.Skin
+    AzerothAtlas.Core.EventBus:Subscribe("AZEROTHATLAS_INITIALIZE", function()
+        local saved = AzerothAtlas.db and AzerothAtlas.db.profile.Skin
         if saved and saved.Name and saved.Name ~= "Modern Dark" then
             self:Set(saved.Name, true)
         end
@@ -251,17 +251,17 @@ function Skin:Set(skinName, init)
         self.Data = self.Skins[skinName]
     end
 
-    -- AlchemyGPS.db may not exist yet (see Init()'s own comment) -
+    -- AzerothAtlas.db may not exist yet (see Init()'s own comment) -
     -- only persist the choice when there's somewhere real to put it;
     -- Update() below already tolerates that the same way.
-    if AlchemyGPS.db then
-        AlchemyGPS.db.profile.Skin = AlchemyGPS.db.profile.Skin or {}
-        AlchemyGPS.db.profile.Skin.Name = skinName
+    if AzerothAtlas.db then
+        AzerothAtlas.db.profile.Skin = AzerothAtlas.db.profile.Skin or {}
+        AzerothAtlas.db.profile.Skin.Name = skinName
 
         if not init then
-            AlchemyGPS.db.profile.Skin.WinBdColor = self.Data["BdCol"]
-            AlchemyGPS.db.profile.Skin.WinFixedBgColor = ".5|.5|.5|.5"
-            AlchemyGPS.db.profile.Skin.WinSizedBgColor = self.Data["BgCol"]
+            AzerothAtlas.db.profile.Skin.WinBdColor = self.Data["BdCol"]
+            AzerothAtlas.db.profile.Skin.WinFixedBgColor = ".5|.5|.5|.5"
+            AzerothAtlas.db.profile.Skin.WinSizedBgColor = self.Data["BgCol"]
         end
     end
 
@@ -282,7 +282,7 @@ function Skin:Update()
         local ok, val = pcall(data.BdColResolve)
         if ok then resolved = val end
     end
-    local sv = AlchemyGPS.db and AlchemyGPS.db.profile.Skin
+    local sv = AzerothAtlas.db and AzerothAtlas.db.profile.Skin
     local bdColStr = resolved or (sv and sv.WinBdColor) or data["BdCol"]
     local bgColStr = (sv and sv.WinSizedBgColor) or data["BgCol"]
     local fixedColStr = (sv and sv.WinFixedBgColor) or ".5|.5|.5|.5"

@@ -4,14 +4,14 @@
 -- Distributed under the GNU General Public License, version 3 or later.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (2026-11-11): copied verbatim from
+-- Azeroth Atlas port note (2026-11-11): copied verbatim from
 -- Carbonite/Data/camelot/Guides/Auctioneer.lua - same exact format/
 -- port convention as GuideMailbox.lua/GuideInnkeeper.lua/GuideBanker.lua
 -- (see GuideMailbox.lua's own header comment for the full field-format
 -- writeup). Keyed by the plain string "Auctioneer", the same key
 -- RefreshServiceIcons reads via SERVICE_ICON_TEX's own keys.
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 Map.GuideData = Map.GuideData or {}
 Map.GuideData["Auctioneer"] = {

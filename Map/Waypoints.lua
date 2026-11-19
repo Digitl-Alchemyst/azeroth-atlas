@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/Waypoints.lua
+-- Azeroth Atlas | Map/Waypoints.lua
 ---------------------------------------------------------------------------------------
 -- Waypoints and TomTom emulation (2026-11-18, user request, from
 -- Carbonite: "Pretends to be TomTom, so /way and other addons (Questie,
@@ -12,7 +12,7 @@
 -- Carbonite's version: Modules/Integrations/TomTom.lua and
 -- TomTomWaypoints.lua - a global TomTom table carrying TomTom's API, and
 -- TomTom's slash commands. The same here, unless the real TomTom is
--- installed and enabled (then it stays in charge, and /gps way still
+-- installed and enabled (then it stays in charge, and /aatlas way still
 -- works). TomTom's API as other addons call it:
 --   TomTom:AddWaypoint(mapId, x, y, opts)  x, y 0-1; opts.title,
 --     opts.crazy (false: don't make it the arrow's), opts.silent
@@ -27,7 +27,7 @@
 -- Callbacks (opts.callbacks: tooltips, distance alerts) are accepted and
 -- ignored, as Carbonite's are when nothing maps onto them.
 -- Slash commands (TomTom's):
---   /way [zone | #mapId] x y [description]   (also /tway, /gps way ...)
+--   /way [zone | #mapId] x y [description]   (also /tway, /aatlas way ...)
 --   /way list         every waypoint
 --   /way reset all    clear them all   (/way reset <zone>: that zone's)
 --   /cway             make the closest one the arrow's
@@ -36,19 +36,19 @@
 -- (profile.EmulateTomTom) - a /reload applies it.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local W = {}
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.Waypoints = W
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.Waypoints = W
 
 local list = {}
 W.List = list
 
-local function engine() return AlchemyGPS.Modules.Map.MinimapEngine end
+local function engine() return AzerothAtlas.Modules.Map.MinimapEngine end
 
 local function say(fmt, ...)
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffAlchemy GPS|r: " .. fmt:format(...))
+        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffAzeroth Atlas|r: " .. fmt:format(...))
     end
 end
 
@@ -107,7 +107,7 @@ function W:SetActive(uid)
 end
 
 local function playerPos()
-    local Q = AlchemyGPS.Modules.Quest
+    local Q = AzerothAtlas.Modules.Quest
     if Q and Q.Routing then return Q.Routing:GetPlayerPos() end
 end
 
@@ -323,7 +323,7 @@ end
 local fakeTomTom
 
 local function buildTomTom()
-    local T = { version = "v40200-AlchemyGPS", waypoints = {}, AlchemyGPS = true }
+    local T = { version = "v40200-AzerothAtlas", waypoints = {}, AzerothAtlas = true }
     T.profile = {
         general     = { announce = false },
         minimap     = { enable = true },
@@ -394,19 +394,19 @@ local function buildTomTom()
 end
 
 local function bindSlash()
-    _G.SLASH_ALCHEMYGPS_WAY1 = "/way"
-    _G.SLASH_ALCHEMYGPS_WAY2 = "/tway"
-    _G.SLASH_ALCHEMYGPS_WAY3 = "/tomtomway"
-    _G.SlashCmdList["ALCHEMYGPS_WAY"] = function(msg) W:HandleWay(msg) end
-    _G.SLASH_ALCHEMYGPS_CWAY1 = "/cway"
-    _G.SLASH_ALCHEMYGPS_CWAY2 = "/closestway"
-    _G.SlashCmdList["ALCHEMYGPS_CWAY"] = function()
+    _G.SLASH_AZEROTHATLAS_WAY1 = "/way"
+    _G.SLASH_AZEROTHATLAS_WAY2 = "/tway"
+    _G.SLASH_AZEROTHATLAS_WAY3 = "/tomtomway"
+    _G.SlashCmdList["AZEROTHATLAS_WAY"] = function(msg) W:HandleWay(msg) end
+    _G.SLASH_AZEROTHATLAS_CWAY1 = "/cway"
+    _G.SLASH_AZEROTHATLAS_CWAY2 = "/closestway"
+    _G.SlashCmdList["AZEROTHATLAS_CWAY"] = function()
         local uid = W:GetClosest()
         if uid then W:SetActive(uid); say("arrow: %s", describe(uid)) else say("no waypoints") end
     end
-    _G.SLASH_ALCHEMYGPS_WAYB1 = "/wayb"
-    _G.SLASH_ALCHEMYGPS_WAYB2 = "/wayback"
-    _G.SlashCmdList["ALCHEMYGPS_WAYB"] = function() W:WayBack() end
+    _G.SLASH_AZEROTHATLAS_WAYB1 = "/wayb"
+    _G.SLASH_AZEROTHATLAS_WAYB2 = "/wayback"
+    _G.SlashCmdList["AZEROTHATLAS_WAYB"] = function() W:WayBack() end
 end
 
 -- Installed as this file loads - so addons loading after this one find
@@ -420,24 +420,24 @@ if not realTomTom() and not _G.TomTom then
     W.Emulating = true
 end
 
-local SlashCommands = AlchemyGPS.Core.SlashCommands
+local SlashCommands = AzerothAtlas.Core.SlashCommands
 if SlashCommands and SlashCommands.Register then
     SlashCommands:Register("way", function(rest) W:HandleWay(rest) end,
-        "set a waypoint: /gps way [zone] x y [description] (also list, reset all)")
+        "set a waypoint: /aatlas way [zone] x y [description] (also list, reset all)")
 end
 
 local ticker = CreateFrame("Frame")
 ticker:RegisterEvent("PLAYER_LOGIN")
 ticker:SetScript("OnEvent", function()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if W.Emulating and db and db.profile.EmulateTomTom == false and _G.TomTom == fakeTomTom then
         _G.TomTom = nil
-        _G.SlashCmdList["ALCHEMYGPS_WAY"] = nil
-        _G.SlashCmdList["ALCHEMYGPS_CWAY"] = nil
-        _G.SlashCmdList["ALCHEMYGPS_WAYB"] = nil
-        _G.SLASH_ALCHEMYGPS_WAY1, _G.SLASH_ALCHEMYGPS_WAY2, _G.SLASH_ALCHEMYGPS_WAY3 = nil, nil, nil
-        _G.SLASH_ALCHEMYGPS_CWAY1, _G.SLASH_ALCHEMYGPS_CWAY2 = nil, nil
-        _G.SLASH_ALCHEMYGPS_WAYB1, _G.SLASH_ALCHEMYGPS_WAYB2 = nil, nil
+        _G.SlashCmdList["AZEROTHATLAS_WAY"] = nil
+        _G.SlashCmdList["AZEROTHATLAS_CWAY"] = nil
+        _G.SlashCmdList["AZEROTHATLAS_WAYB"] = nil
+        _G.SLASH_AZEROTHATLAS_WAY1, _G.SLASH_AZEROTHATLAS_WAY2, _G.SLASH_AZEROTHATLAS_WAY3 = nil, nil, nil
+        _G.SLASH_AZEROTHATLAS_CWAY1, _G.SLASH_AZEROTHATLAS_CWAY2 = nil, nil
+        _G.SLASH_AZEROTHATLAS_WAYB1, _G.SLASH_AZEROTHATLAS_WAYB2 = nil, nil
         W.Emulating = false
     end
 end)

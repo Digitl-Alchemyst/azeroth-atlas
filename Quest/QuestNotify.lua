@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Quest/QuestNotify.lua
+-- Azeroth Atlas | Quest/QuestNotify.lua
 --
 -- Telling you (and your group) when quests progress. Watches the quest
 -- log on every QUEST_STATE_CHANGED and compares it with the last look.
@@ -33,15 +33,15 @@
 -- working on rather than hopping to one slightly closer.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local Notify = {}
 Q.Notify = Notify
 
 Notify.SOUNDS = {
-    { label = "Quest complete chime",        file = "Interface\\AddOns\\AlchemyGPS\\Snd\\QuestComplete.ogg" },
+    { label = "Quest complete chime",        file = "Interface\\AddOns\\AzerothAtlas\\Snd\\QuestComplete.ogg" },
     { label = "Peon: \"Work complete\"",     file = 558132 },
     { label = "Undead: \"Congratulations\"", file = 542775 },
     { label = "Human: \"Congratulations\"",  file = 540654 },

@@ -4,12 +4,12 @@
 -- Distributed under the GNU General Public License, version 3 or later.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 9b, 2026-11-10): copied
+-- Azeroth Atlas port note (build-order step 9b, 2026-11-10): copied
 -- verbatim from Carbonite/Data/camelot/Guides/Innkeeper.lua - see
 -- GuideMailbox.lua's own header comment for the format/aliasing notes
 -- (identical here, just keyed "Innkeeper" instead of "Mailbox").
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 Map.GuideData = Map.GuideData or {}
 Map.GuideData["Innkeeper"] = {

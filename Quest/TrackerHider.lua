@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / TrackerHider
+-- Azeroth Atlas | Quest / TrackerHider
 -- Hides Blizzard's own quest tracker while this addon's tracker
 -- replaces it, and puts it back exactly as it was when the option is
 -- turned off.
@@ -26,9 +26,9 @@
 --   - The rest of Carbonite's file from :272 on (Nx.Quest:Init) is
 --     Carbonite's own quest-engine setup, not tracker hiding.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local TrackerHider = {}
 Q.TrackerHider = TrackerHider

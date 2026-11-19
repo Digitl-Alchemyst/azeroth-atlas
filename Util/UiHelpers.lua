@@ -1,4 +1,4 @@
--- Alchemy GPS | Util / UiHelpers
+-- Azeroth Atlas | Util / UiHelpers
 -- Ported verbatim from Carbonite/Modules/UI/UIEngine.lua: the small
 -- frame-math helpers the ported Nx.Window class's OnUpdate (hover
 -- fade, drag-to-screen-edge snap) depends on.
@@ -6,8 +6,8 @@
 --   Nx.Util_IsMouseOver  -- UIEngine.lua:699
 --   Nx.Util_SnapToScreen -- UIEngine.lua:767
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
 
 ---
 -- Step a value toward a target by a fixed amount

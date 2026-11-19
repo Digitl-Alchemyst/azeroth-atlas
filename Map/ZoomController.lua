@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / ZoomController
+-- Azeroth Atlas | Map / ZoomController
 -- Owns scale + position animation for our minimap window's map
 -- engine. Ported from Carbonite/Modules/Map/ZoomController.lua -
 -- only the canvas-agnostic scale/position primitives (GetScale,
@@ -21,16 +21,16 @@
 --   ZoomController:ScrollSteps(steps)          discrete in/out delta
 --   ZoomController:Move(x, y, scale, stepTime) drive an animation
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 local ZoomController = {}
-AlchemyGPS.Modules.Map.ZoomController = ZoomController
+AzerothAtlas.Modules.Map.ZoomController = ZoomController
 
 -- Our single map instance lives directly on MinimapEngine (no
 -- Nx.Map.Maps[1] indirection - this addon has exactly one map, ever).
 local function mapInst()
-    return AlchemyGPS.Modules.Map.MinimapEngine
+    return AzerothAtlas.Modules.Map.MinimapEngine
 end
 
 -- Snap tolerances - identical to the legacy thresholds.
@@ -53,7 +53,7 @@ end
 
 function ZoomController:ScrollSteps(steps)
     local m = mapInst()
-    local ScrollScale = AlchemyGPS.Modules.Map.ScrollScale
+    local ScrollScale = AzerothAtlas.Modules.Map.ScrollScale
     if not m or not ScrollScale then return end
     local sign = steps >= 0 and 1 or -1
     for _ = 1, math.abs(steps) do

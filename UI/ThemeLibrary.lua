@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | UI/ThemeLibrary.lua
+-- Azeroth Atlas | UI/ThemeLibrary.lua
 --
 -- 2026-11-17 (user request: "I like all the map themes, let's gather up
 -- all the assets for themes ... we can use later on to build out the
@@ -25,12 +25,12 @@
 -- each theme for picking between them.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.UI = AlchemyGPS.UI or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.UI = AzerothAtlas.UI or {}
 
-local THEMES = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Themes\\Leatrix\\"
+local THEMES = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Themes\\Leatrix\\"
 
-AlchemyGPS.UI.ThemeLibrary = {
+AzerothAtlas.UI.ThemeLibrary = {
 
     -- Colours are 0-1 RGB(A). bgBottom / bgTop: the title bar and footer
     -- gradient. accent: title bar buttons and list borders. hover: menu

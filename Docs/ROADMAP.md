@@ -1,4 +1,4 @@
-# Alchemy GPS — Roadmap
+# Azeroth Atlas — Roadmap
 
 Companion to `../CHANGELOG.md` (dated history - the permanent record
 of what's confirmed/fixed/why). This is the ordered plan from here to
@@ -37,7 +37,7 @@ On 2026-11-18 a batch of features from Carbonite and Leatrix Maps was added, one
   - **Map:** trainer icons, subzone names, travel routes with flight paths, following your flight, `/way` and TomTom emulation, tracking a player, arrow extras, your own mouse-click actions, combat behaviour, movement trail, other addons' pins, 11 brightness/opacity sliders, recording your gathered nodes, the GatherMate2_Data import, friends on the map.
   - **Quests:** Party tab, search, quest text panel, chain parts, IDs and dailies, quest links, auto-watch with smarter routing, progress messages, completion sound, tooltip quest info.
 - **5 Leatrix features:** portal and tram icons, the other faction's travel, clicking travel icons and dungeon entrances to open those maps.
-- **Parked:** Carbonite 1.27 node glow. It's built but switched off, because every possible node spot glowed. See [issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2).
+- **Parked:** Carbonite 1.27 node glow. It's built but switched off, because every possible node spot glowed. See [issue #2](https://github.com/Digitl-Alchemyst/azeroth-atlas/issues/2).
 
 All of it is deployed. **None of it has been tested in game yet.** What's still missing is listed in `Docs/Compare-Carbonite.md` and `Docs/Compare-Leatrix.md`; finished items have been removed from both.
 
@@ -63,7 +63,7 @@ From the comparison docs. Each is built one at a time, deployed, and given its o
 
 ### Parked
 
-- **Node glow** ([issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2)). It needs a way to tell which gathering nodes are actually up.
+- **Node glow** ([issue #2](https://github.com/Digitl-Alchemyst/azeroth-atlas/issues/2)). It needs a way to tell which gathering nodes are actually up.
 
 ---
 
@@ -183,7 +183,7 @@ The original plan's Phase 9, minus the anchor/size persistence half
    via `SaveBindings` — see the plan's reasoning: override the chord
    for the session without permanently touching the user's real
    keybind profile).
-2. Add `Bindings.xml` with the `BINDING_HEADER_ALCHEMYGPS` /
+2. Add `Bindings.xml` with the `BINDING_HEADER_AZEROTHATLAS` /
    `BINDING_NAME_...` declaration so the chord is visible/rebindable
    in Blizzard's own Key Bindings UI. Remember: **do not** list
    `Bindings.xml` in the `.toc` — Blizzard auto-detects it by filename,
@@ -201,21 +201,21 @@ module done:
 
 1. Full client restart (not `/reload`) on a clean login.
 2. Zero Lua errors through login, zone change, and opening every
-   window this addon has (`/gps showmap`, `/gps settings`, the
+   window this addon has (`/aatlas showmap`, `/aatlas settings`, the
    right-click brightness menu).
 3. Re-run Step A/B's checklists once more, back to back, as a single
    pass rather than individually — this is what would have caught a
    regression like the Phase 8 fixes interacting badly with Phase 5's
    zoom math, if one existed.
-4. Confirm the live `R:\addons\AlchemyGPS\` tree and the deployed
-   `G:\...\AddOns\AlchemyGPS\` tree are byte-identical file-by-file
+4. Confirm the live `R:\addons\AzerothAtlas\` tree and the deployed
+   `G:\...\AddOns\AzerothAtlas\` tree are byte-identical file-by-file
    (not just the files touched in the most recent change) — the
    standing per-change diff check has only ever verified files touched
    in that change.
 
 ## Step F — Reconcile the written plan with reality
 
-`../../AlchemyGPS-Plan.md` (outside this repo, at the addons root)
+`../../AzerothAtlas-Plan.md` (outside this repo, at the addons root)
 still lists the icon dock as a non-goal and doesn't mention the
 brightness menu or mail-button forwarding at all, since all three
 postdate it. Once Steps A-E are done, either:

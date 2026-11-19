@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / SmallWindow
+-- Azeroth Atlas | UI / SmallWindow
 -- A Window is a Frame with: title bar, close button, draggable
 -- mixin, optional resizable mixin, ESC-to-close, and a content-area
 -- child frame that holds the body. Ported from Carbonite/UI/Window.lua
@@ -6,22 +6,22 @@
 -- UI/Window.lua) via AlchemyNavigation's own already-proven copy.
 -- Named SmallWindow.lua, not Window.lua, only to avoid a filename
 -- collision with this addon's other UI/Window.lua - the Lua table
--- this file creates is AlchemyGPS.UI.Window, matching
+-- this file creates is AzerothAtlas.UI.Window, matching
 -- AlchemyNavigation.UI.Window exactly; there's no namespace
--- collision with the big Nx.Window (= AlchemyGPS.Window) class.
+-- collision with the big Nx.Window (= AzerothAtlas.Window) class.
 --
 -- Used by the Settings window only (Settings/SettingsWindow.lua) -
 -- the minimap window itself uses the heavier Nx.Window chrome for
 -- genuine free-edge resize, since that's the one actual behavior
 -- this whole addon exists to port faithfully.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Widget = AlchemyGPS.UI.Widget
-local Draggable = AlchemyGPS.UI.Mixins.Draggable
-local Resizable = AlchemyGPS.UI.Mixins.Resizable
+local AzerothAtlas = _G.AzerothAtlas
+local Widget = AzerothAtlas.UI.Widget
+local Draggable = AzerothAtlas.UI.Mixins.Draggable
+local Resizable = AzerothAtlas.UI.Mixins.Resizable
 
 local Window = {}
-AlchemyGPS.UI.Window = Window
+AzerothAtlas.UI.Window = Window
 
 local Methods = {}
 
@@ -43,11 +43,11 @@ end
 -- sweep can't reach it; SettingsWindow.lua calls this directly
 -- instead when the user picks a different skin.
 function Methods:ApplySkin()
-    local bk = AlchemyGPS.Skin:GetBackdrop()
+    local bk = AzerothAtlas.Skin:GetBackdrop()
     self:SetCarbBackdrop(bk.bgFile, bk.edgeFile, bk.tile, bk.tileSize, bk.edgeSize, bk.insets)
-    local bd = AlchemyGPS.Skin:GetBorderCol()
+    local bd = AzerothAtlas.Skin:GetBorderCol()
     self:SetBackdropBorderColor(bd[1], bd[2], bd[3], bd[4])
-    local bg = AlchemyGPS.Skin:GetBGCol()
+    local bg = AzerothAtlas.Skin:GetBGCol()
     self:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
 end
 

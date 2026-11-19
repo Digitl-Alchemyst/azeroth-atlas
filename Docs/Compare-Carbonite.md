@@ -1,4 +1,4 @@
-# Alchemy GPS vs Carbonite — what Carbonite has that we don't (map and quests)
+# Azeroth Atlas vs Carbonite — what Carbonite has that we don't (map and quests)
 
 *Written 2026-11-18. Covers the map (`Carbonite`, plus the map-notes module `Carbonite.Notes`) and quests (`Carbonite.Quests`). Leaves out Carbonite's other modules (Info, Warehouse, combat graph, auction help).*
 
@@ -16,7 +16,7 @@ Our map engine is ported from Carbonite's, so the core map is shared: the seamle
 | Part 2 — Quests | 1 | 23 | 24 |
 | **All** | **3** | **43** | **46** |
 
-1.27 Node glow is **parked** (⏸): it's built but switched off, so it counts as missing ([issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2)).
+1.27 Node glow is **parked** (⏸): it's built but switched off, so it counts as missing ([issue #2](https://github.com/Digitl-Alchemyst/azeroth-atlas/issues/2)).
 
 - **Partly** rows: 1.7 (waypoint queue, no loop planning), 1.36 (other addons' pins, for addons that use HereBeDragons), 2.29 (quest-area opacity, no colours).
 - What's left, grouped:
@@ -58,7 +58,7 @@ Our map engine is ported from Carbonite's, so the core map is shared: the seamle
 
 | # | Feature | What it does in Carbonite |
 |---|---|---|
-| 1.27 | ⏸ *Parked 2026-11-18: built, but every possible node spot glowed (we can't tell which nodes are actually up), so it's switched off and its settings hidden. Tracked in [issue #2](https://github.com/Digitl-Alchemyst/alchemy-gps/issues/2).* **Node glow** | Gathering nodes on the minimap pulse; the pulse speed is a setting. |
+| 1.27 | ⏸ *Parked 2026-11-18: built, but every possible node spot glowed (we can't tell which nodes are actually up), so it's switched off and its settings hidden. Tracked in [issue #2](https://github.com/Digitl-Alchemyst/azeroth-atlas/issues/2).* **Node glow** | Gathering nodes on the minimap pulse; the pulse speed is a setting. |
 
 ### 1E. Other players and battlegrounds
 

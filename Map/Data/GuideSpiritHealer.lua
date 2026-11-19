@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/Data/GuideSpiritHealer.lua
+-- Azeroth Atlas | Map/Data/GuideSpiritHealer.lua
 --
 -- Build-order step 11 (2026-11-11): spirit healer icons, explicit user
 -- request ("add icons for the spirit healers too, leatrix has this so
@@ -55,8 +55,8 @@
 -- new FilterMenu.lua row.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 -- { zoneName, mapId, x, y } - zoneName is kept only for human
 -- readability of this file, not stored/used further (every row's real

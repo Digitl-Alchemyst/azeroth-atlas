@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestRouting
+-- Azeroth Atlas | Quest / QuestRouting
 -- Answers one question for everything else in the Quest module: where
 -- should the player go next? No UI of its own - the arrow (HUDArrow.lua),
 -- the tracker's distance column and sort order (QuestTracker.lua) and the
@@ -35,10 +35,10 @@
 -- Positions are in the map engine's own world space (Map:GetWorldPos),
 -- shared across a whole continent; one world unit is 4.575 yards.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
+local Map = AzerothAtlas.Map
 local Api = Q.Api
 local Catalog = Q.Catalog
 
@@ -173,6 +173,44 @@ local function LiveTarget(questID, playerMapId)
     local wx, wy = Map:GetWorldPos(mapID, lx * 100, ly * 100)
     if not wx or (wx == 0 and wy == 0) then return nil end
     return { mId = mapID, cont = cont, x = wx, y = wy, source = "live" }
+end
+
+-- 2026-11-18: Blizzard's marker for a quest this server added can sit
+-- on the NPC who gave it rather than on the next step (the Riverglades
+-- breadcrumbs, taken all over the world and handed in at Farholde Keep,
+-- Rog'mar or Powderfuse Port). True when the live point is within
+-- GIVER_YARDS of one of the quest's pickup points while the database
+-- has a turn-in somewhere else - then the turn-in is the better guess.
+local GIVER_YARDS = 30
+
+local function endpointPoints(questID, useEnd)
+    local list = Catalog:GetEndpoints(questID, useEnd)
+    local out = {}
+    for i = 1, list and #list or 0 do
+        local _, zone, x, y = Catalog:UnpackSE(list[i])
+        if zone and (x > 0 or y > 0) then
+            local wx, wy = Map:GetWorldPos(zone, x, y)
+            if wx then out[#out + 1] = { wx, wy, Catalog:GetContinent(zone) } end
+        end
+    end
+    return out
+end
+
+local function nearAny(points, x, y, cont)
+    local limit = (GIVER_YARDS / YARDS_PER_WORLDUNIT) ^ 2
+    for _, p in ipairs(points) do
+        if p[3] == cont and (p[1] - x) ^ 2 + (p[2] - y) ^ 2 < limit then return true end
+    end
+    return false
+end
+
+local function PointsBackAtGiver(questID, res)
+    local starts = endpointPoints(questID, false)
+    if not nearAny(starts, res.x, res.y, res.cont) then return false end
+    for _, e in ipairs(endpointPoints(questID, true)) do
+        if not nearAny(starts, e[1], e[2], e[3]) then return true end
+    end
+    return false
 end
 
 -- The entrance to head for, out of a list of instances something is
@@ -318,8 +356,20 @@ local function ResolveQuest(q, px, py, cont, playerMapId)
 
     if entrance then return entrance, 0 end
 
+    -- 2026-11-18 (user, the Magram / Gelkis quests): an unfinished
+    -- objective the player has to bring - crafted, bought, or looted
+    -- somewhere no data places (Catalog:ObjectiveNote "hold") - means
+    -- there is nothing at the quest giver yet. No destination, rather
+    -- than "go back to the giver"; Blizzard's POI points there too.
+    for _, o in ipairs(q.objectives) do
+        if not o.finished then
+            local note = Catalog:ObjectiveNote(questID, o.text)
+            if note and note.hold then return nil end
+        end
+    end
+
     local res = LiveTarget(questID, playerMapId)
-    if res then return res, 0 end
+    if res and not PointsBackAtGiver(questID, res) then return res, 0 end
 
     local inside
     res, inside = EndpointTarget(questID, true, px, py, cont)

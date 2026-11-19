@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / MapContextMenu
+-- Azeroth Atlas | Map / MapContextMenu
 -- Right-click popup menu for the map window (wired from
 -- MinimapEngine:OnMouseUp's RightButton branch). Not a port -
 -- Carbonite's own menu system (Nx.Menu, Modules/UI/UIEngine.lua) is
@@ -13,7 +13,7 @@
 -- (MinimapEngine:MoveZoneTiles's own texture:SetVertexColor call - see
 -- that function's header comment for why this is "brightness," allowed
 -- above 1, rather than plain 0-1 alpha transparency). Persisted as
--- AlchemyGPS.db.profile.BackgndBrightness, applied live to
+-- AzerothAtlas.db.profile.BackgndBrightness, applied live to
 -- MinimapEngine.BackgndAlpha on every slider move.
 --
 -- Row 2 (build-order step 9g, 2026-11-10): an opacity slider for the
@@ -21,7 +21,7 @@
 -- texture:SetAlpha call) - plain 0-1 transparency multiplied on top of
 -- the existing near/dimmed distinction, not a brightness overlay like
 -- row 1, so it stays capped at 100%. Persisted as
--- AlchemyGPS.db.profile.GatherIconOpacity, applied live to
+-- AzerothAtlas.db.profile.GatherIconOpacity, applied live to
 -- MinimapEngine.GatherOpacity on every slider move.
 --
 -- Row 3 (build-order step 9h, 2026-11-10, same "can barely see them"
@@ -29,7 +29,7 @@
 -- for the same icons, 50%-300% of their base size
 -- (MinimapEngine.lua's GATHER_ICON_SIZE). Allowed above 100% - unlike
 -- row 1/2, making these bigger than their natural size is exactly the
--- point. Persisted as AlchemyGPS.db.profile.GatherIconScale, applied
+-- point. Persisted as AzerothAtlas.db.profile.GatherIconScale, applied
 -- live to MinimapEngine.GatherIconScale on every slider move.
 --
 -- Row 4 (build-order step 9i, 2026-11-10, follow-up to row 3's own
@@ -37,7 +37,7 @@
 -- (MinimapEngine:UpdateGatherIcons's frm.backdrop, a BackdropTemplate
 -- frame, not the icon itself) - user wanted it independently
 -- controllable rather than fixed. 0-100%, same capped-at-100% reasoning
--- as row 2. Persisted as AlchemyGPS.db.profile.GatherBackdropOpacity,
+-- as row 2. Persisted as AzerothAtlas.db.profile.GatherBackdropOpacity,
 -- applied live to MinimapEngine.GatherBackdropOpacity on every slider
 -- move.
 --
@@ -53,7 +53,7 @@
 -- than sharing row 1's value - Terrain and Art Map are different
 -- layers the user may want to balance differently, and row 1 already
 -- existed and worked a certain way before this request. Persisted as
--- AlchemyGPS.db.profile.TerrainBrightness, applied live to
+-- AzerothAtlas.db.profile.TerrainBrightness, applied live to
 -- MinimapEngine.TerrainBrightness on every slider move.
 --
 -- Rows 5/6 (build-order step 10, 2026-11-11): "Set Goto Here" and
@@ -92,16 +92,16 @@
 -- opens down and right from the cursor, or up / left when that would
 -- run off the screen.
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 local MapContextMenu = {}
-AlchemyGPS.Modules.Map.MapContextMenu = MapContextMenu
+AzerothAtlas.Modules.Map.MapContextMenu = MapContextMenu
 
 -- One row per slider: profile key, engine field (read by the drawing
 -- code), label, range, step, default, and an optional extra on change.
 local function questOverlayChanged()
-    local Q = AlchemyGPS.Modules.Quest
+    local Q = AzerothAtlas.Modules.Quest
     if Q and Q.Overlay then Q.Overlay.Drawn = nil end
 end
 
@@ -133,25 +133,25 @@ MapContextMenu.SLIDERS = {
 }
 
 function MapContextMenu.SliderValue(def)
-    local p = AlchemyGPS.db and AlchemyGPS.db.profile
+    local p = AzerothAtlas.db and AzerothAtlas.db.profile
     local v = p and p[def.key]
     if v == nil then return def.default end
     return v
 end
 
 function MapContextMenu.SetSliderValue(def, value)
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile[def.key] = value
+    if AzerothAtlas.db and AzerothAtlas.db.profile then
+        AzerothAtlas.db.profile[def.key] = value
     end
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
     if MinimapEngine then MinimapEngine[def.field] = value end
     if def.changed then def.changed() end
 end
 
 -- Puts every slider's saved value on the engine (at login).
 function MapContextMenu.ApplyAll()
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    if not MinimapEngine or not (AlchemyGPS.db and AlchemyGPS.db.profile) then return end
+    local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
+    if not MinimapEngine or not (AzerothAtlas.db and AzerothAtlas.db.profile) then return end
     for _, def in ipairs(MapContextMenu.SLIDERS) do
         MinimapEngine[def.field] = MapContextMenu.SliderValue(def)
     end
@@ -198,7 +198,7 @@ MapContextMenu.Pct = pct
 local sliderCount = 0
 local function createSlider(parent, def, x, y)
     sliderCount = sliderCount + 1
-    local name = "AlchemyGPSMapMenuSlider" .. sliderCount
+    local name = "AzerothAtlasMapMenuSlider" .. sliderCount
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("TOPLEFT", parent, "TOPLEFT", x + 4, y)
     label:SetText(def.label)
@@ -228,7 +228,7 @@ end
 local function create()
     if menu then return menu end
 
-    menu = CreateFrame("Frame", "AlchemyGPSMapContextMenu", UIParent, "BackdropTemplate")
+    menu = CreateFrame("Frame", "AzerothAtlasMapContextMenu", UIParent, "BackdropTemplate")
     menu:SetFrameStrata("TOOLTIP")
     menu:SetClampedToScreen(true)
     menu:SetBackdrop({
@@ -243,7 +243,7 @@ local function create()
     local y = -10
     local function row(text, fn)
         local r = createMenuRow(menu, text, y, function()
-            local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+            local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
             if MinimapEngine then fn(MinimapEngine) end
             MapContextMenu:Close()
         end)
@@ -257,7 +257,7 @@ local function create()
         local wx, wy = E:FramePosToWorldPos(E.ClickFrmX, E.ClickFrmY)
         local zone, zx, zy
         if wx then zone, zx, zy = E:ZoneAtWorld(wx, wy) end
-        local W = AlchemyGPS.Modules.Map.Waypoints
+        local W = AzerothAtlas.Modules.Map.Waypoints
         if zone and W then
             W:Add(zone, zx / 100, zy / 100, { title = "Map waypoint", crazy = false, from = "map" })
         end
@@ -294,7 +294,7 @@ local function create()
 
     -- Dismiss on an outside click WITHOUT an intercepting frame: a
     -- full-screen clickable Button over UIParent sat above Blizzard's
-    -- own protected action bars and tripped "AlchemyGPS has been
+    -- own protected action bars and tripped "AzerothAtlas has been
     -- blocked from an action only available to the Blizzard UI" -
     -- confirmed live, 2026-11-10. This polls instead (an OnUpdate
     -- never touches or blocks a click meant for something else, so it
@@ -351,6 +351,6 @@ function MapContextMenu:IsShown()
 end
 
 -- Saved values onto the engine once the saved settings are in.
-AlchemyGPS.Core.EventBus:Subscribe("ALCHEMYGPS_ENABLE", function()
+AzerothAtlas.Core.EventBus:Subscribe("AZEROTHATLAS_ENABLE", function()
     MapContextMenu.ApplyAll()
 end)

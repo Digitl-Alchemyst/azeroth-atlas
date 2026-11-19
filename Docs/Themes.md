@@ -17,7 +17,7 @@ Collected 2026-11-17 from Leatrix Maps' map themes, for the final theming stage.
 
 All 15 can be picked for the big map in Settings > Style > Big Map Theme (`Map/BigMapThemes.lua`). Handheld and Retro TV are drawn without Leatrix's power-switch animations and the handheld's gem game.
 
-Only Leatrix's icon sheet and its dungeon art are files of its own. Alchemy GPS already reads the dungeon art from the Leatrix folder at runtime. Every other texture, atlas and font the themes use is built into the game client and is listed by path under `Art` and `Fonts`.
+Only Leatrix's icon sheet and its dungeon art are files of its own. Azeroth Atlas already reads the dungeon art from the Leatrix folder at runtime. Every other texture, atlas and font the themes use is built into the game client and is listed by path under `Art` and `Fonts`.
 
 Leatrix's sliced icons:
 

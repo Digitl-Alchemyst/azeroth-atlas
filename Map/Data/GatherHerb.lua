@@ -1,4 +1,4 @@
-AlchemyGPSHerbDB = {
+AzerothAtlasHerbDB = {
 	[1411] = {
 		[3570284000] = 401,
 		[3570285000] = 401,

@@ -48,7 +48,7 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       - it was `ExplorationOverlays.lua` shipping the wrong, obsolete
       data file entirely (legacy named-region keys that never matched
       this server's real `<zone>_c60`-suffixed `Overlay` fields, so
-      every zone's lookup silently failed). Confirmed via `/gps
+      every zone's lookup silently failed). Confirmed via `/aatlas
       dbgoverlay` chat log, now fixed by porting the real
       `NxMapData.lua`-inlined dataset instead. This phase's original
       checklist item above still stands as the thing to confirm, now
@@ -90,9 +90,9 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       order RELATIVE TO EACH OTHER is unchanged.
 
 ### Phase 8 — Regression: existing toggles unchanged
-- [ ] `/gps hideart` cleanly hides Art Map tiles/continent backdrop
+- [ ] `/aatlas hideart` cleanly hides Art Map tiles/continent backdrop
       AND the overlay art together, restores correctly on toggle-back.
-- [ ] `/gps hideterrain` and both title-bar checkboxes still behave as
+- [ ] `/aatlas hideterrain` and both title-bar checkboxes still behave as
       before.
 
 ### Phase 9 — Frame-rate sanity
@@ -106,7 +106,7 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       - it now shares Art Map's own frame level instead of its
       previous separate one, with the old flat zone-tile backdrop that
       used to live there removed entirely.
-- [ ] Toggle the Art Map title-bar checkbox (or `/gps hideart`) off and
+- [ ] Toggle the Art Map title-bar checkbox (or `/aatlas hideart`) off and
       on - confirm Overlay (not a flat backdrop) is what shows/hides.
 - [x] **Resolved structurally, 2026-11-11 (seventh follow-up)**: at
       continent zoom, confirm Overlay's "revealed" zone art renders ON

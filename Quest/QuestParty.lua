@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Quest/QuestParty.lua
+-- Azeroth Atlas | Quest/QuestParty.lua
 --
 -- 2026-11-16 (user request: "we want to see how many group members and
 -- which ones are on the same quest we are on in both the list and
@@ -7,21 +7,21 @@
 --   * the game's own C_QuestLog.IsUnitOnQuest(unit, questID) - works for
 --     everyone in the group, addon or not (Carbonite.Quests uses it too)
 --   * and, for anything the game won't say (an answer it hides as a
---     secret value, a member out of range), the quest ids other Alchemy
---     GPS users share over the group channel.
+--     secret value, a member out of range), the quest ids other Azeroth
+--     Atlas users share over the group channel.
 -- QuestList / QuestTracker put the count after the title ("[2]") and
 -- the names in the tooltip (Party:Badge, Party:AddTooltip). Fires
 -- QUEST_PARTY_CHANGED when the answer may have changed.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local Party = {}
 Q.Party = Party
 
-local PREFIX = "AlchemyGPS1"
+local PREFIX = "AzerothAtlas1"
 local SEND_GAP = 3          -- seconds between two quest-list messages of ours
 local CHUNK = 220           -- addon messages carry at most 255 bytes
 local SHARED_TTL = 300      -- forget a member's shared list after this long
@@ -63,7 +63,7 @@ local function unitName(unit)
 end
 
 ---------------------------------------------------------------------------------------
--- Shared lists (other Alchemy GPS users)
+-- Shared lists (other Azeroth Atlas users)
 ---------------------------------------------------------------------------------------
 
 -- [first name] = { set = { [questID] = true }, t, pending = { ... } }
@@ -177,7 +177,7 @@ end
 
 -- 2026-11-18 (user request, from Carbonite: the quest list's Party
 -- tab). Every other group member and the quests we know they have:
--- their whole log when they run Alchemy GPS (their shared list), or
+-- their whole log when they run Azeroth Atlas (their shared list), or
 -- else only the quests in OUR log the game says they're on.
 --   { { name, class, level, unit, full = bool, quests = { id, ... } }, ... }
 function Party:GetMemberLogs()

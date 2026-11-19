@@ -1,11 +1,11 @@
--- Alchemy GPS | Util / ColorParse
+-- Azeroth Atlas | Util / ColorParse
 -- Ported from Carbonite/Modules/UI/UIEngine.lua (Nx.Split at
 -- Carbonite/Util/NxSplit.lua:17, Nx.Util_str2rgba/str2rgb at
 -- UIEngine.lua:613/623). Needed by the ported Nx.Window/Nx.Button
 -- code's "R|G|B|A" skin-color strings.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
 
 -- Cache for split results (weak values for garbage collection).
 local TempTable = setmetatable({}, { __mode = "v" })

@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestPins
+-- Azeroth Atlas | Quest / QuestPins
 -- Decides which quest pins belong on the map window. The map engine
 -- (Map/MinimapEngine.lua's RefreshQuestIcons/UpdateQuestIcons) owns the
 -- frames and draws them through the same CreateMiniFrame/ClipFrameW
@@ -34,9 +34,9 @@
 -- race, profession and reputation checks and the live "already done /
 -- already in the log" ones.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 local Api = Q.Api
 local Catalog = Q.Catalog
 
@@ -118,7 +118,7 @@ function Pins:QuestColor(questID)
 end
 
 local function isFilterOn(key)
-    local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
+    local filters = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.MapFilters
     return not filters or filters[key] ~= false
 end
 
@@ -218,7 +218,7 @@ function Pins:GetGivers(mapId)
             showLowLevel = Core:Opt("ShowLowLevel"),
             showEvents = Core:Opt("ShowEventQuests"),
         }
-        local Map = AlchemyGPS.Map
+        local Map = AzerothAtlas.Map
 
         local hidden = Core:ProfileTable("HiddenQuests")
 
@@ -381,8 +381,8 @@ function Pins:Collect(engine, pts)
     local State = Q.State
     if not State or not State.Scanned then return end
 
-    local StyleOptions = AlchemyGPS.UI.StyleOptions
-    local Map = AlchemyGPS.Map
+    local StyleOptions = AzerothAtlas.UI.StyleOptions
+    local Map = AzerothAtlas.Map
     local mapId, cont = engine.MapId, engine.Cont
     local target = Q.Routing and Q.Routing.Target
     local activeQuest = target and target.kind == "quest" and target.questID or nil
@@ -601,7 +601,7 @@ end
 function Pins:SetFocus(questID)
     if self.FocusQuest == questID then return end
     self.FocusQuest = questID
-    local E = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine
+    local E = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.MinimapEngine
     if E and E.Frm and E.MapId then
         E:RefreshQuestIcons()
         E:UpdateQuestIcons()
@@ -611,7 +611,7 @@ end
 
 -- Whether the map is up to show a focused quest on.
 function Pins:MapShown()
-    local E = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine
+    local E = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.MinimapEngine
     return E and E.Frm and E.Frm:IsVisible() and true or false
 end
 
@@ -657,7 +657,7 @@ end
 -- A quest the player never wants offered on the map (one that is bugged
 -- on the server, or that they will never do) can be hidden: right-click
 -- a pickup pin and pick it. Hidden quests are per profile, brought back
--- from the Settings window or /gps quest unhide.
+-- from the Settings window or /aatlas quest unhide.
 ---------------------------------------------------------------------------------------
 
 function Pins:SetHidden(questID, hide)
@@ -686,7 +686,7 @@ function Pins:OnRightClick(frm, pt)
     if pt.role ~= "giver" or not pt.giver or #pt.giver.quests == 0 then return end
     local menu = self.HideMenu
     if not menu then
-        menu = CreateFrame("Frame", "AlchemyGPSQuestHideMenu", UIParent, "BackdropTemplate")
+        menu = CreateFrame("Frame", "AzerothAtlasQuestHideMenu", UIParent, "BackdropTemplate")
         -- Above the map (DIALOG strata since 2026-11-16).
         menu:SetFrameStrata("TOOLTIP")
         menu:SetClampedToScreen(true)
@@ -715,7 +715,7 @@ function Pins:OnRightClick(frm, pt)
                 end
             end
         end)
-        tinsert(UISpecialFrames, "AlchemyGPSQuestHideMenu")
+        tinsert(UISpecialFrames, "AzerothAtlasQuestHideMenu")
         self.HideMenu = menu
     end
 
@@ -741,7 +741,7 @@ function Pins:OnRightClick(frm, pt)
         row:SetScript("OnClick", function()
             menu:Hide()
             self:SetHidden(quest.id, true)
-            Q.Core.Say("hidden from the map: %s (quest %d). /gps quest unhide %d brings it back.",
+            Q.Core.Say("hidden from the map: %s (quest %d). /aatlas quest unhide %d brings it back.",
                 quest.title, quest.id, quest.id)
         end)
         row:Show()
@@ -774,7 +774,7 @@ function Pins:Start()
     -- change what should be on the map; ask the engine for a refresh on
     -- its next tick rather than waiting out its two-second timer.
     local function refreshSoon()
-        local engine = AlchemyGPS.Map
+        local engine = AzerothAtlas.Map
         if engine then engine.QuestRefreshAt = 0 end
     end
     EventBus:Subscribe("QUEST_STATE_CHANGED", refreshSoon)

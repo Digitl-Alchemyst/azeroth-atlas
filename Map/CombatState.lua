@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/CombatState.lua
+-- Azeroth Atlas | Map/CombatState.lua
 ---------------------------------------------------------------------------------------
 -- The map in combat (2026-11-18, user request, from Carbonite's "Hide
 -- the map in combat"): "control with a setting, currently in combat we
@@ -22,23 +22,23 @@
 -- Settings > Map, "In combat". All three on by default.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local CombatState = {}
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.CombatState = CombatState
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.CombatState = CombatState
 
 local function opt(key)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     return not db or db.profile[key] ~= false
 end
 
 local function mapWin()
-    local w = AlchemyGPS.Modules.Map.MinimapWindow
+    local w = AzerothAtlas.Modules.Map.MinimapWindow
     return w, w and w.Win
 end
 
 local function questList()
-    local Q = AlchemyGPS.Modules.Quest
+    local Q = AzerothAtlas.Modules.Quest
     return Q and Q.List
 end
 
@@ -59,7 +59,7 @@ function CombatState:OnCombatStart()
 
     if opt("CombatCloseQuestList") and listShown() then
         if docked then
-            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            local BigMap = AzerothAtlas.Modules.Map.BigMap
             if BigMap then BigMap:CloseDockedList() end
         else
             List.Win:Hide()
@@ -86,7 +86,7 @@ function CombatState:OnCombatEnd()
     if changed.list and not listShown() then
         local List = questList()
         if changed.list == "docked" then
-            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            local BigMap = AzerothAtlas.Modules.Map.BigMap
             if BigMap and mapIsBig() then BigMap:ToggleQuests() end
         elseif List then
             List:Toggle()
@@ -104,5 +104,5 @@ events:SetScript("OnEvent", function(_, event)
     else
         ok, err = pcall(CombatState.OnCombatEnd, CombatState)
     end
-    if not ok then AlchemyGPS.Core.Logger:Get("Map"):error("combat map state: %s", tostring(err)) end
+    if not ok then AzerothAtlas.Core.Logger:Get("Map"):error("combat map state: %s", tostring(err)) end
 end)

@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestState
+-- Azeroth Atlas | Quest / QuestState
 -- The live half of the quest picture: what is in the log right now,
 -- how far along each objective is, which quests are on the tracker.
 -- Event-driven - a burst of quest-log events collapses into one rescan
@@ -27,9 +27,9 @@
 -- tracker). Missing means tracked, so a newly accepted quest shows up
 -- without any bookkeeping.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 local Api = Q.Api
 
 local State = {}

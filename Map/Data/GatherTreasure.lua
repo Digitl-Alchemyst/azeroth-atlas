@@ -1,4 +1,4 @@
-AlchemyGPSTreasureDB = {
+AzerothAtlasTreasureDB = {
 	[1411] = {
 		[3940538000] = 502,
 		[4080304000] = 502,

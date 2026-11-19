@@ -61,7 +61,7 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       no unexpected dimming) as it grows/shrinks the tile grid.
 
 ### Phase 5 — Regression: existing toggles/layers unchanged
-- [ ] `/gps hideart` / `/gps hideterrain` and the title-bar
+- [ ] `/aatlas hideart` / `/aatlas hideterrain` and the title-bar
       Terrain/Art checkboxes still isolate each layer correctly and
       stay in sync with each other, same as Phase 11's own checks.
 - [ ] Icon layer, gathering radar/live widget, goto/corpse trails all

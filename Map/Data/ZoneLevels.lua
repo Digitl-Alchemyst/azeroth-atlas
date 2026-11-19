@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/Data/ZoneLevels.lua
+-- Azeroth Atlas | Map/Data/ZoneLevels.lua
 --
 -- 2026-11-17 (user request: "show zone levels"). Each zone's level
 -- range and the fishing skill its waters need, shown when hovering a
@@ -10,10 +10,10 @@
 --   [uiMapID] = { minLevel, maxLevel, fishing }
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Map = AlchemyGPS.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Map = AzerothAtlas.Map or {}
 
-AlchemyGPS.Map.ZoneLevels = {
+AzerothAtlas.Map.ZoneLevels = {
     -- Eastern Kingdoms
     [1416] = { 30, 40, "130" },        -- Alterac Mountains
     [1417] = { 30, 40, "130" },        -- Arathi Highlands
@@ -73,8 +73,8 @@ AlchemyGPS.Map.ZoneLevels = {
 
 -- "(30-40)" coloured for the player's level, the way Leatrix Maps
 -- colours it: red/orange above you, yellow in range, green/grey below.
-function AlchemyGPS.Map.ZoneLevelText(mapId)
-    local t = AlchemyGPS.Map.ZoneLevels[mapId]
+function AzerothAtlas.Map.ZoneLevelText(mapId)
+    local t = AzerothAtlas.Map.ZoneLevels[mapId]
     if not t or not t[1] or not t[2] then return nil end
     local lo, hi = t[1], t[2]
     local level = UnitLevel("player") or 1
@@ -91,7 +91,7 @@ function AlchemyGPS.Map.ZoneLevelText(mapId)
     return hex .. "(" .. range .. ")|r"
 end
 
-function AlchemyGPS.Map.ZoneFishing(mapId)
-    local t = AlchemyGPS.Map.ZoneLevels[mapId]
+function AzerothAtlas.Map.ZoneFishing(mapId)
+    local t = AzerothAtlas.Map.ZoneLevels[mapId]
     return t and t[3] or nil
 end

@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestApi
+-- Azeroth Atlas | Quest / QuestApi
 -- Version-tolerant access to the quest log. WoW Forever's client mixes
 -- API generations (modern C_* namespaces next to classic-era content),
 -- and this project has hit "that global doesn't exist here" three
@@ -14,11 +14,11 @@
 -- GetEntry (a flat record whichever API produced it), IsComplete,
 -- IsFlaggedCompleted, IsOnQuest, GetTitle.
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Quest = AlchemyGPS.Modules.Quest or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Quest = AzerothAtlas.Modules.Quest or {}
 
 local Api = {}
-AlchemyGPS.Modules.Quest.Api = Api
+AzerothAtlas.Modules.Quest.Api = Api
 
 -- Captured once, at load: the legacy globals as Blizzard defined them.
 local C_QuestLog = _G.C_QuestLog
@@ -266,6 +266,96 @@ function Api:GetQuestText(questID)
     obj = readable(obj) and obj ~= "" and obj or nil
     if desc or obj then textCache[questID] = { desc, obj } end
     return desc, obj
+end
+
+-- 2026-11-18 (user: "show the rewards, gear, xp and gold" with the quest
+-- text). What turning the quest in gives, from the quest log:
+--   { money = copper, xp = number,
+--     items   = { {name, texture, count, quality, itemID, link}, ... }  always given
+--     choices = { ... }                                                 pick one }
+-- Cached once every item has a name (item names can still be loading
+-- the first time a quest is looked at). nil when the quest isn't in the
+-- log or the client has none of these calls.
+--
+-- 2026-11-18 fix (user: rewards "still not showing"): this client is the
+-- modern one (interface 12.x) - every reward call takes the quest id
+-- (GetQuestLogRewardInfo(index, questID), GetNumQuestLogRewards(questID),
+-- ...) and reads nothing for a quest whose data the client hasn't
+-- loaded yet. Each call is now made with the id, each one on its own
+-- pcall (one failing used to throw the whole read away), and the
+-- quest's data is asked for with C_QuestLog.RequestLoadQuestByID -
+-- ForeverDungeonJournal's way on this same server (Core/Journal.lua).
+-- The quest is still selected around the reads for older clients,
+-- whose calls take no id and read the selected quest.
+local rewardCache = {}
+local loadRequested = {}
+
+local function call(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, a, b, c, d, e, f, g = pcall(fn, ...)
+    if not ok then return nil end
+    return a, b, c, d, e, f, g
+end
+
+local function num(v)
+    if not readable(v) then return 0 end
+    return tonumber(v) or 0
+end
+
+local function rewardItem(kind, i, questID, name, texture, count, quality, _, itemID)
+    if not readable(name) or name == "" then name = nil end
+    if not readable(texture) then texture = nil end
+    local link = call(_G.GetQuestLogItemLink, kind, i, questID)
+    if not readable(link) or type(link) ~= "string" then link = nil end
+    if not readable(itemID) then itemID = nil end
+    if not itemID and link then itemID = tonumber(link:match("item:(%d+)")) end
+    if not name and link then name = link:match("%[(.-)%]") end
+    if (not name or not texture) and itemID and C_Item then
+        name = name or call(C_Item.GetItemNameByID, itemID)
+        texture = texture or call(C_Item.GetItemIconByID, itemID)
+    end
+    return {
+        name = name, texture = texture, count = num(count) > 0 and num(count) or 1,
+        quality = readable(quality) and tonumber(quality) or 1, itemID = itemID, link = link,
+    }
+end
+
+-- Asks the client to load a quest's data (rewards included), once.
+function Api:RequestQuestData(questID)
+    if loadRequested[questID] then return end
+    loadRequested[questID] = true
+    if C_QuestLog and C_QuestLog.RequestLoadQuestByID then
+        call(C_QuestLog.RequestLoadQuestByID, questID)
+    end
+end
+
+function Api:GetRewards(questID)
+    local hit = rewardCache[questID]
+    if hit then return hit end
+    self:RequestQuestData(questID)
+    local function read()
+        local out = { items = {}, choices = {}, complete = true }
+        out.money = num(call(_G.GetQuestLogRewardMoney, questID))
+        out.xp = num(call(_G.GetQuestLogRewardXP, questID))
+        for i = 1, num(call(_G.GetNumQuestLogRewards, questID)) do
+            local item = rewardItem("reward", i, questID, call(_G.GetQuestLogRewardInfo, i, questID))
+            out.items[#out.items + 1] = item
+            if not item.name then out.complete = false end
+        end
+        for i = 1, num(call(_G.GetNumQuestLogChoices, questID, true)) do
+            local item = rewardItem("choice", i, questID, call(_G.GetQuestLogChoiceInfo, i, questID))
+            out.choices[#out.choices + 1] = item
+            if not item.name then out.complete = false end
+        end
+        -- Nothing at all may only mean "not loaded yet": don't keep it.
+        if out.money == 0 and out.xp == 0 and #out.items == 0 and #out.choices == 0 then
+            out.complete = false
+        end
+        return out
+    end
+    local r = withSelected(questID, read) or read()
+    if r and r.complete then rewardCache[questID] = r end
+    return r
 end
 
 -- Can this quest be shared with the group right now?

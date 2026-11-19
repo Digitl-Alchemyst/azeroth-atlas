@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/Data/GatherNodeInfo.lua
+-- Azeroth Atlas | Map/Data/GatherNodeInfo.lua
 --
 -- Build-order step 9f (2026-11-10): per-species name/icon/skill-level
 -- reference data for the gathering-node field (MinimapEngine.lua's
@@ -49,9 +49,9 @@
 -- harvest, per the user's own explicit direction.
 ---------------------------------------------------------------------------------------
 
-local ICON = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Gather\\"
+local ICON = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Gather\\"
 
-AlchemyGPSGatherNodeInfo = {
+AzerothAtlasGatherNodeInfo = {
 
     Herb = {
         [401] = { name = "Peacebloom",           level = 1,   tex = ICON.."Herb\\peacebloom.tga" },

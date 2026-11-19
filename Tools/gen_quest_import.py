@@ -254,9 +254,9 @@ def write_import(questie, path, header, rows, names, start_alts, end_alts, black
 
     hidden = sorted(blacklist)
     lines = [header,
-             "local AlchemyGPS = _G.AlchemyGPS",
-             "AlchemyGPS.QuestData = AlchemyGPS.QuestData or {}",
-             "local QuestData = AlchemyGPS.QuestData",
+             "local AzerothAtlas = _G.AzerothAtlas",
+             "AzerothAtlas.QuestData = AzerothAtlas.QuestData or {}",
+             "local QuestData = AzerothAtlas.QuestData",
              "",
              "-- Quest rows in Carbonite's shape, for quests the Carbonite data lacks.",
              "-- A builder like QuestDB1-6's, run by QuestCatalog.lua after login.",

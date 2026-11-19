@@ -1,14 +1,14 @@
--- Alchemy GPS | Core / SavedVariables
+-- Azeroth Atlas | Core / SavedVariables
 -- Wraps AceDB-3.0. This module creates the AceDB instance and merges
 -- each Core.Module's `dbDefaults` into it afterward.
 --
 -- Adapted from AlchemyNavigation/Core/SavedVariables.lua (rename only).
 
-local AlchemyGPS = _G.AlchemyGPS
-local Logger = AlchemyGPS.Core.Logger:Get("SavedVariables")
+local AzerothAtlas = _G.AzerothAtlas
+local Logger = AzerothAtlas.Core.Logger:Get("SavedVariables")
 
 local SavedVariables = {}
-AlchemyGPS.Core.SavedVariables = SavedVariables
+AzerothAtlas.Core.SavedVariables = SavedVariables
 
 local moduleDB = {}
 
@@ -26,24 +26,24 @@ local function copyValue(v)
 end
 
 local function ensureDB()
-    if AlchemyGPS.db then return true end
+    if AzerothAtlas.db then return true end
     local AceDB = LibStub("AceDB-3.0", true)
     if not AceDB then
         Logger:debug("AceDB-3.0 not available yet, deferring")
         return false
     end
-    AlchemyGPS.db = AceDB:New("AlchemyGPSDB", { profile = {}, char = {}, global = {} }, true)
+    AzerothAtlas.db = AceDB:New("AzerothAtlasDB", { profile = {}, char = {}, global = {} }, true)
     return true
 end
 
 local function bind()
     if not ensureDB() then return false end
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
 
     -- Poke each module's defaults directly into the live db scope
     -- tables. Only writes when the destination key is nil so we
     -- never overwrite the user's saved values.
-    for _, mod in ipairs(AlchemyGPS.Core.Module.registry or {}) do
+    for _, mod in ipairs(AzerothAtlas.Core.Module.registry or {}) do
         if mod.dbDefaults then
             for scope, subTable in pairs(mod.dbDefaults) do
                 local destScope = db[scope]
@@ -59,7 +59,7 @@ local function bind()
     end
 
     -- Build per-module DB views over the now-populated db.
-    for _, mod in ipairs(AlchemyGPS.Core.Module.registry or {}) do
+    for _, mod in ipairs(AzerothAtlas.Core.Module.registry or {}) do
         local name = mod:GetName()
         db.profile[name] = db.profile[name] or {}
         db.char[name]    = db.char[name]    or {}
@@ -71,12 +71,12 @@ local function bind()
         }
     end
 
-    Logger:debug("AceDB bound; %d modules registered", #(AlchemyGPS.Core.Module.registry or {}))
+    Logger:debug("AceDB bound; %d modules registered", #(AzerothAtlas.Core.Module.registry or {}))
     return true
 end
 
 -- Retry-poll briefly if the DB isn't ready the first time.
-AlchemyGPS.Core.EventBus:Subscribe("ALCHEMYGPS_INITIALIZE", function()
+AzerothAtlas.Core.EventBus:Subscribe("AZEROTHATLAS_INITIALIZE", function()
     if bind() then return end
     local tries = 0
     local f = CreateFrame("Frame")

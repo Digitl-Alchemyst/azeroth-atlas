@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / PlayerBlips
+-- Azeroth Atlas | Map / PlayerBlips
 -- 2026-11-16 (user request): other players on the map.
 --   Party members  - blue
 --   Raid members   - orange (members of your own raid sub-group count
@@ -16,7 +16,7 @@
 --   * Guild: the game does NOT report where guildmates are. Carbonite
 --     solved this by having every copy of the addon tell the guild where
 --     its player is over a hidden addon channel; this does the same.
---     Only guildmates who also run Alchemy GPS show up, and only while
+--     Only guildmates who also run Azeroth Atlas show up, and only while
 --     sharing is on (Settings > Map, on by default). Your position is
 --     never sent from inside a dungeon.
 --   * Friends (2026-11-18, user request, from Carbonite): the same
@@ -37,10 +37,10 @@
 -- other map icon (MinimapEngine.lua), at the Service layer, under the
 -- player marker.
 
-local AlchemyGPS = _G.AlchemyGPS
-local MinimapEngine = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local MinimapEngine = AzerothAtlas.Map
 
-local GFX = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\"
+local GFX = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\"
 local TEX = {
     party = GFX .. "IconPlyrP",
     raid  = GFX .. "IconPlyrF",
@@ -68,13 +68,13 @@ local GUILD_SEND_INTERVAL = 5     -- seconds between our own broadcasts
 local GUILD_TTL = 20              -- drop a guildmate not heard from in this long
 local ENEMY_TTL = 120             -- enemies fade out over this long
 local ENEMY_MIN_ALPHA = 0.35
-local COMM_PREFIX = "AlchemyGPS1"
+local COMM_PREFIX = "AzerothAtlas1"
 
 local guild = {}    -- [name] = { map, x, y, class, level, t }
 local enemies = {}  -- [name] = { wx, wy, cont, faction, class, level, t }
 
 local function profile()
-    return AlchemyGPS.db and AlchemyGPS.db.profile
+    return AzerothAtlas.db and AzerothAtlas.db.profile
 end
 
 local function filterOn(kind)
@@ -397,7 +397,7 @@ local trackTarget = {}
 
 local function say(fmt, ...)
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffAlchemy GPS|r: " .. fmt:format(...))
+        DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffAzeroth Atlas|r: " .. fmt:format(...))
     end
 end
 
@@ -495,7 +495,7 @@ end
 local function BlipOnMouseUp(frm, button)
     local pt = frm.blip
     if button ~= "RightButton" or not pt then return end
-    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    local BigMap = AzerothAtlas.Modules.Map.BigMap
     if not (BigMap and BigMap.OpenMenu) then return end
     GameTooltip:Hide()
     local items = { { pt.name or "?", nil, nil, true } }
@@ -675,13 +675,13 @@ function MinimapEngine:UpdatePlayerBlips()
 end
 
 ---------------------------------------------------------------------------------------
--- /gps blips - prints every player dot the map currently has, with the
+-- /aatlas blips - prints every player dot the map currently has, with the
 -- data behind it, so a stray dot can be identified instead of guessed.
 ---------------------------------------------------------------------------------------
 
-AlchemyGPS.Core.SlashCommands:Register("blips", function()
+AzerothAtlas.Core.SlashCommands:Register("blips", function()
     local print = function(...) DEFAULT_CHAT_FRAME:AddMessage(string.format(...)) end
-    print("|cffffd100Alchemy GPS player dots|r  (you: %s / %s)",
+    print("|cffffd100Azeroth Atlas player dots|r  (you: %s / %s)",
         tostring(unitFullName("player")), tostring(UnitGUID("player")))
     local pts = MinimapEngine.PlayerBlipPts or {}
     if #pts == 0 then print("  none drawn") end

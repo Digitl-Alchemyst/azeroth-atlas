@@ -1,6 +1,6 @@
--- Alchemy GPS | Settings / SettingsWindow
--- The settings window: /gps settings. Built on the simplified
--- UI/SmallWindow.lua chrome (AlchemyGPS.UI.Window), not the heavy
+-- Azeroth Atlas | Settings / SettingsWindow
+-- The settings window: /aatlas settings. Built on the simplified
+-- UI/SmallWindow.lua chrome (AzerothAtlas.UI.Window), not the heavy
 -- ported Nx.Window used by the minimap itself - this is a small
 -- utility panel, not something that needs free-edge resize.
 --
@@ -9,7 +9,7 @@
 -- settings menu... just make the tab in settings called style").
 --   - "General": the three checkboxes + Show Minimap button this
 --     window always had - unchanged, just moved into their own panel.
---   - "Style": new. Window Skin (the 12-theme AlchemyGPS.Skin
+--   - "Style": new. Window Skin (the 12-theme AzerothAtlas.Skin
 --     registry) plus every UI/StyleOptions.lua category - one row per
 --     category, a clickable preview swatch per option, selected one
 --     highlighted gold. Window grew from 270x180 to 380x440 to fit a
@@ -35,31 +35,31 @@
 -- file already tried and cut don't apply here - this addon never had
 -- them).
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
-AlchemyGPS.Modules.Settings = AlchemyGPS.Modules.Settings or {}
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
+AzerothAtlas.Modules.Settings = AzerothAtlas.Modules.Settings or {}
 
-local Widget = AlchemyGPS.UI.Widget
+local Widget = AzerothAtlas.UI.Widget
 
 local SettingsWindow = {}
-AlchemyGPS.Modules.Settings.SettingsWindow = SettingsWindow
+AzerothAtlas.Modules.Settings.SettingsWindow = SettingsWindow
 
 local function minimapDB()
-    local MinimapWindow = AlchemyGPS:GetModule("MinimapWindow", true)
+    local MinimapWindow = AzerothAtlas:GetModule("MinimapWindow", true)
     return MinimapWindow and MinimapWindow:DB().profile or {}
 end
 
 local win
 local nextCBID = 0
 -- Tracked so Refresh() can re-sync checked-state against the DB -
--- needed because `/gps minimap hide|show` can flip NativeMinimapHidden
+-- needed because `/aatlas minimap hide|show` can flip NativeMinimapHidden
 -- from outside this window, and a checkbox only reads get() once, at
 -- creation, otherwise.
 local checkboxes = {}
 
 local function addCheckbox(parent, y, label, get, set)
     nextCBID = nextCBID + 1
-    local cb = CreateFrame("CheckButton", "AlchemyGPSSettingsCB" .. nextCBID, parent, "UICheckButtonTemplate")
+    local cb = CreateFrame("CheckButton", "AzerothAtlasSettingsCB" .. nextCBID, parent, "UICheckButtonTemplate")
     cb:SetPoint("TOPLEFT", 4, y)
     cb:SetSize(24, 24)
 
@@ -82,7 +82,7 @@ local nextSliderID = 0
 
 local function addSlider(parent, y, label, minV, maxV, step, get, set, fmt)
     nextSliderID = nextSliderID + 1
-    local name = "AlchemyGPSSettingsSlider" .. nextSliderID
+    local name = "AzerothAtlasSettingsSlider" .. nextSliderID
     local s = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
     s:SetPoint("TOPLEFT", 14, y - 16)
     s:SetWidth(296)
@@ -126,12 +126,12 @@ local function buildGeneral(content)
         function() return minimapDB().NativeMinimapHidden == true end,
         function(value)
             minimapDB().NativeMinimapHidden = value
-            local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
+            local NativeMinimapHide = AzerothAtlas.Modules.Map.NativeMinimapHide
             if NativeMinimapHide then NativeMinimapHide:SetNativeHidden(value) end
         end)
     y = y - 26
 
-    local Logger = AlchemyGPS.Core.Logger
+    local Logger = AzerothAtlas.Core.Logger
     addCheckbox(content, y, "Debug mode",
         function() return Logger.minLevel == Logger.LEVEL.DEBUG end,
         function(value) Logger:SetLevel(value and "DEBUG" or "INFO") end)
@@ -143,12 +143,12 @@ local function buildGeneral(content)
     -- flush against another window's edge.
     addCheckbox(content, y, "Icon bar: vertical column",
         function()
-            local MinimapDock = AlchemyGPS.Modules.Map.MinimapDock
+            local MinimapDock = AzerothAtlas.Modules.Map.MinimapDock
             return MinimapDock and MinimapDock:IsVertical() or false
         end,
         function(value)
-            AlchemyGPS.db.profile.DockOrientation = value and "Column" or "Row"
-            local MinimapDock = AlchemyGPS.Modules.Map.MinimapDock
+            AzerothAtlas.db.profile.DockOrientation = value and "Column" or "Row"
+            local MinimapDock = AzerothAtlas.Modules.Map.MinimapDock
             if MinimapDock and MinimapDock.Win then MinimapDock:Layout() end
         end)
     y = y - 34
@@ -158,7 +158,7 @@ local function buildGeneral(content)
     showBut:SetPoint("TOPLEFT", 4, y)
     showBut:SetText("Show Minimap")
     showBut:SetScript("OnClick", function()
-        local MinimapWindow = AlchemyGPS:GetModule("MinimapWindow", true)
+        local MinimapWindow = AzerothAtlas:GetModule("MinimapWindow", true)
         if MinimapWindow then MinimapWindow:Open() end
     end)
 end
@@ -181,19 +181,19 @@ local MAP_LAYERS = {
 local PLAYER_FILTERS = {
     { key = "Party", label = "Party members (blue)" },
     { key = "Raid",  label = "Raid members (orange)" },
-    { key = "Guild", label = "Guildmates (green) - those running Alchemy GPS" },
-    { key = "Friend", label = "Friends (yellow) - those running Alchemy GPS" },
+    { key = "Guild", label = "Guildmates (green) - those running Azeroth Atlas" },
+    { key = "Friend", label = "Friends (yellow) - those running Azeroth Atlas" },
     { key = "Enemy", label = "Enemy players (red) - where you last saw them" },
 }
 
 local function mapFilterOn(key)
-    local filters = AlchemyGPS.db.profile.MapFilters
+    local filters = AzerothAtlas.db.profile.MapFilters
     return not filters or filters[key] ~= false
 end
 
 local function setMapFilter(key, on)
-    AlchemyGPS.db.profile.MapFilters = AlchemyGPS.db.profile.MapFilters or {}
-    AlchemyGPS.db.profile.MapFilters[key] = on
+    AzerothAtlas.db.profile.MapFilters = AzerothAtlas.db.profile.MapFilters or {}
+    AzerothAtlas.db.profile.MapFilters[key] = on
 end
 
 local function addHeader(parent, y, text)
@@ -204,14 +204,14 @@ local function addHeader(parent, y, text)
 end
 
 local function buildMap(panel)
-    local scroll = Widget.CreateScrollFrame(panel, "AlchemyGPSMapOptionsScroll")
+    local scroll = Widget.CreateScrollFrame(panel, "AzerothAtlasMapOptionsScroll")
     scroll:SetPoint("TOPLEFT", 0, 0)
     scroll:SetPoint("BOTTOMRIGHT", -24, 0)
     local content = scroll.ScrollChild
     content:SetWidth(340)
 
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
-    local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+    local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
+    local FilterMenu = AzerothAtlas.Modules.Map.FilterMenu
     local y = -6
 
     y = addHeader(content, y, "Map layers")
@@ -224,9 +224,9 @@ local function buildMap(panel)
     end
     -- 2026-11-18 (user request, from Carbonite): subzone names.
     addCheckbox(content, y, "Subzone names (Goldshire...) as you zoom in",
-        function() return AlchemyGPS.db.profile.ShowAreaNames ~= false end,
+        function() return AzerothAtlas.db.profile.ShowAreaNames ~= false end,
         function(value)
-            AlchemyGPS.db.profile.ShowAreaNames = value
+            AzerothAtlas.db.profile.ShowAreaNames = value
             MinimapEngine.AreaLabelKey = nil
         end)
     y = y - 26
@@ -253,21 +253,21 @@ local function buildMap(panel)
         y = y - 26
     end
     addCheckbox(content, y, "Show enemies as their faction's emblem",
-        function() return AlchemyGPS.db.profile.EnemyFactionIcons == true end,
-        function(value) AlchemyGPS.db.profile.EnemyFactionIcons = value end)
+        function() return AzerothAtlas.db.profile.EnemyFactionIcons == true end,
+        function(value) AzerothAtlas.db.profile.EnemyFactionIcons = value end)
     y = y - 26
     addCheckbox(content, y, "Share my position with my guild",
-        function() return AlchemyGPS.db.profile.ShareGuildPosition ~= false end,
-        function(value) AlchemyGPS.db.profile.ShareGuildPosition = value end)
+        function() return AzerothAtlas.db.profile.ShareGuildPosition ~= false end,
+        function(value) AzerothAtlas.db.profile.ShareGuildPosition = value end)
     y = y - 26
     addCheckbox(content, y, "Share my position with online friends",
-        function() return AlchemyGPS.db.profile.ShareFriendPosition ~= false end,
-        function(value) AlchemyGPS.db.profile.ShareFriendPosition = value end)
+        function() return AzerothAtlas.db.profile.ShareFriendPosition ~= false end,
+        function(value) AzerothAtlas.db.profile.ShareFriendPosition = value end)
     y = y - 26
 
     -- 2026-11-18 (user request, from Carbonite): Map/MouseActions.lua.
     -- A button per click; clicking it lists the jobs it can have.
-    local MouseActions = AlchemyGPS.Modules.Map.MouseActions
+    local MouseActions = AzerothAtlas.Modules.Map.MouseActions
     if MouseActions then
         y = y - 8
         y = addHeader(content, y, "Mouse clicks on the map")
@@ -290,7 +290,7 @@ local function buildMap(panel)
             refresh()
             btn:SetScript("OnShow", refresh)
             btn:SetScript("OnClick", function(self)
-                local BigMap = AlchemyGPS.Modules.Map.BigMap
+                local BigMap = AzerothAtlas.Modules.Map.BigMap
                 if not (BigMap and BigMap.OpenMenu) then return end
                 local items = {}
                 local current = MouseActions:Get(key)
@@ -309,7 +309,7 @@ local function buildMap(panel)
     -- 2026-11-18 (user request, from Carbonite: transparency by layer):
     -- the same sliders as the map's right-click menu (one list,
     -- MapContextMenu.SLIDERS).
-    local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+    local MapContextMenu = AzerothAtlas.Modules.Map.MapContextMenu
     if MapContextMenu and MapContextMenu.SLIDERS then
         y = y - 8
         y = addHeader(content, y, "Brightness and opacity")
@@ -327,15 +327,15 @@ local function buildMap(panel)
     end
 
     -- 2026-11-18 (user request, from Carbonite): Map/GatherRecorder.lua.
-    local Recorder = AlchemyGPS.Modules.Map.GatherRecorder
+    local Recorder = AzerothAtlas.Modules.Map.GatherRecorder
     if Recorder then
         y = y - 8
         y = addHeader(content, y, "Gathered nodes")
         -- Node glow's settings (on, near-only, speed) are hidden while
         -- the feature is parked (MinimapEngine.lua, GATHER_GLOW_ENABLED).
         addCheckbox(content, y, "Record the herbs, ore and treasure you gather",
-            function() return AlchemyGPS.db.profile.RecordGathering ~= false end,
-            function(value) AlchemyGPS.db.profile.RecordGathering = value end)
+            function() return AzerothAtlas.db.profile.RecordGathering ~= false end,
+            function(value) AzerothAtlas.db.profile.RecordGathering = value end)
         y = y - 28
         local x = 4
         for _, kind in ipairs(Recorder.KINDS) do
@@ -407,20 +407,20 @@ local function buildMap(panel)
     y = y - 8
     y = addHeader(content, y, "Movement trail")
     addCheckbox(content, y, "Show a trail of dots where you've walked",
-        function() return AlchemyGPS.db.profile.ShowTrail ~= false end,
-        function(value) AlchemyGPS.db.profile.ShowTrail = value end)
+        function() return AzerothAtlas.db.profile.ShowTrail ~= false end,
+        function(value) AzerothAtlas.db.profile.ShowTrail = value end)
     y = y - 26
     addSlider(content, y, "Yards between dots", 2, 50, 1,
-        function() return AlchemyGPS.db.profile.TrailYards or 10 end,
-        function(v) AlchemyGPS.db.profile.TrailYards = v end, "%d")
+        function() return AzerothAtlas.db.profile.TrailYards or 10 end,
+        function(v) AzerothAtlas.db.profile.TrailYards = v end, "%d")
     y = y - 46
     addSlider(content, y, "Most dots", 10, 300, 10,
-        function() return AlchemyGPS.db.profile.TrailCount or 100 end,
-        function(v) AlchemyGPS.db.profile.TrailCount = v end, "%d")
+        function() return AzerothAtlas.db.profile.TrailCount or 100 end,
+        function(v) AzerothAtlas.db.profile.TrailCount = v end, "%d")
     y = y - 46
     addSlider(content, y, "Seconds a dot lasts", 10, 600, 10,
-        function() return AlchemyGPS.db.profile.TrailSeconds or 90 end,
-        function(v) AlchemyGPS.db.profile.TrailSeconds = v end, "%d")
+        function() return AzerothAtlas.db.profile.TrailSeconds or 90 end,
+        function(v) AzerothAtlas.db.profile.TrailSeconds = v end, "%d")
     y = y - 46
 
     -- 2026-11-18 (user request, from Carbonite): Map/CombatState.lua.
@@ -433,8 +433,8 @@ local function buildMap(panel)
     }) do
         local key = o.key
         addCheckbox(content, y, o.label,
-            function() return AlchemyGPS.db.profile[key] ~= false end,
-            function(value) AlchemyGPS.db.profile[key] = value end)
+            function() return AzerothAtlas.db.profile[key] ~= false end,
+            function(value) AzerothAtlas.db.profile[key] = value end)
         y = y - 26
     end
 
@@ -454,27 +454,27 @@ local function buildMap(panel)
     y = addHeader(content, y, "Navigation")
     -- 2026-11-18 (user request, from Carbonite): Map/Travel.lua.
     addCheckbox(content, y, "Travel routes: use flight paths, boats and portals",
-        function() return AlchemyGPS.db.profile.TravelRoute ~= false end,
+        function() return AzerothAtlas.db.profile.TravelRoute ~= false end,
         function(value)
-            AlchemyGPS.db.profile.TravelRoute = value
-            local Travel = AlchemyGPS.Modules.Map.Travel
+            AzerothAtlas.db.profile.TravelRoute = value
+            local Travel = AzerothAtlas.Modules.Map.Travel
             if Travel then Travel.CacheKey = nil end
         end)
     y = y - 26
     addCheckbox(content, y, "Follow your flight: the arrow points where it lands",
-        function() return AlchemyGPS.db.profile.TrackFlight ~= false end,
-        function(value) AlchemyGPS.db.profile.TrackFlight = value end)
+        function() return AzerothAtlas.db.profile.TrackFlight ~= false end,
+        function(value) AzerothAtlas.db.profile.TrackFlight = value end)
     y = y - 26
     -- 2026-11-18 (user request, from Carbonite): Map/Waypoints.lua.
     addCheckbox(content, y, "Act as TomTom: /way, and waypoints from other addons (/reload)",
-        function() return AlchemyGPS.db.profile.EmulateTomTom ~= false end,
-        function(value) AlchemyGPS.db.profile.EmulateTomTom = value end)
+        function() return AzerothAtlas.db.profile.EmulateTomTom ~= false end,
+        function(value) AzerothAtlas.db.profile.EmulateTomTom = value end)
     y = y - 26
     addCheckbox(content, y, "Center: keep you in the middle of the map",
         function() return minimapDB().AutoFollow ~= false end,
         function(value)
             minimapDB().AutoFollow = value
-            local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+            local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
             if MinimapWindow and MinimapWindow.CenterCB then MinimapWindow.CenterCB:SetChecked(value) end
         end)
     y = y - 26
@@ -482,7 +482,7 @@ local function buildMap(panel)
         function() return minimapDB().AutoScale ~= false end,
         function(value)
             minimapDB().AutoScale = value
-            local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+            local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
             if MinimapWindow and MinimapWindow.FollowCB then MinimapWindow.FollowCB:SetChecked(value) end
         end)
     y = y - 26
@@ -490,7 +490,7 @@ local function buildMap(panel)
         function() return minimapDB().OverrideMLKeys ~= false end,
         function(value)
             minimapDB().OverrideMLKeys = value
-            local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+            local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
             if MinimapWindow then MinimapWindow:ApplyKeys() end
         end)
     y = y - 26
@@ -540,13 +540,13 @@ local QUEST_OPTIONS = {
 
 local function buildQuests(panel)
     -- Scrolls, like the Style tab: there are more options than fit.
-    local scroll = Widget.CreateScrollFrame(panel, "AlchemyGPSQuestOptionsScroll")
+    local scroll = Widget.CreateScrollFrame(panel, "AzerothAtlasQuestOptionsScroll")
     scroll:SetPoint("TOPLEFT", 0, 0)
     scroll:SetPoint("BOTTOMRIGHT", -24, 0)
     local content = scroll.ScrollChild
     content:SetWidth(340)       -- window 380, less its insets and the scroll bar
 
-    local Core = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Core
+    local Core = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Core
     if not Core then
         local msg = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         msg:SetPoint("TOPLEFT", 8, -10)
@@ -590,7 +590,7 @@ local function buildQuests(panel)
     -- X / Y: where the arrow's middle sits, from the middle of the screen.
     -- Dragging the arrow moves these too.
     local function arrowOffset(axis)
-        local HUD = AlchemyGPS.Modules.Quest.HUD
+        local HUD = AzerothAtlas.Modules.Quest.HUD
         local f = HUD and HUD.Frm
         local cx, cy
         if f then cx, cy = f:GetCenter() end
@@ -608,7 +608,7 @@ local function buildQuests(panel)
         a.point, a.relPoint = "CENTER", "CENTER"
         a.x, a.y = ox, oy
         a[axis] = v
-        AlchemyGPS.Core.EventBus:Fire("QUEST_OPTION_CHANGED", "ArrowAnchor")
+        AzerothAtlas.Core.EventBus:Fire("QUEST_OPTION_CHANGED", "ArrowAnchor")
     end
     addSlider(content, y, "Arrow X offset", -800, 800, 1,
         function() return arrowOffset("x") end,
@@ -636,7 +636,7 @@ local function buildQuests(panel)
     y = y - 26
 
     -- 2026-11-18 (user request, from Carbonite): Quest/QuestNotify.lua.
-    local Notify = AlchemyGPS.Modules.Quest.Notify
+    local Notify = AzerothAtlas.Modules.Quest.Notify
     if Notify then
         y = y - 10
         y = addHeader(content, y, "Quest progress")
@@ -650,7 +650,7 @@ local function buildQuests(panel)
         refresh()
         btn:SetScript("OnShow", refresh)
         btn:SetScript("OnClick", function(self)
-            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            local BigMap = AzerothAtlas.Modules.Map.BigMap
             if not (BigMap and BigMap.OpenMenu) then return end
             local cur = Notify:SoundChoice()
             local items = {}
@@ -704,12 +704,18 @@ local function buildQuests(panel)
         function() return Core:Opt("ListTextSide") ~= false end,
         function(value) Core:SetOpt("ListTextSide", value) end)
     y = y - 26
+    -- 2026-11-18 (user: "make the quest scroll window dark mode, see
+    -- darkmode addon, darkmode is default"): on by default.
+    addCheckbox(content, y, "Dark mode (dimmed like the DarkMode addon)",
+        function() return Core:Opt("DetailsDark") ~= false end,
+        function(value) Core:SetOpt("DetailsDark", value) end)
+    y = y - 26
     addCheckbox(content, y, "Parchment background",
         function() return Core:Opt("DetailsParchment") ~= false end,
         function(value) Core:SetOpt("DetailsParchment", value) end)
     y = y - 28
     do
-        local Details = AlchemyGPS.Modules.Quest.Details
+        local Details = AzerothAtlas.Modules.Quest.Details
         local label = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         label:SetPoint("TOPLEFT", 8, y - 4)
         label:SetText("Text colour")
@@ -725,7 +731,7 @@ local function buildQuests(panel)
         refresh()
         btn:SetScript("OnShow", refresh)
         btn:SetScript("OnClick", function(self)
-            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            local BigMap = AzerothAtlas.Modules.Map.BigMap
             if not (BigMap and BigMap.OpenMenu and Details) then return end
             local cur = Core:Opt("DetailsColor") or "auto"
             local items = {}
@@ -750,7 +756,7 @@ local function buildQuests(panel)
     trackAll:SetPoint("TOPLEFT", 4, y)
     trackAll:SetText("Track all quests")
     trackAll:SetScript("OnClick", function()
-        local State = AlchemyGPS.Modules.Quest.State
+        local State = AzerothAtlas.Modules.Quest.State
         if State then State:WatchAll() end
     end)
 
@@ -759,7 +765,7 @@ local function buildQuests(panel)
     list:SetPoint("TOPLEFT", 162, y)
     list:SetText("Open the quest list")
     list:SetScript("OnClick", function()
-        local List = AlchemyGPS.Modules.Quest.List
+        local List = AzerothAtlas.Modules.Quest.List
         if List then List:Toggle() end
     end)
 
@@ -767,14 +773,14 @@ local function buildQuests(panel)
     unhide:SetSize(308, 22)
     unhide:SetPoint("TOPLEFT", 4, y - 26)
     local function unhideLabel()
-        local Pins = AlchemyGPS.Modules.Quest.Pins
+        local Pins = AzerothAtlas.Modules.Quest.Pins
         local n = Pins and Pins:NumHidden() or 0
         unhide:SetText(n > 0 and ("Show the %d hidden quest%s on the map again"):format(n, n == 1 and "" or "s")
             or "No quests hidden from the map")
         unhide:SetEnabled(n > 0)
     end
     unhide:SetScript("OnClick", function()
-        local Pins = AlchemyGPS.Modules.Quest.Pins
+        local Pins = AzerothAtlas.Modules.Quest.Pins
         if Pins then Pins:UnhideAll() end
         unhideLabel()
     end)
@@ -789,8 +795,8 @@ local function buildQuests(panel)
     hint:SetText("Tracker: click a quest to route to it, right-click to collapse, "
         .. "Shift-click to untrack. Click a zone heading to fold it, Shift-click it to "
         .. "untrack the whole zone. Right-click a quest pin on the map to hide one of its quests.\n\n"
-        .. "Quest item hotkey: Key Bindings > Alchemy GPS > \"Use the nearest quest's item\", "
-        .. "or type /gps quest key F.\n\n"
+        .. "Quest item hotkey: Key Bindings > Azeroth Atlas > \"Use the nearest quest's item\", "
+        .. "or type /aatlas quest key F.\n\n"
         .. "Quest map pins are toggled from the map's Filter button.")
 
     content:SetHeight(-y + 30 + 130)
@@ -874,7 +880,7 @@ local function buildCategoryRow(parent, yPos, label, items, getSelectedId, onSel
             -- the live icon also renders its preview here, instead of
             -- re-deriving the atlas-vs-texcoord-vs-plain branching a
             -- second time in this file.
-            AlchemyGPS.UI.StyleOptions:ApplyIconSpec(icon, item)
+            AzerothAtlas.UI.StyleOptions:ApplyIconSpec(icon, item)
         else
             btn:SetBackdropColor(item.bg[1], item.bg[2], item.bg[3], item.bg[4] or 1)
             if item.accent then
@@ -911,8 +917,8 @@ end
 
 local function buildWindowSkinItems()
     local items = {}
-    for _, name in ipairs(AlchemyGPS.Skin.Names) do
-        local data = AlchemyGPS.Skin.Skins[name]
+    for _, name in ipairs(AzerothAtlas.Skin.Names) do
+        local data = AzerothAtlas.Skin.Skins[name]
         local br, bg, bb, ba = Nx.Util_str2rgba(data["BgCol"])
 
         local accentStr = data["BdCol"]
@@ -933,7 +939,7 @@ end
 
 local function buildTextureItems(categoryKey)
     local items = {}
-    for _, cat in ipairs(AlchemyGPS.UI.StyleOptions.Categories) do
+    for _, cat in ipairs(AzerothAtlas.UI.StyleOptions.Categories) do
         if cat.key == categoryKey then
             for _, opt in ipairs(cat.options) do
                 items[#items + 1] = {
@@ -947,7 +953,7 @@ local function buildTextureItems(categoryKey)
 end
 
 local function buildStyle(panel)
-    local scroll = Widget.CreateScrollFrame(panel, "AlchemyGPSStyleScroll")
+    local scroll = Widget.CreateScrollFrame(panel, "AzerothAtlasStyleScroll")
     scroll:SetPoint("TOPLEFT", 0, 0)
     scroll:SetPoint("BOTTOMRIGHT", -24, 0)
 
@@ -958,12 +964,12 @@ local function buildStyle(panel)
     swatchRefreshers = {}
 
     local function setWindowSkin(id)
-        AlchemyGPS.Skin:Set(id)
+        AzerothAtlas.Skin:Set(id)
         if win then win:ApplySkin() end
         -- The quest tracker is built on the same small-window
         -- chrome as this window, so Skin:ResetWindows can't reach
         -- it either.
-        local Tracker = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Tracker
+        local Tracker = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Tracker
         if Tracker and Tracker.Win then Tracker.Win:ApplySkin() end
     end
 
@@ -971,8 +977,8 @@ local function buildStyle(panel)
     -- the window skins and the map themes (Map/BigMapThemes.lua) - in
     -- both rows. A skin picked for the minimap is the window skin, worn
     -- by every window, as the old "Window Skin" row did.
-    local Themes = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.BigMapThemes
-    local BigMap = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.BigMap
+    local Themes = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.BigMapThemes
+    local BigMap = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.BigMap
     if Themes and BigMap then
         local function items(forBig)
             local list = {}
@@ -997,14 +1003,14 @@ local function buildStyle(panel)
             function(id) BigMap:SetThemeId(id) end)
     else
         y = buildCategoryRow(child, y, "Window Skin", buildWindowSkinItems(),
-            function() return AlchemyGPS.db.profile.Skin and AlchemyGPS.db.profile.Skin.Name end,
+            function() return AzerothAtlas.db.profile.Skin and AzerothAtlas.db.profile.Skin.Name end,
             setWindowSkin)
     end
 
-    for _, cat in ipairs(AlchemyGPS.UI.StyleOptions.Categories) do
+    for _, cat in ipairs(AzerothAtlas.UI.StyleOptions.Categories) do
         y = buildCategoryRow(child, y, cat.label, buildTextureItems(cat.key),
-            function() return AlchemyGPS.UI.StyleOptions:GetChoice(cat.key) end,
-            function(id) AlchemyGPS.UI.StyleOptions:SetChoice(cat.key, id) end)
+            function() return AzerothAtlas.UI.StyleOptions:GetChoice(cat.key) end,
+            function(id) AzerothAtlas.UI.StyleOptions:SetChoice(cat.key, id) end)
     end
 
     child:SetHeight(math.max(-y, 1))
@@ -1015,9 +1021,9 @@ end
 local function create()
     if win then return win end
 
-    win = AlchemyGPS.UI.Window:Create{
-        name   = "AlchemyGPSSettingsWindow",
-        title  = "Alchemy GPS Settings",
+    win = AzerothAtlas.UI.Window:Create{
+        name   = "AzerothAtlasSettingsWindow",
+        title  = "Azeroth Atlas Settings",
         width  = 380,
         height = 440,
         -- 2026-11-16: above the map, which now sits in DIALOG strata.
@@ -1045,9 +1051,9 @@ local function create()
 
     local panels = { general = generalPanel, map = mapPanel, quests = questsPanel, style = stylePanel }
 
-    local tabBar = AlchemyGPS.UI.TabBar:New{
+    local tabBar = AzerothAtlas.UI.TabBar:New{
         parent = win.content,
-        name = "AlchemyGPSSettingsTabs",
+        name = "AzerothAtlasSettingsTabs",
         width = 364,
         anchor = { point = "TOPLEFT", x = 0, y = 0 },
         tabs = {
@@ -1072,7 +1078,7 @@ local function create()
     buildQuests(questsPanel)
     buildStyle(stylePanel)
 
-    AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(win, UIParent, { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 })
+    AzerothAtlas.UI.Mixins.Draggable.RestoreAnchor(win, UIParent, { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 })
 
     return win
 end
@@ -1101,13 +1107,13 @@ function SettingsWindow:Toggle()
     if self:IsShown() then self:Close() else self:Open() end
 end
 
-AlchemyGPS.Core.SlashCommands:Register("settings", function()
+AzerothAtlas.Core.SlashCommands:Register("settings", function()
     SettingsWindow:Toggle()
 end, "open the settings window")
 
 -- Quest options also change from outside this window (the tracker's
--- own close and Auto buttons, /gps quest ...); keep the Quests tab's
+-- own close and Auto buttons, /aatlas quest ...); keep the Quests tab's
 -- checkboxes honest when they do.
-AlchemyGPS.Core.EventBus:Subscribe("QUEST_OPTION_CHANGED", function()
+AzerothAtlas.Core.EventBus:Subscribe("QUEST_OPTION_CHANGED", function()
     if win then SettingsWindow:Refresh() end
 end)

@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Window
+-- Azeroth Atlas | UI / Window
 -- Ported from Carbonite/Modules/UI/UIEngine.lua's Nx.Window class
 -- (lines 1524-4171) - the REAL legacy window chrome behind
 -- Carbonite's undocked big map (free-drag resize from any edge/
@@ -8,7 +8,7 @@
 -- for that simplified chrome, used by the Settings window instead.
 --
 -- Per the build plan's porting technique: copied nearly byte-for-
--- byte, aliased via `local Nx = AlchemyGPS` so the `Nx.Whatever`/
+-- byte, aliased via `local Nx = AzerothAtlas` so the `Nx.Whatever`/
 -- `self:Whatever` references inside copied bodies work unmodified.
 -- The only changes from the real source are whole-function/whole-
 -- branch deletions (never a rewrite of kept logic):
@@ -63,11 +63,11 @@
 -- is provided as a fixed default by Map/MinimapWindow.lua's
 -- dbDefaults - see that file.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
-local L = AlchemyGPS:L()
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
+local L = AzerothAtlas:L()
 
-Nx.prt = Nx.prt or function(...) AlchemyGPS.Core.Logger:info(...) end
+Nx.prt = Nx.prt or function(...) AzerothAtlas.Core.Logger:info(...) end
 
 Nx.Window = Nx.Window or {}
 local Window = Nx.Window
@@ -124,17 +124,17 @@ function Window:Create(name, minResizeW, minResizeH, secure, titleLines, borderT
     -- Real source reads/writes this window's layout (position, size,
     -- lock state, fade) through Nx:GetData("Win")[name], a Carbonite
     -- character-data accessor this addon doesn't have. Backed by
-    -- AlchemyGPS.db.profile.WindowLayouts instead (an AceDB profile
+    -- AzerothAtlas.db.profile.WindowLayouts instead (an AceDB profile
     -- table, see Core/SavedVariables.lua's bind()) - confirmed live
     -- 2026-11-09 that drag/resize/lock already worked fine all along
     -- (OnMouseUp already calls RecordLayoutData, :1791-1808) but never
     -- persisted, because `wd` used to be a fresh empty table on every
     -- single Create() call, so `wd[name]` could never find anything
     -- saved by a previous session no matter what wrote into it.
-    AlchemyGPS.db = AlchemyGPS.db or {}
-    AlchemyGPS.db.profile = AlchemyGPS.db.profile or {}
-    AlchemyGPS.db.profile.WindowLayouts = AlchemyGPS.db.profile.WindowLayouts or {}
-    local wd = AlchemyGPS.db.profile.WindowLayouts
+    AzerothAtlas.db = AzerothAtlas.db or {}
+    AzerothAtlas.db.profile = AzerothAtlas.db.profile or {}
+    AzerothAtlas.db.profile.WindowLayouts = AzerothAtlas.db.profile.WindowLayouts or {}
+    local wd = AzerothAtlas.db.profile.WindowLayouts
     local svdata = name and wd[name]
 
     if not svdata then        -- No data for our name?
@@ -146,7 +146,7 @@ function Window:Create(name, minResizeW, minResizeH, secure, titleLines, borderT
         svdata["FO"] = self.CFadeOut or .75
 
         -- Link the new table back into `wd` so it's actually the same
-        -- table AlchemyGPS.db.profile.WindowLayouts[name] holds, not
+        -- table AzerothAtlas.db.profile.WindowLayouts[name] holds, not
         -- an orphan local - every later SetLayoutData/RecordLayoutData
         -- call below mutates this same table in place (never
         -- reassigns self.SaveData), so this one link-up is all that's
@@ -1457,7 +1457,7 @@ function Window:SetFrmStrata(layer)
     local svdata = self.SaveData
     svdata[self.LayoutMode.."L"] = layer
 
-    -- ForceStrata (AlchemyGPS addition, 2026-11-16): a window that must
+    -- ForceStrata (AzerothAtlas addition, 2026-11-16): a window that must
     -- always sit above other addons' frames (the map) pins its strata
     -- here instead of using the saved per-layout layer.
     self.Frm:SetFrameStrata(self.ForceStrata or self.StrataNames[layer] or "MEDIUM")

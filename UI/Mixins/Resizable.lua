@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Mixins / Resizable
+-- Azeroth Atlas | UI / Mixins / Resizable
 -- Adds bottom-right corner resizing to any Frame. Stores width/height
 -- in `dbSize` so the user's resize persists across reloads.
 --
@@ -7,10 +7,10 @@
 -- Settings window (fixed size), but Window.lua references this
 -- module unconditionally at file scope, so it's ported alongside it.
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local Resizable = {}
-AlchemyGPS.UI.Mixins = AlchemyGPS.UI.Mixins or {}
-AlchemyGPS.UI.Mixins.Resizable = Resizable
+AzerothAtlas.UI.Mixins = AzerothAtlas.UI.Mixins or {}
+AzerothAtlas.UI.Mixins.Resizable = Resizable
 
 function Resizable:EnableResizing(dbSize, minW, minH, maxW, maxH, onResizeStop)
     self.dbSize = dbSize

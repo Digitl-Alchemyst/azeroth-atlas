@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / ScrollScale
+-- Azeroth Atlas | Map / ScrollScale
 -- The scale-step calculator used by mouse-wheel zoom and
 -- ZoomController:ScrollSteps. Ported near-verbatim from
 -- Carbonite/Modules/Map/ScrollScale.lua - only the pure Compute
@@ -16,11 +16,11 @@
 -- much one scroll tick changes the scale. MIN_SCALE clamps to 0.015
 -- so we can't drop below "world view".
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 local ScrollScale = {}
-AlchemyGPS.Modules.Map.ScrollScale = ScrollScale
+AzerothAtlas.Modules.Map.ScrollScale = ScrollScale
 
 ScrollScale.MIN_SCALE        = 0.015
 ScrollScale.STEP             = 0.3

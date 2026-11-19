@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestTracker
+-- Azeroth Atlas | Quest / QuestTracker
 -- The on-screen quest list that stands in for Blizzard's own tracker
 -- (hidden by TrackerHider.lua). New UI on this addon's own small
 -- window chrome (UI/SmallWindow.lua) - not a port. Carbonite's
@@ -27,9 +27,9 @@
 -- plus a slow tick while visible so the distance column and nearest-
 -- first order keep up as the player moves.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local Tracker = {}
 Q.Tracker = Tracker
@@ -116,12 +116,19 @@ local function rowOnEnter(row)
     if q.header and q.header ~= "" then
         GameTooltip:AddLine(q.header, 0.7, 0.7, 0.7)
     end
+    local other = Q.Catalog and Q.Catalog:OtherClassQuest(q.questID)
+    if other then
+        GameTooltip:AddLine(("%s quest - shared with you; it may not be completable as your class"):format(other),
+            1, 0.4, 0.4, true)
+    end
     for _, o in ipairs(q.objectives) do
         if o.text ~= "" then
             if o.finished then
                 GameTooltip:AddLine(o.text, 0.5, 0.75, 0.5)
             else
                 GameTooltip:AddLine(o.text, 1, 1, 1)
+                local note = Q.Catalog and Q.Catalog:ObjectiveNote(q.questID, o.text)
+                if note then GameTooltip:AddLine("  " .. note.tip, 0.4, 0.8, 1, true) end
             end
         end
     end
@@ -346,8 +353,9 @@ function Tracker:Render()
                             used = used + 1
                             local orow = self:AcquireRow(used)
                             orow.kind, orow.questID, orow.restores, orow.zone = "objective", questID, nil, nil
+                            local tag = (not o.finished and Q.Catalog) and Q.Catalog:ObjectiveTag(questID, o.text) or ""
                             y = y + placeRow(orow, content, y, width, OBJECTIVE_INDENT,
-                                GameFontHighlightSmall, o.text, nil) + ROW_GAP
+                                GameFontHighlightSmall, o.text .. tag, nil) + ROW_GAP
                             if o.finished then
                                 orow.text:SetTextColor(0.5, 0.7, 0.5)
                             else
@@ -492,8 +500,8 @@ function Tracker:Create()
         anchor.point, anchor.relPoint, anchor.x, anchor.y = "RIGHT", "RIGHT", -30, 40
     end
 
-    local win = AlchemyGPS.UI.Window:Create{
-        name = "AlchemyGPSQuestTracker",
+    local win = AzerothAtlas.UI.Window:Create{
+        name = "AzerothAtlasQuestTracker",
         title = "Quests",
         width = 250,
         height = 300,
@@ -509,8 +517,8 @@ function Tracker:Create()
     }
     self.Win = win
 
-    AlchemyGPS.UI.Mixins.Resizable.RestoreSize(win)
-    AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
+    AzerothAtlas.UI.Mixins.Resizable.RestoreSize(win)
+    AzerothAtlas.UI.Mixins.Draggable.RestoreAnchor(win, UIParent)
 
     -- Title bar, right to left: close, Auto, List, roll up.
     self.AutoBut = titleButton(win, -26, 34, "Auto", "Auto-track",

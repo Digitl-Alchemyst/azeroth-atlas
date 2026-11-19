@@ -3,9 +3,9 @@
 -- Quest rows: header, Start/End giver strings, objective location lists.
 -- Carbonite and Carbonite.Quests are GPL-3.0; this file is a data port.
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.QuestData = AlchemyGPS.QuestData or {}
-local QuestData = AlchemyGPS.QuestData
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.QuestData = AzerothAtlas.QuestData or {}
+local QuestData = AzerothAtlas.QuestData
 QuestData.Chunks = QuestData.Chunks or {}
 QuestData.Chunks[#QuestData.Chunks + 1] = function()
 return {

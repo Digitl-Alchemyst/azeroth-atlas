@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / MinimapEngine
+-- Azeroth Atlas | Map / MinimapEngine
 -- Renders the undocked map window as a self-contained tile canvas
 -- (Blizzard's own continent/zone art, C_Map.GetMapArtLayerTextures) -
 -- this engine's own PlyrX/Y/Scale/pan state, our own drawn player
@@ -25,7 +25,7 @@
 -- the popup (confirmed live, same day) - round 9's later systematic
 -- isolation (CHANGELOG.md) ruled out every mechanism in this addon
 -- individually without ever finding the real cause, and the popup
--- still occurs today (now blaming AlchemyGPS itself instead of
+-- still occurs today (now blaming AzerothAtlas itself instead of
 -- GatherMate2, once GatherMate2 was disabled - see CHANGELOG.md). What
 -- this removal DID actually, confirmably fix: the "Hide Blizzard
 -- minimap" checkbox not persisting its state across reload (Open()/
@@ -44,21 +44,21 @@
 -- rejected to keep this diff reviewable; a future cleanup pass can
 -- rename it along with MinimapWindow.lua's own call site.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 -- Build-order step 8: Map\Data\NxMapData.lua (Carbonite's real
--- Camelot-flavor zone/continent database) assigns onto `AlchemyGPS.Map`
+-- Camelot-flavor zone/continent database) assigns onto `AzerothAtlas.Map`
 -- (its own `local Map = Nx.Map` alias) - whichever of the two files
 -- loads first (see Map.xml), inherit/share that same table instead of
 -- creating a fresh one, so NxMapData.lua's MapInfo/MapWorldInfo/
 -- MapZones/ContCnt/ContBlks fields and this file's own methods end up
 -- on one table, exactly mirroring how real Carbonite's `Nx.Map` is
 -- simultaneously the map class AND the static data holder.
-local MinimapEngine = AlchemyGPS.Map or {}
-AlchemyGPS.Map = MinimapEngine
-AlchemyGPS.Modules.Map.MinimapEngine = MinimapEngine
+local MinimapEngine = AzerothAtlas.Map or {}
+AzerothAtlas.Map = MinimapEngine
+AzerothAtlas.Modules.Map.MinimapEngine = MinimapEngine
 
 local MINIMAP_STRATA_RANK = {
     WORLD = 0,
@@ -109,38 +109,38 @@ function MinimapEngine:TakeOwnership(win, contentFrm)
     -- brightness chosen via the map's right-click menu
     -- (MapContextMenu.lua) survives /reload without needing the menu
     -- reopened first.
-    self.BackgndAlpha = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.BackgndBrightness) or 1
+    self.BackgndAlpha = (AzerothAtlas.db and AzerothAtlas.db.profile
+        and AzerothAtlas.db.profile.BackgndBrightness) or 1
 
     -- Same pattern as BackgndAlpha just above, for the gathering-node
     -- icons' own opacity and size sliders (MapContextMenu.lua, build-
     -- order steps 9g/9h) - seeded here so a value chosen via the
     -- right-click menu survives /reload without needing the menu
     -- reopened first.
-    self.GatherOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.GatherIconOpacity) or 1
-    self.GatherIconScale = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.GatherIconScale) or 1
+    self.GatherOpacity = (AzerothAtlas.db and AzerothAtlas.db.profile
+        and AzerothAtlas.db.profile.GatherIconOpacity) or 1
+    self.GatherIconScale = (AzerothAtlas.db and AzerothAtlas.db.profile
+        and AzerothAtlas.db.profile.GatherIconScale) or 1
     -- Literal fallback (not the DEFAULT_GATHER_BACKDROP_OPACITY named
     -- constant below) - same reason BackgndAlpha/GatherOpacity/
     -- GatherIconScale just above use literals too: this runs before
     -- that constant's own `local` declaration further down the file
     -- is in scope.
-    self.GatherBackdropOpacity = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.GatherBackdropOpacity) or 0.7
+    self.GatherBackdropOpacity = (AzerothAtlas.db and AzerothAtlas.db.profile
+        and AzerothAtlas.db.profile.GatherBackdropOpacity) or 0.7
 
     -- Same pattern again, for the Terrain Texture layer's own
     -- brightness slider (MapContextMenu.lua, build-order step 19
     -- follow-up) - independent of BackgndAlpha above (that one is Art
     -- Map's own), seeded here so a value chosen via the right-click
     -- menu survives /reload.
-    self.TerrainBrightness = (AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.TerrainBrightness) or 1
+    self.TerrainBrightness = (AzerothAtlas.db and AzerothAtlas.db.profile
+        and AzerothAtlas.db.profile.TerrainBrightness) or 1
 
     -- 2026-11-18 (user request, from Carbonite): the rest of the per-
     -- layer sliders (city / dungeon maps, unexplored areas, map icons,
     -- quest icons, quest areas) - one list, MapContextMenu.SLIDERS.
-    local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+    local MapContextMenu = AzerothAtlas.Modules.Map.MapContextMenu
     if MapContextMenu and MapContextMenu.ApplyAll then MapContextMenu.ApplyAll() end
 
     -- 2026-11-16: layer on/off switches now live in Settings > Map and
@@ -375,7 +375,7 @@ end
 -- Blizzard's own native Minimap draws survives in isolation (confirmed
 -- earlier this session), so anything found with other addons enabled
 -- is third-party.
--- Build-order step 17, sixth follow-up, same day: /gps mmpassengers
+-- Build-order step 17, sixth follow-up, same day: /aatlas mmpassengers
 -- found one specific passenger that was STILL shown despite being a
 -- key in `hidden` (so we HAD hidden it) - it re-shows itself faster
 -- than the 0.5s re-scan throttle in UpdateLiveBlips can catch (some
@@ -459,7 +459,7 @@ function MinimapEngine:ShowLiveBlips()
     -- has it shown. Force it hidden for the duration (same as the
     -- archived Mode:Live did), restoring whatever it was in
     -- HideLiveBlips below.
-    local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
+    local NativeMinimapHide = AzerothAtlas.Modules.Map.NativeMinimapHide
     if NativeMinimapHide then
         if self.MMPrevNativeHidden == nil then
             self.MMPrevNativeHidden = NativeMinimapHide:IsNativeHidden()
@@ -556,7 +556,7 @@ function MinimapEngine:HideLiveBlips()
                 mm:SetZoom(zoom)
             end)
             if not ok then
-                AlchemyGPS.Core.Logger:warn("release zoom-kick failed: %s", tostring(err))
+                AzerothAtlas.Core.Logger:warn("release zoom-kick failed: %s", tostring(err))
             end
         end
 
@@ -571,7 +571,7 @@ function MinimapEngine:HideLiveBlips()
     end
     self.MMArrowName = nil
 
-    local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
+    local NativeMinimapHide = AzerothAtlas.Modules.Map.NativeMinimapHide
     if NativeMinimapHide and self.MMPrevNativeHidden ~= nil then
         NativeMinimapHide:SetNativeHidden(self.MMPrevNativeHidden)
         self.MMPrevNativeHidden = nil
@@ -711,7 +711,7 @@ end
 -- Blizzard's native minimap source texture is square internally and
 -- normally cropped to a circle, and a fully-uncropped mask revealed
 -- whatever's baked into the corners outside that circle, never meant
--- to be seen (confirmed via /gps mmpassengers coming back with zero
+-- to be seen (confirmed via /aatlas mmpassengers coming back with zero
 -- Lua-visible passengers while the artifact was still there - not a
 -- Lua object, native rendering). ShowLiveBlips's own initial
 -- SetMaskTexture("...TempPortraitAlphaMask") is what actually crops
@@ -734,7 +734,7 @@ function MinimapEngine:MinimapUpdateMask()
         if type(self.MMFrm.SetPlayerTexture) == "function" then
             local ok, err = pcall(self.MMFrm.SetPlayerTexture, self.MMFrm, arrow)
             if not ok then
-                AlchemyGPS.Core.Logger:warn("SetPlayerTexture blank failed: %s", tostring(err))
+                AzerothAtlas.Core.Logger:warn("SetPlayerTexture blank failed: %s", tostring(err))
             end
         end
     end
@@ -1187,7 +1187,7 @@ function MinimapEngine:UpdateLiveBlips()
                 mm:SetZoom(zoom)
             end)
             if not ok then
-                AlchemyGPS.Core.Logger:warn("zoom-kick failed: %s", tostring(err))
+                AzerothAtlas.Core.Logger:warn("zoom-kick failed: %s", tostring(err))
             end
         end
         self:UpdateLiveBlipRadar(true)
@@ -1547,7 +1547,7 @@ local SERVICE_LEVEL_OFFSET = 6
 local PLAYER_LEVEL_OFFSET = 30
 MinimapEngine.SERVICE_LEVEL_OFFSET = SERVICE_LEVEL_OFFSET
 
--- `/gps hideart` / `/gps hideterrain` - toggle self.DebugHideArt/
+-- `/aatlas hideart` / `/aatlas hideterrain` - toggle self.DebugHideArt/
 -- self.DebugHideTerrain (read in Update()'s zoom-gate block further
 -- down this file), letting a live tester force-isolate one of these
 -- two layers at a time to characterize an artifact without the other
@@ -1558,7 +1558,7 @@ MinimapEngine.SERVICE_LEVEL_OFFSET = SERVICE_LEVEL_OFFSET
 -- has two title-bar checkboxes (TerrainCB/ArtMapCB) backed by these
 -- exact same two fields, for live testers who'd rather click than
 -- type. Keep both in sync here, same pattern as MinimapWindow.lua's
--- own `/gps minimap hide|show` refreshing the Settings window's
+-- own `/aatlas minimap hide|show` refreshing the Settings window's
 -- checkbox - the window may not be open (self.Win nil) or the
 -- checkbox may not exist yet (created in Open(), not at module
 -- enable), so both are nil-guarded rather than assumed present.
@@ -1571,16 +1571,16 @@ local function syncLayerCheckbox(_, debugHideField)
     if key then
         MinimapEngine:SetLayerShown(key, not MinimapEngine[debugHideField])
     end
-    local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+    local SettingsWindow = AzerothAtlas.Modules.Settings and AzerothAtlas.Modules.Settings.SettingsWindow
     if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
 end
 
-AlchemyGPS.Core.SlashCommands:Register("hideart", function()
-    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+AzerothAtlas.Core.SlashCommands:Register("hideart", function()
+    local Logger = AzerothAtlas.Core.Logger:Get("Map")
     MinimapEngine.DebugHideArt = not MinimapEngine.DebugHideArt
     Logger:info("hideart: Art Map layer is now %s",
         MinimapEngine.DebugHideArt and "FORCED HIDDEN" or "normal")
-    local win = AlchemyGPS.Modules.Map.MinimapWindow
+    local win = AzerothAtlas.Modules.Map.MinimapWindow
     syncLayerCheckbox(win and win.ArtMapCB, "DebugHideArt")
 end, "toggle forcing the Art Map (zone revealed overlay art) layer hidden - map-layering diagnostic")
 
@@ -1589,21 +1589,21 @@ end, "toggle forcing the Art Map (zone revealed overlay art) layer hidden - map-
 -- ("move the continent to its own layer call it base give it a toggle
 -- box too") - see MoveCurZoneTiles' own header comment for how the two
 -- flags now apply independently to their own half of that function.
-AlchemyGPS.Core.SlashCommands:Register("hidebase", function()
-    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+AzerothAtlas.Core.SlashCommands:Register("hidebase", function()
+    local Logger = AzerothAtlas.Core.Logger:Get("Map")
     MinimapEngine.DebugHideBase = not MinimapEngine.DebugHideBase
     Logger:info("hidebase: Base (continent backdrop) layer is now %s",
         MinimapEngine.DebugHideBase and "FORCED HIDDEN" or "normal")
-    local win = AlchemyGPS.Modules.Map.MinimapWindow
+    local win = AzerothAtlas.Modules.Map.MinimapWindow
     syncLayerCheckbox(win and win.BaseCB, "DebugHideBase")
 end, "toggle forcing the Base (continent backdrop) layer hidden - map-layering diagnostic")
 
-AlchemyGPS.Core.SlashCommands:Register("hideterrain", function()
-    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+AzerothAtlas.Core.SlashCommands:Register("hideterrain", function()
+    local Logger = AzerothAtlas.Core.Logger:Get("Map")
     MinimapEngine.DebugHideTerrain = not MinimapEngine.DebugHideTerrain
     Logger:info("hideterrain: Terrain Texture layer is now %s",
         MinimapEngine.DebugHideTerrain and "FORCED HIDDEN" or "normal")
-    local win = AlchemyGPS.Modules.Map.MinimapWindow
+    local win = AzerothAtlas.Modules.Map.MinimapWindow
     syncLayerCheckbox(win and win.TerrainCB, "DebugHideTerrain")
 end, "toggle forcing the Terrain Texture (close-zoom detail tile) layer hidden - map-layering diagnostic")
 
@@ -1615,7 +1615,7 @@ end, "toggle forcing the Terrain Texture (close-zoom detail tile) layer hidden -
 -- BEFORE it ever reaches that logic - GetCachedLayerInfo in
 -- particular depends on the same modern C_Map.GetMapArtLayers API
 -- build-order step 20 already found unreliable enough to avoid for
--- continent root art. `/gps dbgoverlay` prints (throttled to once per
+-- continent root art. `/aatlas dbgoverlay` prints (throttled to once per
 -- ~3s per mapId, so it stays readable) exactly which early-return (if
 -- any) UpdateOverlay is hitting for the current/recently-drawn zones.
 -- Meant to be removed once the real cause is confirmed and fixed -
@@ -1626,12 +1626,12 @@ local function DebugOverlayLog(mapId, fmt, ...)
     local now = GetTime()
     if (DebugOverlayLastLog[mapId] or 0) + 3 > now then return end
     DebugOverlayLastLog[mapId] = now
-    AlchemyGPS.Core.Logger:Get("Map"):info("dbgoverlay[%s]: " .. fmt, mapId, ...)
+    AzerothAtlas.Core.Logger:Get("Map"):info("dbgoverlay[%s]: " .. fmt, mapId, ...)
 end
 
-AlchemyGPS.Core.SlashCommands:Register("dbgoverlay", function()
+AzerothAtlas.Core.SlashCommands:Register("dbgoverlay", function()
     MinimapEngine.DebugOverlay = not MinimapEngine.DebugOverlay
-    AlchemyGPS.Core.Logger:Get("Map"):info("dbgoverlay: %s",
+    AzerothAtlas.Core.Logger:Get("Map"):info("dbgoverlay: %s",
         MinimapEngine.DebugOverlay and "ON (throttled ~3s/zone)" or "off")
 end, "toggle temporary diagnostic logging for UpdateOverlay's early-return points - build-order step 21 bug hunt")
 
@@ -1924,7 +1924,7 @@ end
 -- 2026-11-16: persisted layer switches (Settings > Map). The engine
 -- still reads its long-standing DebugHide* fields every tick; these
 -- functions just load them from / save them to
--- AlchemyGPS.db.profile.MapLayers. Missing key = shown, same
+-- AzerothAtlas.db.profile.MapLayers. Missing key = shown, same
 -- "absent means on" convention as MapFilters.
 ---------------------------------------------------------------------------------------
 
@@ -1937,23 +1937,23 @@ local LAYER_FIELDS = {
 }
 
 function MinimapEngine:LoadLayerSettings()
-    local layers = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapLayers or {}
+    local layers = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.MapLayers or {}
     for key, field in pairs(LAYER_FIELDS) do
         self[field] = layers[key] == false
     end
 end
 
 function MinimapEngine:IsLayerShown(key)
-    local layers = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapLayers
+    local layers = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.MapLayers
     return not layers or layers[key] ~= false
 end
 
 function MinimapEngine:SetLayerShown(key, on)
     local field = LAYER_FIELDS[key]
     if not field then return end
-    if AlchemyGPS.db and AlchemyGPS.db.profile then
-        AlchemyGPS.db.profile.MapLayers = AlchemyGPS.db.profile.MapLayers or {}
-        AlchemyGPS.db.profile.MapLayers[key] = on and true or false
+    if AzerothAtlas.db and AzerothAtlas.db.profile then
+        AzerothAtlas.db.profile.MapLayers = AzerothAtlas.db.profile.MapLayers or {}
+        AzerothAtlas.db.profile.MapLayers[key] = on and true or false
     end
     self[field] = not on
 end
@@ -2145,7 +2145,7 @@ end
 -- through C_Map (2026-11-16, Wailing Caverns), but the files are there -
 -- Forever Dungeon Journal draws from the same paths.
 local function legacyTiles(mapId)
-    local Map = AlchemyGPS.Map
+    local Map = AzerothAtlas.Map
     if not Map or not Map.GetLegacyMapInfo then return nil end
     local ok, _, floorNum, mapFile = pcall(Map.GetLegacyMapInfo, Map, mapId)
     if not ok or type(mapFile) ~= "string" then return nil end
@@ -2299,8 +2299,8 @@ function MinimapEngine:BuildDungeonFloors(instanceID, playerMap)
         end
         return custom
     end
-    if not floors and instanceID and (spec or (AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
-            and AlchemyGPS.QuestData.Instances[instanceID])) then
+    if not floors and instanceID and (spec or (AzerothAtlas.QuestData and AzerothAtlas.QuestData.Instances
+            and AzerothAtlas.QuestData.Instances[instanceID])) then
         floors = { { mapId = CUSTOM_FLOOR_BASE + instanceID * 10 + 1, blank = true,
             name = select(1, GetInstanceInfo()), posMap = dungeonMap } }
     end
@@ -2316,12 +2316,13 @@ function MinimapEngine:ResolveDungeonMap(rawMap)
     local browsing = self.BrowseInstance
     if browsing then inInstance, instType, instanceID = true, "party", browsing end
     local known = instanceID and (CUSTOM_ART[instanceID]
-        or (AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
-            and AlchemyGPS.QuestData.Instances[instanceID]))
+        or (AzerothAtlas.QuestData and AzerothAtlas.QuestData.Instances
+            and AzerothAtlas.QuestData.Instances[instanceID]))
     if not known and (not inInstance or (instType ~= "party" and instType ~= "raid")) then
         if self.DungeonFloors or self.DungeonKey then
             self.DungeonFloors, self.DungeonKey, self.DungeonInstance = nil, nil, nil
             self.ViewFloor, self.PlayerFloor, self.RoomFloorKnown = nil, nil, nil
+            self.MapFloorKnown = nil
         end
         return nil
     end
@@ -2353,20 +2354,28 @@ function MinimapEngine:ResolveDungeonMap(rawMap)
                 self.PlayerFloor = i
             end
         end
+        -- 2026-11-19: whether the game's map told us the level. A Forever
+        -- dungeon drawn from FDJ's pictures (The Drowned City: the city
+        -- and Atal'Byzal) can have a game map that matches none of its
+        -- levels; the room then has to say (user: "auto detect when we
+        -- enter and exit ... the boss room for Primeval Elemental").
+        self.MapFloorKnown = self.PlayerFloor ~= nil
         -- A new dungeon, or the player changed floor: show where they are.
         if oldInstance ~= instanceID or oldFloor ~= self.PlayerFloor then
             self.ViewFloor = nil
         end
     end
-    -- No map from the game: the room it names tells the level
-    -- (DungeonRooms.lua). Kept while between named rooms.
-    local roomLevel = not playerMap and not browsing and self.GetRoomLevel and self:GetRoomLevel(self.DungeonFloors)
+    -- No map from the game, or one that isn't any of the levels: the
+    -- room it names tells the level (DungeonRooms.lua). Kept while
+    -- between named rooms.
+    local useRoom = not browsing and not (playerMap and self.MapFloorKnown)
+    local roomLevel = useRoom and self.GetRoomLevel and self:GetRoomLevel(self.DungeonFloors)
     if roomLevel then
         self.RoomFloorKnown = true
         if roomLevel ~= self.PlayerFloor then
             self.PlayerFloor, self.ViewFloor = roomLevel, nil
         end
-    elseif playerMap then
+    elseif playerMap and self.MapFloorKnown then
         self.RoomFloorKnown = nil
     end
     local floors = self.DungeonFloors
@@ -2403,7 +2412,7 @@ function MinimapEngine:SetViewFloor(i)
     self.ViewFloor = i
     local mapId = self:GetViewMapId()
     local _, x, y, zw, zh = self:GetWorldZoneInfo(DUNGEON_CONT, mapId)
-    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    local ZoomController = AzerothAtlas.Modules.Map.ZoomController
     if ZoomController and x and zw > 0 and self.MapW and self.MapH then
         if i or self.PlyrPosUnknown then
             ZoomController:Move(x + zw / 2, y + zh / 2, min(self.MapW / zw, self.MapH / zh) * .9, 10)
@@ -2625,7 +2634,7 @@ function MinimapEngine:UpdateTitle()
         win:SetTitle(title)
     end
 
-    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
     local speedText = MinimapWindow and MinimapWindow.SpeedText
     if speedText then
         local text = "Speed: stopped"
@@ -2664,7 +2673,7 @@ function MinimapEngine:GetAutoScaleTarget()
     if self.CorpseWX and self.CorpseCont == self.Cont then
         return self.CorpseWX, self.CorpseWY
     end
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local t = Quest and Quest.Routing and Quest.Routing.Target
     if t and t.x and t.cont == self.Cont and not t.inside
         and not (Quest.Core and Quest.Core:Opt("RouteTrail") == false) then
@@ -2676,8 +2685,8 @@ end
 local AUTOSCALE_MIN_DISTANCE = .1
 
 function MinimapEngine:AutoScaleTarget()
-    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
-    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    local ZoomController = AzerothAtlas.Modules.Map.ZoomController
+    local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
     if not ZoomController or not MinimapWindow then return false end
     local opts = MinimapWindow:DB().profile
 
@@ -3474,8 +3483,8 @@ function MinimapEngine:HideAreaLabels()
 end
 
 function MinimapEngine:UpdateAreaLabels()
-    local labels = AlchemyGPS.Map.AreaLabels
-    local show = AlchemyGPS.db and AlchemyGPS.db.profile.ShowAreaNames ~= false
+    local labels = AzerothAtlas.Map.AreaLabels
+    local show = AzerothAtlas.db and AzerothAtlas.db.profile.ShowAreaNames ~= false
     if not show or not labels or not self.Frm or not self.Cont or self.Cont == DUNGEON_CONT
             or not self.MapW or not self.ScaleDraw or not self.MapPosXDraw then
         if self.AreaLabelKey ~= false then
@@ -3578,12 +3587,12 @@ end
 -- (TrailSeconds, 90).
 ---------------------------------------------------------------------------------------
 
-local TRAIL_TEX = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconCircleFade"
+local TRAIL_TEX = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\IconCircleFade"
 
 local TRAIL_YARDS_PER_UNIT = 4.575    -- YARDS_PER_WORLDUNIT, declared further down
 
 local function trailOpt(key, default)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     local v = db and db.profile[key]
     if v == nil then return default end
     return v
@@ -3720,8 +3729,8 @@ function MinimapEngine:ClipFrameW(frm, bx, by, w, h, dir)
     -- (UI/StyleOptions.lua ApplyIconSpec marks it): a sheet crop is
     -- clipped within its crop; an atlas keeps its own coordinates.
     local tex = frm.texture
-    local tc = tex.agpsTC
-    if tex.agpsAtlas then
+    local tc = tex.azaTC
+    if tex.azaAtlas then
         -- left as the atlas set it
     elseif tc then
         local cw, ch = tc[2] - tc[1], tc[4] - tc[3]
@@ -3769,7 +3778,7 @@ function MinimapEngine:UpdatePlayerMarker()
     -- to this guard itself. ApplyStyleChange("PlayerMarker") handles
     -- forcing a live-picked change onto this same frame.texture.
     if not frm.texture:GetTexture() then
-        AlchemyGPS.UI.StyleOptions:ApplyIcon(frm.texture, "PlayerMarker")
+        AzerothAtlas.UI.StyleOptions:ApplyIcon(frm.texture, "PlayerMarker")
     end
     -- 2026-11-16: inside a dungeon whose map doesn't report the
     -- player's position there is nothing honest to draw.
@@ -3779,7 +3788,7 @@ function MinimapEngine:UpdatePlayerMarker()
     end
     -- 2026-11-16: always on top (user request) - overlay strata plus
     -- its own level, above every icon, trail and the radar patch.
-    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
     local overlay = MinimapWindow and MinimapWindow.OVERLAY_STRATA or "FULLSCREEN"
     if frm:GetFrameStrata() ~= overlay then frm:SetFrameStrata(overlay) end
     frm:SetFrameLevel((self.Frm:GetFrameLevel() or 1) + PLAYER_LEVEL_OFFSET)
@@ -3826,9 +3835,9 @@ end
 local function IsMapFilterOn(key)
     -- 2026-11-18: FilterMenu knows which rows start off ("Other
     -- faction's travel"); ask it when it's loaded.
-    local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+    local FilterMenu = AzerothAtlas.Modules.Map.FilterMenu
     if FilterMenu and FilterMenu.IsFilterOn then return FilterMenu.IsFilterOn(key) end
-    local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
+    local filters = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.MapFilters
     return not filters or filters[key] ~= false
 end
 
@@ -3907,12 +3916,12 @@ local SERVICE_ICON_TEX = {
     -- 2026-11-16: boats and zeppelins, split out of ZoneTransition
     -- (GuideZoneTransition.lua) with icons of their own, drawn for this
     -- addon by Tools/make_transport_icons.py.
-    Boat            = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconBoat",
-    Zeppelin        = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconZeppelin",
+    Boat            = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\IconBoat",
+    Zeppelin        = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\IconZeppelin",
     -- 2026-11-18: portals and trams, split out of ZoneTransition the
     -- same way, drawn by the same tool.
-    Portal          = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconPortal",
-    Tram            = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\IconTram",
+    Portal          = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\IconPortal",
+    Tram            = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\IconTram",
     -- 2026-11-18 (user request, from Carbonite): trainers, data from
     -- Carbonite's camelot guides (Map/Data/GuideTrainer.lua). The game's
     -- own "find trainers" tracking icons, same family as Innkeeper.
@@ -3973,7 +3982,7 @@ local SERVICE_ICON_LABEL = {
 ---------------------------------------------------------------------------------------
 
 local function BigMapShown()
-    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    local BigMap = AzerothAtlas.Modules.Map.BigMap
     return BigMap and BigMap.IsBig and BigMap:IsBig() or false
 end
 
@@ -4023,7 +4032,7 @@ local function ServiceFrameOnClick(frm)
             GameTooltip:Hide()
             E:BrowseTo("dungeon", found[1].id, found[1].name)
         elseif #found > 1 then
-            local BigMap = AlchemyGPS.Modules.Map.BigMap
+            local BigMap = AzerothAtlas.Modules.Map.BigMap
             local items = {}
             for _, d in ipairs(found) do
                 items[#items + 1] = { d.name, function() E:BrowseTo("dungeon", d.id, d.name) end }
@@ -4153,7 +4162,7 @@ function MinimapEngine:RefreshServiceIcons()
     self.SvcPts = pts
     if not self.MapId then return end
 
-    local StyleOptions = AlchemyGPS.UI.StyleOptions
+    local StyleOptions = AzerothAtlas.UI.StyleOptions
     for kind, tex in pairs(SERVICE_ICON_TEX) do
         -- FilterMenu.lua's "Innkeepers"/"Mailboxes" rows - kind here
         -- is literally "Mailbox"/"Innkeeper", the same keys those rows
@@ -4247,7 +4256,7 @@ function MinimapEngine:RefreshServiceIcons()
                             -- Tools/gen_zone_arrow_angles.py). Only the arrow
                             -- style turns - the map-scroll icon stays upright.
                             if kind == "ZoneTransition" and iconSpec.atlas == "Garr_LevelUpgradeArrow" then
-                                local angles = AlchemyGPS.Map.ZoneArrowAngles
+                                local angles = AzerothAtlas.Map.ZoneArrowAngles
                                 pt.rot = angles and angles[zoneId .. ":" .. x .. ":" .. y]
                             end
                             pts[#pts + 1] = pt
@@ -4407,7 +4416,7 @@ function MinimapEngine:UpdateServiceIcons()
         end
     end
 
-    local StyleOptions = AlchemyGPS.UI.StyleOptions
+    local StyleOptions = AzerothAtlas.UI.StyleOptions
     local level = (self.Frm:GetFrameLevel() or 1) + SERVICE_LEVEL_OFFSET
     for i, pt in ipairs(pts) do
         local frm = self.SvcFrms[i]
@@ -4480,7 +4489,7 @@ end
 
 local function QuestFrameOnEnter(frm)
     local pt = frm.questPt
-    local QuestPins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    local QuestPins = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Pins
     if pt and pt.label and QuestPins then
         QuestPins:ShowTooltip(frm, pt)
     end
@@ -4492,7 +4501,7 @@ end
 
 local function QuestFrameOnMouseUp(frm, button)
     local pt = frm.questPt
-    local QuestPins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    local QuestPins = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Pins
     if button == "LeftButton" and pt and QuestPins then
         QuestPins:OnClick(pt)
     elseif button == "RightButton" and pt and QuestPins and QuestPins.OnRightClick then
@@ -4528,13 +4537,13 @@ function MinimapEngine:RefreshQuestIcons()
     local mapId = self.MapId
     if not mapId then return end
 
-    local QuestPins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    local QuestPins = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Pins
     if QuestPins and QuestPins.Collect then
         local ok, err = pcall(QuestPins.Collect, QuestPins, self, pts)
         if not ok and self.QuestPinError ~= err then
             -- Report a failure once, not on every refresh tick.
             self.QuestPinError = err
-            AlchemyGPS.Core.Logger:Get("Map"):error("quest pins failed: %s", tostring(err))
+            AzerothAtlas.Core.Logger:Get("Map"):error("quest pins failed: %s", tostring(err))
         end
         return
     end
@@ -4547,7 +4556,7 @@ function MinimapEngine:RefreshQuestIcons()
     local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, mapId)
     if not ok or type(quests) ~= "table" then return end
 
-    local iconSpec = AlchemyGPS.UI.StyleOptions:GetOption("QuestIcon")
+    local iconSpec = AzerothAtlas.UI.StyleOptions:GetOption("QuestIcon")
     for _, info in ipairs(quests) do
         local questID = info and info.questID
         if questID and type(info.x) == "number" and type(info.y) == "number" then
@@ -4587,7 +4596,7 @@ function MinimapEngine:UpdateQuestIcons()
     for i, pt in ipairs(pts) do
         local frm = self.QuestFrms[i]
         if frm.svcIconSpec ~= pt.iconSpec then
-            AlchemyGPS.UI.StyleOptions:ApplyIconSpec(frm.texture, pt.iconSpec)
+            AzerothAtlas.UI.StyleOptions:ApplyIconSpec(frm.texture, pt.iconSpec)
             frm.svcIconSpec = pt.iconSpec
         end
         frm.questPt = pt
@@ -4643,7 +4652,7 @@ end
 -- created - see each one's own call site comment) so already-existing
 -- frames need to be force-updated directly here instead.
 function MinimapEngine:ApplyStyleChange(key)
-    local StyleOptions = AlchemyGPS.UI.StyleOptions
+    local StyleOptions = AzerothAtlas.UI.StyleOptions
 
     if key == "TrailArrow" then
         local spec = StyleOptions:GetOption("TrailArrow")
@@ -4680,7 +4689,7 @@ function MinimapEngine:ApplyStyleChange(key)
     elseif key == "HUDArrow" then
         -- Not a map icon at all - the Quest module's floating arrow -
         -- but StyleOptions:SetChoice has this one notification hook.
-        local HUD = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.HUD
+        local HUD = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.HUD
         if HUD then HUD:ApplyStyle() end
     elseif key == "DungeonEntrance" or key == "ZoneTransition"
         or key == "FlightMaster" or key == "SpiritHealer" then
@@ -4707,7 +4716,7 @@ end
 -- was the cause - which did NOT resolve it. Further isolating tests
 -- (stubbing this feature's own GatherMate2 calls entirely; stubbing
 -- NativeMinimapHide; stubbing MinimapDock) each failed to make the
--- popup go away either, while disabling AlchemyGPS entirely did -
+-- popup go away either, while disabling AzerothAtlas entirely did -
 -- meaning something about this addon's mere presence in the addon list
 -- triggers a pre-existing GatherMate2 bug on this server build, not
 -- anything traced to a specific line of our own code. Rather than keep
@@ -4721,7 +4730,7 @@ end
 -- confirmed via its own .toc, `## Interface: 16001`, tailored
 -- specifically to this server) for Herb/Mining/Treasure, ported
 -- verbatim into Map/Data/Gather{Herb,Mining,Treasure}.lua with just
--- the global table renamed (AlchemyGPS* instead of GatherMateData2*,
+-- the global table renamed (AzerothAtlas* instead of GatherMateData2*,
 -- so it can never collide with GatherMate2's own identically-shaped
 -- globals if that addon is also loaded). The Forever pack's own
 -- FishData.lua is empty, so Map/Data/GatherFish.lua instead ports
@@ -4820,7 +4829,7 @@ local GATHER_ICON_TEX = {
 -- Build-order step 9f: per-species name/icon/required-skill-level
 -- data (Map/Data/GatherNodeInfo.lua) - see that file's own header for
 -- sourcing/scope. [dbType][nodeID] = { name=, level=(Herb/Mine only), tex= }.
-local GATHER_NODE_INFO = _G.AlchemyGPSGatherNodeInfo
+local GATHER_NODE_INFO = _G.AzerothAtlasGatherNodeInfo
 
 -- Standard WoW profession-difficulty coloring (orange = at/near the
 -- skill floor, best skill-up odds; yellow/green = easier as current
@@ -4900,10 +4909,10 @@ end
 -- (see this section's header) - nodeID now also feeds the per-species
 -- icon/name/level lookup above.
 local GATHER_DB = {
-    Herb     = _G.AlchemyGPSHerbDB,
-    Mine     = _G.AlchemyGPSMineDB,
-    Fish     = _G.AlchemyGPSFishDB,
-    Treasure = _G.AlchemyGPSTreasureDB,
+    Herb     = _G.AzerothAtlasHerbDB,
+    Mine     = _G.AzerothAtlasMineDB,
+    Fish     = _G.AzerothAtlasFishDB,
+    Treasure = _G.AzerothAtlasTreasureDB,
 }
 
 -- Inlined from GatherMate2's own GatherMate:DecodeLoc (GatherMate2.lua
@@ -4978,7 +4987,7 @@ local GATHER_DEDUPE_RANGE_SQ = (GATHER_DEDUPE_YARDS / 4.575) ^ 2
 local function CollectGatherZoneNodes(engine, mapId, dbType, pts)
     -- 2026-11-18: data imported from GatherMate2_Data replaces the
     -- shipped tables (Map/GatherRecorder.lua's Import).
-    local Recorder = AlchemyGPS.Modules.Map.GatherRecorder
+    local Recorder = AzerothAtlas.Modules.Map.GatherRecorder
     local db = (Recorder and Recorder:Imported(dbType)) or GATHER_DB[dbType]
     local zoneNodes = db and db[mapId]
     -- 2026-11-18: and the nodes you've gathered yourself
@@ -5088,7 +5097,7 @@ function MinimapEngine:UpdateGatherIcons()
             -- Backdrop halo, a real frame (not a plain SetColorTexture
             -- square) so it can use BackdropTemplate's edge art for
             -- corner rounding. Uses the exact same backdrop recipe as
-            -- the real map window's own chrome (AlchemyGPS.Skin:
+            -- the real map window's own chrome (AzerothAtlas.Skin:
             -- GetBackdrop(), UI/Skin.lua/UI/Window.lua:CreateBorders) -
             -- user asked for the rounding to match the map module's
             -- own corners, and reading the live table (not a hardcoded
@@ -5130,7 +5139,7 @@ function MinimapEngine:UpdateGatherIcons()
     local size = GATHER_ICON_SIZE * (self.GatherIconScale or 1)
     -- Node glow (Settings > Map > Gathered nodes): one pulse value for
     -- every node this tick, GatherGlowSpeed pulses a second.
-    local prof = AlchemyGPS.db and AlchemyGPS.db.profile
+    local prof = AzerothAtlas.db and AzerothAtlas.db.profile
     -- 2026-11-18: switched off (user: "ALL the gathering nodes are
     -- glowing it should only be the ones that are active"). The data
     -- only says where a node CAN spawn, not whether one is up now, so
@@ -5212,7 +5221,7 @@ end
 -- files - if that path shows up here with a small, stable count, it's
 -- the real signal; this command exists to find out, not to assume it.
 --
--- `/gps scanblips` - read-only, chat-only, no map/rendering changes.
+-- `/aatlas scanblips` - read-only, chat-only, no map/rendering changes.
 -- Dumps every distinct texture/atlas path currently on the real
 -- Minimap, grouped with a count, loudest first. Ask the user to run it
 -- once while standing right on a visibly-active node and once well
@@ -5254,8 +5263,8 @@ end
 -- type) alongside the grouped-by-texture list below, so the NEXT run
 -- confirms or rules this out in one pass instead of another blind
 -- round-trip.
-AlchemyGPS.Core.SlashCommands:Register("scanblips", function()
-    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+AzerothAtlas.Core.SlashCommands:Register("scanblips", function()
+    local Logger = AzerothAtlas.Core.Logger:Get("Map")
     local numRegions = select("#", Minimap:GetRegions())
     local numChildren = select("#", Minimap:GetChildren())
     Logger:info("Minimap:IsShown()=%s IsVisible()=%s regions=%d children=%d",
@@ -5289,8 +5298,8 @@ end, "dump real Minimap texture regions, grouped by path (gathering-node active-
 -- snapshot taken away from any node and a second check taken standing
 -- on one are the real candidates.
 --
--- `/gps diffblips start` - snapshot current Minimap children (run this
--- FIRST, standing away from any node). `/gps diffblips` (no argument)
+-- `/aatlas diffblips start` - snapshot current Minimap children (run this
+-- FIRST, standing away from any node). `/aatlas diffblips` (no argument)
 -- - compare right now against that snapshot and report exactly which
 -- children were added/removed since, each described by its own name
 -- (if any) plus any texture/atlas found on ITS children (one level
@@ -5358,8 +5367,8 @@ local function DescribeMinimapChild(child)
     return table.concat(parts, "  ")
 end
 
-AlchemyGPS.Core.SlashCommands:Register("diffblips", function(rest)
-    local Logger = AlchemyGPS.Core.Logger:Get("Map")
+AzerothAtlas.Core.SlashCommands:Register("diffblips", function(rest)
+    local Logger = AzerothAtlas.Core.Logger:Get("Map")
 
     if rest == "start" then
         blipSnapshot = {}
@@ -5368,12 +5377,12 @@ AlchemyGPS.Core.SlashCommands:Register("diffblips", function(rest)
             blipSnapshot[child] = true
             n = n + 1
         end
-        Logger:info("diffblips: snapshot taken (%d children) - now walk to a node and run '/gps diffblips'", n)
+        Logger:info("diffblips: snapshot taken (%d children) - now walk to a node and run '/aatlas diffblips'", n)
         return
     end
 
     if not blipSnapshot then
-        Logger:warn("diffblips: no snapshot yet - run '/gps diffblips start' first, away from any node")
+        Logger:warn("diffblips: no snapshot yet - run '/aatlas diffblips start' first, away from any node")
         return
     end
 
@@ -5397,7 +5406,7 @@ AlchemyGPS.Core.SlashCommands:Register("diffblips", function(rest)
     for _, child in ipairs(removed) do
         Logger:info("  - %s", DescribeMinimapChild(child))
     end
-end, "diff Minimap's child frames vs. a snapshot ('/gps diffblips start' first) - gathering-node active-detection research")
+end, "diff Minimap's child frames vs. a snapshot ('/aatlas diffblips start' first) - gathering-node active-detection research")
 
 -- Build-order step 17, live-tested follow-up: after two rounds of
 -- blind HideMinimapPassengers fixes (frames, then regions) the user
@@ -5409,9 +5418,9 @@ end, "diff Minimap's child frames vs. a snapshot ('/gps diffblips start' first) 
 -- it's currently shown, and whether this engine's own hide pass has
 -- already caught it. Only useful while the live patch is actually
 -- shown (self.MMOwn) - run it then.
-AlchemyGPS.Core.SlashCommands:Register("mmpassengers", function()
-    local Logger = AlchemyGPS.Core.Logger:Get("Map")
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+AzerothAtlas.Core.SlashCommands:Register("mmpassengers", function()
+    local Logger = AzerothAtlas.Core.Logger:Get("Map")
+    local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
     if not MinimapEngine.MMOwn or not MinimapEngine.MMFrm then
         Logger:warn("mmpassengers: live patch isn't shown right now (MMOwn=%s) - turn on gathering tracking first",
             tostring(MinimapEngine.MMOwn))
@@ -5648,7 +5657,7 @@ function MinimapEngine:RefreshCurrentZone()
     -- GetWorldZoneInfo return values.
     local _, x, y, zw, zh = self:GetWorldZoneInfo(cont, mapId)
     if allConts then x, y, zw, zh = self:GetAzerothRect() end
-    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    local ZoomController = AzerothAtlas.Modules.Map.ZoomController
     if ZoomController and x and browsing and self.MapW and self.MapH and zw > 0 then
         -- Browsing: fit what was picked into the window.
         ZoomController:Move(x + zw / 2, y + zh / 2, min(self.MapW / zw, self.MapH / zh) * .9, 15)
@@ -5766,7 +5775,7 @@ function MinimapEngine:StopBrowse()
     local scale = self.BrowseSavedScale
     self.BrowseSavedScale = nil
     self.ReturnToPlayer = true
-    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    local ZoomController = AzerothAtlas.Modules.Map.ZoomController
     if ZoomController and self.PlyrX then
         ZoomController:Move(self.PlyrX, self.PlyrY, scale, 15)
     end
@@ -5780,7 +5789,7 @@ function MinimapEngine:ShowPlayer()
         return
     end
     self:SetViewFloor(nil)
-    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    local ZoomController = AzerothAtlas.Modules.Map.ZoomController
     if ZoomController and self.PlyrX and not self.PlyrPosUnknown then
         ZoomController:Move(self.PlyrX, self.PlyrY, nil, 10)
     end
@@ -5804,9 +5813,9 @@ end
 -- Dungeons and raids that have something to draw: { {id, name}, ... }.
 function MinimapEngine:GetBrowseDungeons()
     local seen, list = {}, {}
-    local Instances = AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances or {}
-    local Catalog = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Catalog
-    local rooms = AlchemyGPS.DungeonRoomData or {}
+    local Instances = AzerothAtlas.QuestData and AzerothAtlas.QuestData.Instances or {}
+    local Catalog = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Catalog
+    local rooms = AzerothAtlas.DungeonRoomData or {}
     local fdjNames = _G.FDJ and _G.FDJ.INSTANCE_ID_TO_DUNGEON or {}
     local function nameOf(id)
         local key = Catalog and Catalog.InstanceKey and Catalog:InstanceKey(id)
@@ -5916,7 +5925,7 @@ function MinimapEngine:MouseWheel(value)
     local ox = self.MapPosX + (fx - self.MapW / 2) / self.Scale
     local oy = self.MapPosY + (fy - self.TitleH - self.MapH / 2) / self.Scale
 
-    local ScrollScale = AlchemyGPS.Modules.Map.ScrollScale
+    local ScrollScale = AzerothAtlas.Modules.Map.ScrollScale
     if not ScrollScale then return end
     self.Scale = ScrollScale:Compute(self.Scale, value)
     self.StepTime = 10
@@ -5956,7 +5965,7 @@ end
 -- 2026-11-18 (user request): a click with a job you gave it in
 -- Settings > Map (Map/MouseActions.lua) does that instead.
 local function RunMouseAction(engine, button)
-    local MouseActions = AlchemyGPS.Modules.Map.MouseActions
+    local MouseActions = AzerothAtlas.Modules.Map.MouseActions
     return MouseActions and MouseActions:Run(engine, button)
 end
 
@@ -5971,7 +5980,7 @@ function MinimapEngine:OnMouseDown(button)
     -- click poll: a left-click on the map window itself starts a pan-
     -- drag below, which should always dismiss the menu first rather
     -- than drag underneath it.
-    local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+    local MapContextMenu = AzerothAtlas.Modules.Map.MapContextMenu
     if MapContextMenu and MapContextMenu:IsShown() then
         MapContextMenu:Close()
     end
@@ -6028,7 +6037,7 @@ function MinimapEngine:OnMouseUp(button)
             end
         end
 
-        local MapContextMenu = AlchemyGPS.Modules.Map.MapContextMenu
+        local MapContextMenu = AzerothAtlas.Modules.Map.MapContextMenu
         if MapContextMenu then
             if MapContextMenu:IsShown() then
                 MapContextMenu:Close()
@@ -6067,7 +6076,7 @@ end
 --   below just reuses that proven formula rather than deriving a new
 --   one.
 -- - Storage: a single in-memory point (self.GotoWX/WY/GotoCont), not
---   saved to AlchemyGPS.db - matches real Carbonite's own Nx.Map.
+--   saved to AzerothAtlas.db - matches real Carbonite's own Nx.Map.
 --   Targets, a plain runtime table (SetTarget/ClearTargets, :15183-
 --   15394) never written to Nx.db either. Dropped real Carbonite's
 --   multi-point Shift+click route queue (Pathing.lua) - out of scope,
@@ -6181,7 +6190,7 @@ function MinimapEngine:DrawAntTrail(pool, dx, dy, dist, r, g, b, a)
     if #pool < cnt then
         for n = #pool + 1, cnt do
             local f = self:CreateMiniFrame()
-            AlchemyGPS.UI.StyleOptions:ApplyIcon(f.texture, "TrailArrow")
+            AzerothAtlas.UI.StyleOptions:ApplyIcon(f.texture, "TrailArrow")
             pool[n] = f
         end
     end
@@ -6241,14 +6250,14 @@ function MinimapEngine:ClearGoto()
     self.GotoName, self.GotoUid = nil, nil
     -- 2026-11-18: a waypoint (/way, TomTom - Map/Waypoints.lua) is done
     -- with, and the closest of the rest becomes the goto.
-    local Waypoints = AlchemyGPS.Modules.Map.Waypoints
+    local Waypoints = AzerothAtlas.Modules.Map.Waypoints
     if Waypoints then Waypoints:OnGotoCleared(uid) end
 end
 
 -- 2026-11-18: the waypoints that aren't the goto (Map/Waypoints.lua), as
 -- dimmer goto markers.
 function MinimapEngine:UpdateWaypointPins()
-    local Waypoints = AlchemyGPS.Modules.Map.Waypoints
+    local Waypoints = AzerothAtlas.Modules.Map.Waypoints
     local pool = self.WaypointPinFrms
     if not pool then
         pool = {}
@@ -6263,7 +6272,7 @@ function MinimapEngine:UpdateWaypointPins()
                 local f = pool[used]
                 if not f then
                     f = self:CreateMiniFrame()
-                    AlchemyGPS.UI.StyleOptions:ApplyIcon(f.texture, "GotoMarker")
+                    AzerothAtlas.UI.StyleOptions:ApplyIcon(f.texture, "GotoMarker")
                     pool[used] = f
                 end
                 if self:ClipFrameW(f, uid.wx, uid.wy, GOTO_ICON_SIZE * .8, GOTO_ICON_SIZE * .8, 0) then
@@ -6279,7 +6288,7 @@ end
 -- 2026-11-18: the next step of a travel route (Map/Travel.lua) for a
 -- destination, or nil to head straight there.
 local function TravelLeg(dest)
-    local Travel = AlchemyGPS.Modules.Map.Travel
+    local Travel = AzerothAtlas.Modules.Map.Travel
     return Travel and Travel:NextLeg(dest)
 end
 
@@ -6363,7 +6372,7 @@ function MinimapEngine:UpdateGoto()
     -- along with ClipFrameW's own repositioning below for free.
     if not self.GotoFrm then
         self.GotoFrm = self:CreateMiniFrame()
-        AlchemyGPS.UI.StyleOptions:ApplyIcon(self.GotoFrm.texture, "GotoMarker")
+        AzerothAtlas.UI.StyleOptions:ApplyIcon(self.GotoFrm.texture, "GotoMarker")
         local lbl = self.GotoFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         lbl:SetPoint("BOTTOM", self.GotoFrm, "TOP", 0, 2)
         self.GotoYdLabel = lbl
@@ -6493,7 +6502,7 @@ end
 -- (QuestData.Instances via Catalog:GetInstanceEntrance). Forgotten
 -- once you're alive again.
 local function deathStore()
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local ok, t = pcall(function() return Quest.Core:Char("DeathInstance") end)
     return ok and t or nil
 end
@@ -6532,7 +6541,7 @@ function MinimapEngine:GetDeathEntrance()
         local id = tonumber((select(8, GetInstanceInfo())))
         if id == t.id then return nil end   -- back inside: the run is over
     end
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local Catalog = Quest and Quest.Catalog
     if not Catalog or not Catalog.GetInstanceEntrance then return nil end
     local key = Catalog.InstanceKey and Catalog:InstanceKey(t.id) or t.id
@@ -6549,9 +6558,9 @@ end
 -- Entrances per continent are built once.
 function MinimapEngine:GetNearestEntrance()
     if IsInInstance() or not self.PlyrX then return nil end
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local Catalog = Quest and Quest.Catalog
-    local all = AlchemyGPS.QuestData and AlchemyGPS.QuestData.Instances
+    local all = AzerothAtlas.QuestData and AzerothAtlas.QuestData.Instances
     if not Catalog or not Catalog.GetInstanceEntrance or not all then return nil end
     self.EntranceCache = self.EntranceCache or {}
     local list = self.EntranceCache[self.Cont]
@@ -6683,7 +6692,7 @@ end
 
 -- Called every tick from Update(), alongside UpdateGoto/UpdateCorpseTrack.
 function MinimapEngine:UpdateQuestRoute()
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local t = Quest and Quest.Routing and Quest.Routing.Target
     -- 2026-11-18: travel routing - the trail leads to the flight master
     -- or boat first (Map/Travel.lua).
@@ -6700,7 +6709,7 @@ function MinimapEngine:UpdateQuestRoute()
 
     if not self.QuestRouteFrm then
         self.QuestRouteFrm = self:CreateMiniFrame()
-        AlchemyGPS.UI.StyleOptions:ApplyIcon(self.QuestRouteFrm.texture, "GotoMarker")
+        AzerothAtlas.UI.StyleOptions:ApplyIcon(self.QuestRouteFrm.texture, "GotoMarker")
         local lbl = self.QuestRouteFrm:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         lbl:SetPoint("BOTTOM", self.QuestRouteFrm, "TOP", 0, 2)
         self.QuestRouteYdLabel = lbl
@@ -6729,28 +6738,28 @@ end
 local debugFrm, debugText
 
 -- Where the user last dragged this to, saved across /reload. Lives on
--- the root AceDB profile table (AlchemyGPS.db.profile) rather than a
+-- the root AceDB profile table (AzerothAtlas.db.profile) rather than a
 -- module's own DB, since this overlay isn't a registered Module - see
 -- Core/SavedVariables.lua's bind() for what that table is. Always
 -- available by the time this overlay is first created (lazily, on the
 -- first debug-overlay update after the map window has been opened at
 -- least once), well after the PLAYER_LOGIN that creates it.
 local function saveDebugOverlayPosition()
-    if not (AlchemyGPS.db and AlchemyGPS.db.profile) then return end
+    if not (AzerothAtlas.db and AzerothAtlas.db.profile) then return end
     local point, _, relPoint, x, y = debugFrm:GetPoint()
     if not point then return end
-    AlchemyGPS.db.profile.DebugOverlay = { point = point, relPoint = relPoint, x = x, y = y }
+    AzerothAtlas.db.profile.DebugOverlay = { point = point, relPoint = relPoint, x = x, y = y }
 end
 
 local function ensureDebugOverlay()
     if debugFrm then return end
-    debugFrm = CreateFrame("Frame", "AlchemyGPSMapDebug", UIParent, "BackdropTemplate")
+    debugFrm = CreateFrame("Frame", "AzerothAtlasMapDebug", UIParent, "BackdropTemplate")
     -- Widened/tallened (build-order step 9m, 2026-11-10) to fit the
     -- grouped/headered layout below without word-wrap collapsing it
     -- back into a jumble - see UpdateDebugOverlay's own header comment.
     debugFrm:SetSize(460, 320)
 
-    local saved = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.DebugOverlay
+    local saved = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.DebugOverlay
     if saved and saved.point and saved.x and saved.y then
         debugFrm:SetPoint(saved.point, UIParent, saved.relPoint or saved.point, saved.x, saved.y)
     else
@@ -6812,13 +6821,13 @@ local DEBUG_HEADER_COLOR = "|cffffd100%s|r"
 -- was exactly the kind of jumble this pass is fixing).
 function MinimapEngine:UpdateDebugOverlay()
     -- Tied to the same Debug mode flag the Settings window's checkbox
-    -- and the `/gps debug` slash command both already drive
+    -- and the `/aatlas debug` slash command both already drive
     -- (Core/Logger.lua's Logger.minLevel) - whichever one last
     -- toggled it, this just reads the same place, so there's nothing
     -- extra to keep in sync. Off hides (and stops updating) the
     -- overlay entirely instead of just dimming it, matching "off
     -- turns them both off."
-    local Logger = AlchemyGPS.Core.Logger
+    local Logger = AzerothAtlas.Core.Logger
     if Logger.minLevel ~= Logger.LEVEL.DEBUG then
         if debugFrm then debugFrm:Hide() end
         return
@@ -7112,8 +7121,8 @@ function MinimapEngine:Update(elapsed)
                 -- (Window title and speed readout: UpdateTitle, called
                 -- every tick from Update below - 2026-11-16.)
 
-                local ZoomController = AlchemyGPS.Modules.Map.ZoomController
-                local followWin = AlchemyGPS.Modules.Map.MinimapWindow
+                local ZoomController = AzerothAtlas.Modules.Map.ZoomController
+                local followWin = AzerothAtlas.Modules.Map.MinimapWindow
                 local autoFollow = not (followWin and followWin:DB().profile.AutoFollow == false)
                 -- 2026-11-16: two independent header switches. "Follow"
                 -- (saved as AutoScale) is Carbonite's auto-scale - while
@@ -7156,8 +7165,8 @@ function MinimapEngine:Update(elapsed)
     -- MoveZoneTiles.)
     --
     -- Build-order step 18 (2026-11-11, map-layering fix): debug flags
-    -- let a live tester isolate a layer via /gps hideart /
-    -- /gps hideterrain / /gps hidebase (Core/SlashCommands.lua
+    -- let a live tester isolate a layer via /aatlas hideart /
+    -- /aatlas hideterrain / /aatlas hidebase (Core/SlashCommands.lua
     -- registrations further down this file) - short-circuit straight
     -- to the same hide calls the zoom gate already uses, so an
     -- isolated layer looks exactly like "zoomed past the point this
@@ -7247,12 +7256,12 @@ function MinimapEngine:Update(elapsed)
     -- Shaded quest areas and patrol lines, under the pins. What to draw
     -- and how is Quest/QuestOverlay.lua's business; it reads this
     -- engine's pan/zoom and skips the work when neither has changed.
-    local QuestOverlay = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Overlay
+    local QuestOverlay = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Overlay
     if QuestOverlay and QuestOverlay.Draw then
         local ok, err = pcall(QuestOverlay.Draw, QuestOverlay, self)
         if not ok and self.QuestOverlayError ~= err then
             self.QuestOverlayError = err
-            AlchemyGPS.Core.Logger:Get("Map"):error("quest overlay failed: %s", tostring(err))
+            AzerothAtlas.Core.Logger:Get("Map"):error("quest overlay failed: %s", tostring(err))
         end
     end
 
@@ -7291,7 +7300,7 @@ function MinimapEngine:Update(elapsed)
         local ok, err = pcall(self.UpdateDungeonPins, self)
         if not ok and self.DungeonPinError ~= err then
             self.DungeonPinError = err
-            AlchemyGPS.Core.Logger:Get("Map"):error("dungeon pins failed: %s", tostring(err))
+            AzerothAtlas.Core.Logger:Get("Map"):error("dungeon pins failed: %s", tostring(err))
         end
     end
 
@@ -7300,7 +7309,7 @@ function MinimapEngine:Update(elapsed)
         local ok, err = pcall(self.UpdateAddonPins, self)
         if not ok and self.AddonPinError ~= err then
             self.AddonPinError = err
-            AlchemyGPS.Core.Logger:Get("Map"):error("addon pins failed: %s", tostring(err))
+            AzerothAtlas.Core.Logger:Get("Map"):error("addon pins failed: %s", tostring(err))
         end
     end
 
@@ -7309,21 +7318,21 @@ function MinimapEngine:Update(elapsed)
         local ok, err = pcall(self.UpdatePlayerBlips, self)
         if not ok and self.PlayerBlipError ~= err then
             self.PlayerBlipError = err
-            AlchemyGPS.Core.Logger:Get("Map"):error("player blips failed: %s", tostring(err))
+            AzerothAtlas.Core.Logger:Get("Map"):error("player blips failed: %s", tostring(err))
         end
     end
 
     -- 2026-11-16: keep the map above other addons (see MinimapWindow's
     -- SyncStrata) - re-asserted every tick, it's only string compares.
-    local MinimapWindow = AlchemyGPS.Modules.Map.MinimapWindow
+    local MinimapWindow = AzerothAtlas.Modules.Map.MinimapWindow
     if MinimapWindow and MinimapWindow.SyncStrata then MinimapWindow:SyncStrata() end
     if MinimapWindow and MinimapWindow.UpdateLevelBar then MinimapWindow:UpdateLevelBar() end
-    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    local BigMap = AzerothAtlas.Modules.Map.BigMap
     if BigMap and BigMap.Win then
         local ok, err = pcall(BigMap.Update, BigMap)
         if not ok and self.BigMapError ~= err then
             self.BigMapError = err
-            AlchemyGPS.Core.Logger:Get("Map"):error("big map failed: %s", tostring(err))
+            AzerothAtlas.Core.Logger:Get("Map"):error("big map failed: %s", tostring(err))
         end
     end
 
@@ -7331,13 +7340,13 @@ function MinimapEngine:Update(elapsed)
 end
 
 ---------------------------------------------------------------------------------------
--- /gps where - what the client reports about where the player is.
+-- /aatlas where - what the client reports about where the player is.
 -- Inside a dungeon this is what decides whether a position marker can
 -- be drawn at all, and it differs per dungeon (WoW Forever's own ones
 -- especially), so it is printed rather than guessed.
 ---------------------------------------------------------------------------------------
 
-AlchemyGPS.Core.SlashCommands:Register("where", function()
+AzerothAtlas.Core.SlashCommands:Register("where", function()
     local function say(...) DEFAULT_CHAT_FRAME:AddMessage(string.format(...)) end
     local function pos(map, unit)
         if not map then return "no map" end
@@ -7350,7 +7359,7 @@ AlchemyGPS.Core.SlashCommands:Register("where", function()
     local E = MinimapEngine
     local inInstance, instType = IsInInstance()
     local name, _, _, _, _, _, _, instanceID = GetInstanceInfo()
-    say("|cffffd100Alchemy GPS - where am I|r")
+    say("|cffffd100Azeroth Atlas - where am I|r")
     say("  instance: %s (%s) id %s, type %s", tostring(inInstance), tostring(name),
         tostring(instanceID), tostring(instType))
     local best = C_Map.GetBestMapForUnit("player")
@@ -7363,7 +7372,7 @@ AlchemyGPS.Core.SlashCommands:Register("where", function()
     local f1 = E.DungeonFloors and E.DungeonFloors[1]
     if E.DescribeRoom then say("  room: %s", E:DescribeRoom()) end
     do
-        local Quest = AlchemyGPS.Modules.Quest
+        local Quest = AzerothAtlas.Modules.Quest
         local ok, t = pcall(function() return Quest.Core:Char("DeathInstance") end)
         local bm = C_Map.GetBestMapForUnit("player")
         local cp = bm and C_DeathInfo.GetCorpseMapPosition(bm)

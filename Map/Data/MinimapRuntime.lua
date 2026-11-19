@@ -4,16 +4,16 @@
 -- Distributed under the GNU General Public License, version 3 or later.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 8b, 2026-11-10): copied
+-- Azeroth Atlas port note (build-order step 8b, 2026-11-10): copied
 -- verbatim (aliasing line only) from Carbonite/Data/Shared/MapData/
 -- MinimapRuntime.lua - the generic, data-driven GetMiniInfo/
 -- GetMiniBlkName lookup pair real Nx.Map:UpdateMiniFrames
 -- (MapEngine.lua:10296) calls. Defines methods directly on
--- AlchemyGPS.Map, the same table MinimapEngine.lua's own `local
--- MinimapEngine = AlchemyGPS.Map` aliases, so self:GetMiniInfo(...)
+-- AzerothAtlas.Map, the same table MinimapEngine.lua's own `local
+-- MinimapEngine = AzerothAtlas.Map` aliases, so self:GetMiniInfo(...)
 -- from MinimapEngine.lua reaches these unchanged.
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 function Map:GetMiniInfo(mapID)
     local worldInfo = self.MapWorldInfo and self.MapWorldInfo[mapID]
@@ -21,7 +21,7 @@ function Map:GetMiniInfo(mapID)
         return nil
     end
 
-    -- Alchemy GPS port note (2026-11-10): `worldInfo.Cont` is real
+    -- Azeroth Atlas port note (2026-11-10): `worldInfo.Cont` is real
     -- Carbonite's own per-zone reverse-pointer to its continent, but
     -- it's only ever WRITTEN by the dead BuildMissingZoneInfo resolver
     -- (NxMapData.lua's header - needs the real Nx.Zones database this

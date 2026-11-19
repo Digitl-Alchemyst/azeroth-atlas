@@ -20,7 +20,7 @@
 -- along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 21, CORRECTED same day):
+-- Azeroth Atlas port note (build-order step 21, CORRECTED same day):
 -- this is NOT the file originally ported here. The first pass copied
 -- Carbonite/Data/camelot/MapData/ExplorationOverlays.lua (842 lines,
 -- named-region keys like ["hilsbrad"]={["tarrenmill"]=...}), matching
@@ -29,7 +29,7 @@
 -- every single lookup failed silently, every tick, for every zone.
 --
 -- Live-tested: reported "100% unexplored" at every zoom level that
--- should show revealed zone art. Added temporary /gps dbgoverlay
+-- should show revealed zone art. Added temporary /aatlas dbgoverlay
 -- logging, which confirmed `self.ZoneOverlays["hillsbrad_c60"]` was
 -- always nil despite the data file clearly containing a "hilsbrad"
 -- entry - wrong key, not a rendering bug.
@@ -64,9 +64,9 @@
 -- "_c60"-suffixed, presumably zones this build didn't re-author or
 -- that are Forever-custom to begin with, but still use the same
 -- numeric-fileID convention as everything else here).
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
-AlchemyGPS.Map = AlchemyGPS.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
+AzerothAtlas.Map = AzerothAtlas.Map or {}
 local Map = Nx.Map
 
 -- UIMapXMapArt -> WorldMapOverlay -> WorldMapOverlayTitle

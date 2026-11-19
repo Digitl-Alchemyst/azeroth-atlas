@@ -27,7 +27,7 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       up, with tooltips "Terrain Texture layer" / "Art Map layer", and
       toggling either immediately shows/hides that layer live.
 - [ ] Clicking a checkbox and then running the matching slash command
-      (`/gps hideart` / `/gps hideterrain`) keeps the checkbox and the
+      (`/aatlas hideart` / `/aatlas hideterrain`) keeps the checkbox and the
       slash command in sync with each other either direction.
 - [ ] **Zoom +/- buttons, the Settings gear, Auto-follow checkbox, and
       Filter button are all visible and clickable again** at every
@@ -38,7 +38,7 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       the two new checkboxes.
 
 ### Phase 2 — Terrain layer isolation
-- [ ] `/gps hideterrain` (or the title-bar Terrain checkbox) cleanly
+- [ ] `/aatlas hideterrain` (or the title-bar Terrain checkbox) cleanly
       hides only the Terrain layer (Art Map and all icons unaffected);
       toggling again restores Terrain.
 - [ ] With Terrain isolated (both toggled off), the earlier
@@ -47,14 +47,14 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       so (not fixed yet, this phase only characterizes it).
 
 ### Phase 3 — Art Map layer isolation
-- [ ] `/gps hideart` (or the title-bar Art Map checkbox) cleanly hides
+- [ ] `/aatlas hideart` (or the title-bar Art Map checkbox) cleanly hides
       only the Art Map layer (Terrain and icons unaffected); toggling
       again restores it.
 - [ ] With Art isolated, pan/zoom across the DETAIL_SCALE threshold —
       confirm Art's own tile grid has no gaps or misaligned tiles of
       its own (e.g. the black wedge visible in the fully-zoomed-out
       reference screenshot).
-- [ ] Turn both debug toggles back off (`/gps hideart` / `/gps
+- [ ] Turn both debug toggles back off (`/aatlas hideart` / `/aatlas
       hideterrain` again if still on) and re-confirm Phase 1's stacking
       once more with both layers back on.
 

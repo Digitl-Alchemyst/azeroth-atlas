@@ -20,7 +20,7 @@ all; bottom items are tuning/feel questions on things known to render.
       1. Toggle tracking on/off a few times with the map window open
          (buff bar, or the minimap's own Tracking dropdown), open/close
          the map window while tracking is active, and go in and out of
-         combat while it's active. Watch specifically for the "AlchemyGPS
+         combat while it's active. Watch specifically for the "AzerothAtlas
          has been blocked from an action only available to the Blizzard
          UI" popup reappearing - this exact mechanism was removed once
          before on suspicion of causing that popup (though removing it
@@ -52,8 +52,8 @@ all; bottom items are tuning/feel questions on things known to render.
       detection of its own (see `CHANGELOG.md`'s build-order step 16).
       Live-tested from three independent angles, all empty:
       `C_VignetteInfo.GetVignettes()` (earlier research) returned 0;
-      `/gps scanblips` found 0 Texture regions on the real Minimap;
-      `/gps diffblips`, run as a controlled test with every other addon
+      `/aatlas scanblips` found 0 Texture regions on the real Minimap;
+      `/aatlas diffblips`, run as a controlled test with every other addon
       disabled, standing directly on a confirmed-visible node, found 0
       added/0 removed (only 4 total Minimap children exist at all with
       nothing else enabled - pure zoom/tracking button chrome). An
@@ -137,7 +137,7 @@ all; bottom items are tuning/feel questions on things known to render.
       to work correctly, only the icon itself was wrong. Should
       disappear on resurrecting. Also check: no grave/trail appears
       while inside a battleground.
-- [ ] **NEEDS DIAGNOSIS** — "AlchemyGPS has been blocked from an action
+- [ ] **NEEDS DIAGNOSIS** — "AzerothAtlas has been blocked from an action
       only available to the Blizzard UI" popup, reported live
       2026-11-11 while dead with the corpse-tracking feature active.
       Root cause not yet identified - exact error text/stack trace

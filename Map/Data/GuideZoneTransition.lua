@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/Data/GuideZoneTransition.lua
+-- Azeroth Atlas | Map/Data/GuideZoneTransition.lua
 --
 -- Build-order step 9l (2026-11-10): zone transition/border-crossing
 -- icons (boats, zeppelins, trams, portals, and plain walk-through
@@ -34,8 +34,8 @@
 -- from each connection's flags - see addPoint's header below.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 local RAW_CONNECTIONS = {
     "7|1||1417|20.34|29.73||1424|81.96|56.91",

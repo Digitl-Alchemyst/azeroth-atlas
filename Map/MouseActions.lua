@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/MouseActions.lua
+-- Azeroth Atlas | Map/MouseActions.lua
 ---------------------------------------------------------------------------------------
 -- Mouse-button actions you set yourself (2026-11-18, user request, from
 -- Carbonite: "Choose what Alt/Ctrl plus left, middle, right or button-4
@@ -15,12 +15,12 @@
 -- Saved per profile: profile.MapMouse[slot] = action id.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local MouseActions = {}
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.MouseActions = MouseActions
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.MouseActions = MouseActions
 
-local function M() return AlchemyGPS.Modules.Map end
+local function M() return AzerothAtlas.Modules.Map end
 
 local function bigShown()
     local BigMap = M().BigMap
@@ -94,7 +94,7 @@ local BUTTON_NAME = {
 }
 
 local function store()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if not db then return nil end
     db.profile.MapMouse = db.profile.MapMouse or {}
     return db.profile.MapMouse
@@ -134,6 +134,6 @@ function MouseActions:Run(E, button)
     local a = byId[self:Get(slot)]
     if not a or not a.run then return false end
     local ok, err = pcall(a.run, E)
-    if not ok then AlchemyGPS.Core.Logger:Get("Map"):error("mouse action %s failed: %s", a.id, tostring(err)) end
+    if not ok then AzerothAtlas.Core.Logger:Get("Map"):error("mouse action %s failed: %s", a.id, tostring(err)) end
     return true
 end

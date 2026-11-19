@@ -154,8 +154,8 @@ def main(fdr, fdj):
         '--   rooms on them carry the level\'s id.',
         '-- FDRKeys[key] = instanceID: Forever Dungeon Routes\' dungeon keys,',
         '--   for its party room messages.',
-        'local AlchemyGPS = _G.AlchemyGPS',
-        'AlchemyGPS.DungeonRoomData = {',
+        'local AzerothAtlas = _G.AzerothAtlas',
+        'AzerothAtlas.DungeonRoomData = {',
         '    Rooms = {',
     ]
     for inst in sorted(out_rooms):

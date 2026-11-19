@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / MinimapDock
+-- Azeroth Atlas | Map / MinimapDock
 -- Ported from Carbonite/Modules/Map/MapEngine.lua's Nx.Map.Dock
 -- (:15919-16238, "MINIMAP BUTTON DOCK") - collects every addon-
 -- injected minimap button (tracking, mail, LFG, queue status, DBM/
@@ -28,7 +28,7 @@
 -- game world, plus one small square drag handle at the bar's leading
 -- edge (its one visible/clickable element) to move the whole thing -
 -- no title bar, no border, no backdrop fill. Position is hand-rolled
--- persistence (AlchemyGPS.db.profile.DockPosition), the same small
+-- persistence (AzerothAtlas.db.profile.DockPosition), the same small
 -- point/relPoint/x/y shape MinimapEngine.lua's debug overlay already
 -- uses, since Nx.Window's own SaveData/RecordLayoutData machinery no
 -- longer applies here.
@@ -56,7 +56,7 @@
 --     a single never-wrapping line instead of the real source's
 --     multi-row/column grid, since a single line is what actually
 --     docks flush against another window's edge. Row vs. column is
---     the one option this addon DOES expose (AlchemyGPS.db.profile.
+--     the one option this addon DOES expose (AzerothAtlas.db.profile.
 --     DockOrientation, Settings window's "Icon bar: vertical column"
 --     checkbox) - the real source has no row/column toggle at all,
 --     only a 4-corner start-point choice that still wraps into a
@@ -74,11 +74,11 @@
 --     function, since this addon has no equivalent "MMOwnedFrms"
 --     bookkeeping table split across two objects to preserve.
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 
-local MinimapDock = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapDock or {}
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.MinimapDock = MinimapDock
+local MinimapDock = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.MinimapDock or {}
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.MinimapDock = MinimapDock
 
 -- Real source's mmOwnerNames (MapEngine.lua:15979-15981), minus
 -- "NXMiniMapBut" (Carbonite's own launcher button - no equivalent
@@ -158,13 +158,13 @@ end
 function MinimapDock:Create()
     if self.Win then return end
 
-    local f = CreateFrame("Frame", "AlchemyGPSDock", UIParent)
+    local f = CreateFrame("Frame", "AzerothAtlasDock", UIParent)
     f:SetSize(HANDLE_SIZE, HANDLE_SIZE)
     f:SetClampedToScreen(true)
     f:SetMovable(true)
     f:SetFrameStrata("MEDIUM")
 
-    local saved = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.DockPosition
+    local saved = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.DockPosition
     if saved and saved.point then
         f:SetPoint(saved.point, UIParent, saved.relPoint or saved.point, saved.x, saved.y)
     else
@@ -197,7 +197,7 @@ function MinimapDock:Create()
     handle:SetScript("OnDragStop", function()
         f:StopMovingOrSizing()
         local point, _, relPoint, x, y = f:GetPoint()
-        AlchemyGPS.db.profile.DockPosition = { point = point, relPoint = relPoint, x = x, y = y }
+        AzerothAtlas.db.profile.DockPosition = { point = point, relPoint = relPoint, x = x, y = y }
     end)
     self.Handle = handle
 
@@ -212,12 +212,12 @@ function MinimapDock:Create()
     -- Real source's own 3-second delay before the one-time full sweep
     -- (MapEngine.lua:15962) - gives slower-loading addons' minimap
     -- buttons a chance to exist first.
-    AlchemyGPS:ScheduleTimer(function() self:Scan() end, 3)
+    AzerothAtlas:ScheduleTimer(function() self:Scan() end, 3)
 
     -- Real source's continuous mm:GetChildren() scan + grid layout are
     -- two separate throttled passes (MapEngine.lua:3803-3907 vs.
     -- :16090-16238); one repeating timer covers both here.
-    self.UpdateTicker = AlchemyGPS:ScheduleRepeatingTimer(function()
+    self.UpdateTicker = AzerothAtlas:ScheduleRepeatingTimer(function()
         self:CreateMailIcon()
         self:ScanChildren()
         self:Layout()
@@ -309,9 +309,13 @@ function MinimapDock:CreateMailIcon()
     -- data uses this exact one for mailbox markers,
     -- Data\Shared\NxMapGuide.lua:1863) confirmed visible in the same
     -- test and is used here instead.
+    -- 2026-11-18 (user): the same envelope Titan Panel's mail plugin
+    -- shows - Gfx/Map/IconMail.blp is a copy of TitanPost's
+    -- artwork/Mail.blp (Titan Panel Development Team), so it doesn't
+    -- depend on Titan being installed.
     local overlay = native:CreateTexture(nil, "OVERLAY")
     overlay:SetAllPoints(native)
-    overlay:SetTexture("Interface\\Icons\\INV_Letter_15")
+    overlay:SetTexture("Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\IconMail")
 
     self.MailIcon = native
     table.insert(self.Frms, native)
@@ -380,7 +384,7 @@ function MinimapDock:Scan()
     self:ScanKnownNames()
 
     local owned = self.OwnedFrms
-    local mapFrm = AlchemyGPS.Modules.Map.MinimapEngine and AlchemyGPS.Modules.Map.MinimapEngine.Frm
+    local mapFrm = AzerothAtlas.Modules.Map.MinimapEngine and AzerothAtlas.Modules.Map.MinimapEngine.Frm
     local winFrm = self.Win
 
     local f = EnumerateFrames()
@@ -441,7 +445,7 @@ end
 -- configurable corner/column-count/spacing grid (no Settings UI for
 -- those yet) - a single line is what actually docks cleanly against
 -- another window's edge, which a multi-row grid doesn't. Row vs.
--- column is the one option this addon DOES expose (AlchemyGPS.db.
+-- column is the one option this addon DOES expose (AzerothAtlas.db.
 -- profile.DockOrientation, Settings window's "Icon bar: vertical
 -- column" checkbox) - the real source has no row/column toggle at
 -- all, only a 4-corner start-point choice that still wraps into a
@@ -451,8 +455,8 @@ end
 -- children render fine past their parent's declared bounds), unlike
 -- the real source's win:SetSize(34, 11)-per-layout-pass behavior.
 function MinimapDock:IsVertical()
-    return AlchemyGPS.db and AlchemyGPS.db.profile
-        and AlchemyGPS.db.profile.DockOrientation == "Column"
+    return AzerothAtlas.db and AzerothAtlas.db.profile
+        and AzerothAtlas.db.profile.DockOrientation == "Column"
 end
 
 function MinimapDock:Layout()

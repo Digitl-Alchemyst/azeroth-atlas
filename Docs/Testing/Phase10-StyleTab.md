@@ -8,7 +8,7 @@ Build-order steps 13 and 14, 2026-11-11. Full history in
 Everything below is **NOT YET LIVE-TESTED** — deployed to the live
 mirror and brace-balance checked, but never opened in-game yet.
 
-- [ ] **Settings window opens at the new size** (`/gps settings`,
+- [ ] **Settings window opens at the new size** (`/aatlas settings`,
       380x440, was 270x180) with a "General"/"Style" tab strip at the
       top. Clicking each tab swaps the body without moving/resizing
       the window.

@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/DungeonRooms.lua
+-- Azeroth Atlas | Map/DungeonRooms.lua
 --
 -- 2026-11-16. Inside a WoW Forever dungeon the game gives addons no
 -- position at all (UnitPosition and C_Map.GetPlayerMapPosition are nil,
@@ -10,7 +10,7 @@
 --   * which level you are on - the map turns to it by itself
 --   * "you are in this room" - a glow over the room on the map
 --   * party members' rooms - shared over the party channel by everyone
---     running Alchemy GPS, and read from Forever Dungeon Routes' own
+--     running Azeroth Atlas, and read from Forever Dungeon Routes' own
 --     party messages too, so its users show up as well
 --
 -- Room data (Map/Data/DungeonRoomData.lua, made by
@@ -34,8 +34,8 @@
 -- IS", WITHOUT WARRANTY OF ANY KIND.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+local AzerothAtlas = _G.AzerothAtlas
+local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
 
 -- Box sizes are pixels of the 1002x668 level map; u, v its 0-1 centre.
 local MAP_W, MAP_H = 1002, 668
@@ -44,7 +44,7 @@ local MAP_W, MAP_H = 1002, 668
 -- Rooms[instanceID] = { { name, { level, u, v, width, height }, ... } }
 -- where level < 100 is a Forever Dungeon Journal level index and
 -- anything else the game's uiMapID.
-local DATA = AlchemyGPS.DungeonRoomData or {}
+local DATA = AzerothAtlas.DungeonRoomData or {}
 local ROOMS = DATA.Rooms or {}
 local FDR_KEYS = DATA.FDRKeys or {}
 
@@ -63,13 +63,13 @@ function MinimapEngine:GetInstanceTileFloors(instanceID)
     return DATA.TileFloors and DATA.TileFloors[instanceID]
 end
 local FDR_PREFIX = "FDRGroup"
-local COMM_PREFIX = "AlchemyGPS1"
+local COMM_PREFIX = "AzerothAtlas1"
 
 local SEND_GAP = 2          -- seconds between two room messages of ours
 local RESEND = 10           -- say it again this often while inside
 local MEMBER_TTL = 35       -- forget a member not heard from in this long
 
-local GFX = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\"
+local GFX = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\"
 
 ---------------------------------------------------------------------------------------
 -- Rooms
@@ -150,6 +150,53 @@ local function roomShape(room, level)
     return u, v, r / MAP_W
 end
 
+-- 2026-11-19 (user: Shady Saltseers - "since this quest is separate from
+-- the boss can we just show the area on the map like we do with other
+-- quests outside?"). A room shaded in the quest's colour for every
+-- unfinished objective QuestData.DungeonObjectiveRooms ties to a room of
+-- this dungeon - the same soft disc as "You are in ...", drawn under
+-- the icons. { match = lower-case objective text, room = room name,
+-- text = where exactly } (Quest/Data/QuestDBManual.lua).
+function MinimapEngine:GetQuestRoomPins(level, place, zw)
+    local pts = {}
+    local instanceID = self.DungeonInstance
+    local QD = AzerothAtlas.QuestData or {}
+    local defs = instanceID and QD.DungeonObjectiveRooms and QD.DungeonObjectiveRooms[instanceID]
+    local Quest = AzerothAtlas.Modules.Quest
+    local State, Pins = Quest and Quest.State, Quest and Quest.Pins
+    if not defs or not State or not State.Quests then return pts end
+    for _, q in ipairs(State.Quests) do
+        for _, o in ipairs(q.objectives or {}) do
+            if not o.finished and type(o.text) == "string" and o.text ~= "" then
+                local text = o.text:lower()
+                for _, d in ipairs(defs) do
+                    local room = text:find(d.match, 1, true) and roomNamed(instanceID, d.room)
+                    local u, v, r
+                    if room then u, v, r = roomShape(room, level) end
+                    if u then
+                        local wx, wy = place(u, v)
+                        local cr, cg, cb = 1, 0.82, 0
+                        if Pins and Pins.QuestColor then cr, cg, cb = Pins:QuestColor(q.questID) end
+                        pts[#pts + 1] = {
+                            x = wx, y = wy, kind = "questroom", tex = GFX .. "IconCircleFade",
+                            worldSize = 2 * r * zw, minSize = 28, r = cr, g = cg, b = cb, alpha = 0.5,
+                            title = q.title, under = true,
+                        }
+                        -- The disc lets clicks through to the map; this
+                        -- ring in its middle carries the tooltip.
+                        pts[#pts + 1] = {
+                            x = wx, y = wy, kind = "questroomdot", tex = GFX .. "IconRing", size = 18,
+                            r = cr, g = cg, b = cb, quest = true, title = q.title,
+                            lines = { o.text, d.text or room[1] },
+                        }
+                    end
+                end
+            end
+        end
+    end
+    return pts
+end
+
 -- The room the game says the player is in, inside a dungeon we have
 -- rooms for, or nil.
 function MinimapEngine:GetPlayerRoom()
@@ -165,6 +212,25 @@ function MinimapEngine:GetPlayerRoom()
     return room
 end
 
+-- 2026-11-19 (user: "no general level area we can detect leaving the
+-- small boss room ... being in the general area with no named room?").
+-- [instanceID] = the level the player is on when the game names no room
+-- at all - for dungeons where every other level is wholly one named area.
+-- The Drowned City: Atal'Byzal (level 2) is the lower level's only room;
+-- every unnamed spot is the city itself.
+local UNNAMED_LEVEL = {
+    [2970] = 1,
+}
+
+-- True when the game shows no room name: empty, or only the dungeon's.
+local function noRoomNamed()
+    local sub = GetSubZoneText and GetSubZoneText()
+    if not readable(sub) then return false end
+    if sub == "" then return true end
+    local zone = GetRealZoneText and GetRealZoneText()
+    return readable(zone) and sub == zone
+end
+
 -- Level (index into floors) the player's room is on - for
 -- ResolveDungeonMap.
 function MinimapEngine:GetRoomLevel(floors)
@@ -172,6 +238,8 @@ function MinimapEngine:GetRoomLevel(floors)
     local room = self:GetPlayerRoom()
     local level = room and mainLevel(room)
     if level and floors[level] then return level, room end
+    local unnamed = not room and UNNAMED_LEVEL[self.DungeonInstance]
+    if unnamed and floors[unnamed] and noRoomNamed() then return unnamed end
     return nil
 end
 
@@ -383,7 +451,7 @@ function MinimapEngine:GetRoomPins(level, place, zw)
     return pts
 end
 
--- /gps where line.
+-- /aatlas where line.
 function MinimapEngine:DescribeRoom()
     local text = GetSubZoneText and GetSubZoneText()
     local room = self:GetPlayerRoom()

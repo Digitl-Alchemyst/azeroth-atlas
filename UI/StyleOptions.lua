@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / StyleOptions
+-- Azeroth Atlas | UI / StyleOptions
 -- Build-order step 13 (2026-11-11): swappable single-texture icon
 -- choices, explicit user request ("control what icons and art assets
 -- are used for what"). Separate from UI/Skin.lua (which is a full
@@ -23,13 +23,13 @@
 -- pre-existing categories, now goes through these instead, for one
 -- consistent pattern addon-wide.
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.UI = AlchemyGPS.UI or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.UI = AzerothAtlas.UI or {}
 
 local StyleOptions = {}
-AlchemyGPS.UI.StyleOptions = StyleOptions
+AzerothAtlas.UI.StyleOptions = StyleOptions
 
-local MAP_GFX = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\"
+local MAP_GFX = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\"
 local LEATRIX_SHEET = MAP_GFX .. "Leatrix_Maps"
 
 -- Ordered list (not a map) - both for GetOption's lookup and so the
@@ -189,7 +189,7 @@ function StyleOptions:GetOption(key)
     local cat = byKey[key]
     if not cat then return nil end
 
-    local sv = AlchemyGPS.db and AlchemyGPS.db.profile.Style
+    local sv = AzerothAtlas.db and AzerothAtlas.db.profile.Style
     local chosenId = sv and sv[key]
     if cat.renamed and cat.renamed[chosenId] then chosenId = cat.renamed[chosenId] end
 
@@ -214,25 +214,25 @@ function StyleOptions:ApplyIconSpec(tex, spec)
     if spec.atlas and C_Texture and C_Texture.GetAtlasInfo and not C_Texture.GetAtlasInfo(spec.atlas) then
         tex:SetTexture(spec.fallback or "Interface\\Icons\\INV_Misc_QuestionMark")
         tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        tex.agpsAtlas, tex.agpsTC = nil, FALLBACK_TC
+        tex.azaAtlas, tex.azaTC = nil, FALLBACK_TC
     elseif spec.atlas then
         -- Explicit `false`: keep the icon's own fixed on-screen size
         -- (SERVICE_ICON_SIZE etc.) rather than the atlas's native one.
         tex:SetAtlas(spec.atlas, false)
         -- 2026-11-17: no SetTexCoord after SetAtlas - the atlas sets its
         -- own coordinates within its file, and a reset to 0-1 would show
-        -- the whole file. agpsAtlas / agpsTC tell MinimapEngine:ClipFrameW
+        -- the whole file. azaAtlas / azaTC tell MinimapEngine:ClipFrameW
         -- the same thing.
-        tex.agpsAtlas, tex.agpsTC = spec.atlas, nil
+        tex.azaAtlas, tex.azaTC = spec.atlas, nil
     elseif spec.coords then
         tex:SetTexture(spec.tex)
         tex:SetTexCoord(spec.coords[1], spec.coords[2], spec.coords[3], spec.coords[4])
-        tex.agpsAtlas, tex.agpsTC = nil, spec.coords
+        tex.azaAtlas, tex.azaTC = nil, spec.coords
     else
         tex:SetTexture(spec.tex)
         -- Reset in case this texture object last held a cropped icon.
         tex:SetTexCoord(0, 1, 0, 1)
-        tex.agpsAtlas, tex.agpsTC = nil, nil
+        tex.azaAtlas, tex.azaTC = nil, nil
     end
 end
 
@@ -244,7 +244,7 @@ function StyleOptions:ApplyIcon(tex, key)
 end
 
 function StyleOptions:GetChoice(key)
-    local sv = AlchemyGPS.db and AlchemyGPS.db.profile.Style
+    local sv = AzerothAtlas.db and AzerothAtlas.db.profile.Style
     local cat = byKey[key]
     local id = sv and sv[key]
     if cat and cat.renamed and cat.renamed[id] then id = cat.renamed[id] end
@@ -264,10 +264,10 @@ end
 
 function StyleOptions:SetChoice(key, id)
     if not byKey[key] then return end
-    AlchemyGPS.db.profile.Style = AlchemyGPS.db.profile.Style or {}
-    AlchemyGPS.db.profile.Style[key] = id
+    AzerothAtlas.db.profile.Style = AzerothAtlas.db.profile.Style or {}
+    AzerothAtlas.db.profile.Style[key] = id
 
-    local MinimapEngine = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine
+    local MinimapEngine = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.MinimapEngine
     if MinimapEngine and MinimapEngine.ApplyStyleChange then
         MinimapEngine:ApplyStyleChange(key)
     end

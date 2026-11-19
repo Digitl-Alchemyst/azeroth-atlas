@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/DungeonPins.lua
+-- Azeroth Atlas | Map/DungeonPins.lua
 --
 -- 2026-11-16 (user request: "show all the quest locations on the
 -- dungeon map"). Marks drawn over a dungeon level:
@@ -35,14 +35,14 @@
 -- so they line up whether or not the game reports where you are.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+local AzerothAtlas = _G.AzerothAtlas
+local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
 
 local BOSS_SIZE, QUEST_SIZE, LEVEL_SIZE, ENTRANCE_SIZE, SPOT_SIZE = 24, 30, 22, 24, 22
 local RING_EXTRA = 8                      -- the quest ring round a quest boss
 local PORTRAIT_RETRY = 3                  -- seconds before asking FDJ again
 local PORTRAIT_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local GFX = "Interface\\AddOns\\AlchemyGPS\\Gfx\\Map\\"
+local GFX = "Interface\\AddOns\\AzerothAtlas\\Gfx\\Map\\"
 local COLLECT_INTERVAL = 0.5
 
 -- Icon specs (UI/StyleOptions.lua's shape: tex / atlas / coords).
@@ -53,6 +53,67 @@ local SPEC = {
     level    = { atlas = "Garr_LevelUpgradeArrow", fallback = "Interface\\Icons\\INV_Misc_Map_01" },
     ring     = { tex = GFX .. "IconRing" },
 }
+-- 2026-11-19 (user: "put a gold dragon around bosses and silver dragon
+-- around rares"). The game's own target-frame dragons, which are only
+-- the dragon (no frame): gold for an elite / boss, silver for a rare
+-- elite. Placed the way the target frame places them: the atlas's top
+-- right 8 right / 7 down of the frame's top right corner, round a 58
+-- pixel portrait whose top right is 26 left / 19 down of it - so the
+-- portrait's centre sits 63 left / 41 down of the atlas's top right.
+-- (First try, the classic frame's dragon cut out of its frame art, lost
+-- the dragon's head to the cut - user screenshot.)
+local DRAGON_ATLAS = {
+    boss = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold",
+    rare = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver",
+}
+-- The pin's width in atlas units: 58 is the target frame's portrait;
+-- 53 draws the dragon ~10% bigger round the pin, so its coil clears the
+-- picture instead of covering its right edge (user screenshot).
+local DRAGON_PORTRAIT = 53
+-- Portrait centre -> atlas top right (right, up). The target frame's
+-- 63 / 41 left the coil about 18 right / 6 below the portrait on the
+-- map pins (user screenshot, measured enlarged); 45 / 47 then covered
+-- the picture's right edge a little; 50 / 47.
+local DRAGON_TR_X, DRAGON_TR_Y = 50, 47
+local dragonGeo = {}
+-- { spec, w, h, ox, oy } in portrait pixels, or nil when this client
+-- lacks the atlas (then no dragon is drawn).
+local function dragonFor(kind)
+    local atlas = DRAGON_ATLAS[kind]
+    local g = dragonGeo[atlas]
+    if g == nil then
+        g = false
+        local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas)
+        local w, h = info and tonumber(info.width), info and tonumber(info.height)
+        if w and h and w > 0 and h > 0 then
+            -- Atlas centre relative to the portrait's centre, screen pixels
+            -- (x right, y down).
+            g = { spec = { atlas = atlas }, w = w, h = h,
+                  ox = DRAGON_TR_X - w / 2, oy = h / 2 - DRAGON_TR_Y }
+        end
+        dragonGeo[atlas] = g
+    end
+    return g or nil
+end
+
+-- 2026-11-19: rares the dungeon data doesn't mark, and ones it doesn't
+-- have at all, by FDJ dungeon name. Source: the user (a Drowned City
+-- route guide): Umbra by a staircase in the naga section on the way to
+-- Var'Taka; Gill in the flooded central ring, near the way down to the
+-- Primeval Elemental (back wall, before the tunnel) - placed by that
+-- description between the Flooded Shrine and FDJ's swim-down point,
+-- approximate; "Pyromancer" Braxton in the pirate area toward Captain
+-- Dreadrise.
+local DUNGEON_RARES = {
+    ["The Drowned City"] = {
+        rares = { ["Umbra"] = true, ["Gill"] = true, ["\"Pyromancer\" Braxton"] = true },
+        extra = {
+            { name = "Gill", floor = 1, x = 0.560, y = 0.585,
+              note = "Approximate: the flooded central ring, near the way down to the Primeval Elemental" },
+        },
+    },
+}
+
 local texSpecs = {}   -- plain-texture specs for pins that only name a texture (room pins)
 local function specFor(pt)
     if pt.iconSpec then return pt.iconSpec end
@@ -138,9 +199,9 @@ end
 -- QuestData.DungeonObjectiveHints - the objective is found near it (the
 -- Tablets of I'lalai, which no addon or database has a position for).
 local function questNeeds(bosses, instanceID)
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local State = Quest and Quest.State
-    local QD = AlchemyGPS.QuestData or {}
+    local QD = AzerothAtlas.QuestData or {}
     local drops = QD.DungeonQuestBosses or {}
     local hints = instanceID and QD.DungeonObjectiveHints and QD.DungeonObjectiveHints[instanceID] or {}
     local needs = {}
@@ -203,7 +264,7 @@ end
 -- Whether a quest could be picked up now (not done, not in the log, its
 -- prerequisites met).
 local function canPickUp(questID)
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local Api, Rules = Quest and Quest.Api, Quest and Quest.Rules
     if Api and Api.IsFlaggedCompleted and Api:IsFlaggedCompleted(questID) then return false end
     if Rules and Rules.Check then
@@ -218,9 +279,9 @@ local function questSpots(pts, fdjName, floor, place)
     local t = fdj()
     local list = fdjName and t and type(t.MAP_QUEST_PINS) == "table" and t.MAP_QUEST_PINS[fdjName]
     if type(list) ~= "table" then return end
-    local Quest = AlchemyGPS.Modules.Quest
+    local Quest = AzerothAtlas.Modules.Quest
     local State = Quest and Quest.State
-    local StyleOptions = AlchemyGPS.UI.StyleOptions
+    local StyleOptions = AzerothAtlas.UI.StyleOptions
     -- 2026-11-17: a quest that ends somewhere other than its giver (FDJ
     -- lists Extinguishing the Idol as ending at Belnistrasz and at his
     -- brazier; the escort ends at the brazier, the bonfire) is handed in
@@ -310,7 +371,7 @@ local function collect(engine)
     -- not on FDJ's own picture of a level (spec.path), whose spots differ.
     -- 2026-11-17: FDJ's Razorfen Downs is the game's tiles, and FDJ's list
     -- there lacks Plaguemaw (the quilboar at the bonfire) - Leatrix has him.
-    local all = AlchemyGPS.LeatrixDungeonPins
+    local all = AzerothAtlas.LeatrixDungeonPins
     local lrows = not (spec and spec.path) and all
         and (all[mapId] or (spec and spec.clientMap and all[spec.clientMap])
             or (winfo.PosMap and all[winfo.PosMap]))
@@ -328,10 +389,21 @@ local function collect(engine)
             end
         end
     else
+        local extras = fdjName and DUNGEON_RARES[fdjName]
+        local rares = extras and extras.rares or {}
+        local have = {}
         for _, b in ipairs(type(data.bosses) == "table" and data.bosses or {}) do
             if (b.floor or 1) == floor and type(b.x) == "number" and type(b.y) == "number" then
                 local name, names = bossNames(b.name)
-                blist[#blist + 1] = { x = b.x, y = b.y, name = name, names = names, fdjBoss = b }
+                have[name] = true
+                blist[#blist + 1] = { x = b.x, y = b.y, name = name, names = names, fdjBoss = b,
+                    rare = rares[name] or nil }
+            end
+        end
+        for _, e in ipairs(extras and extras.extra or {}) do
+            if e.floor == floor and not have[e.name] then
+                blist[#blist + 1] = { x = e.x, y = e.y, name = e.name, names = { e.name },
+                    rare = rares[e.name] or nil, note = e.note }
             end
         end
     end
@@ -341,13 +413,30 @@ local function collect(engine)
         local wx, wy = place(b.x, b.y)
         local need = needsFor(needs, b)
         local size = need and QUEST_SIZE or BOSS_SIZE
+        local lines = need
+        if b.note then
+            lines = {}
+            for _, l in ipairs(need or {}) do lines[#lines + 1] = l end
+            lines[#lines + 1] = "|cffa0a0a0" .. b.note .. "|r"
+        end
         pts[#pts + 1] = {
             x = wx, y = wy, kind = "boss", iconSpec = SPEC.boss, size = size,
             r = 1, g = need and 0.82 or 1, b = need and 0 or 1,
-            title = b.name, names = b.names, lines = need, quest = need and true or nil,
+            title = b.name, names = b.names, lines = lines, quest = need and true or nil,
             boss = b.fdjBoss or { name = b.name }, fdjName = fdjName, displayID = b.displayID,
             level = b.level, rare = b.rare, skullLevel = b.skullLevel,
         }
+        -- Gold dragon round a boss, silver round a rare, over the portrait
+        -- (the frame's hole shows it), letting the mouse through to it.
+        local dg = dragonFor(b.rare and "rare" or "boss")
+        if dg then
+            local s = size / DRAGON_PORTRAIT
+            pts[#pts + 1] = {
+                x = wx, y = wy, kind = "dragon", iconSpec = dg.spec,
+                w = dg.w * s, h = dg.h * s, ox = dg.ox * s, oy = dg.oy * s,
+                nomouse = true, levelUp = need and 2 or 1,
+            }
+        end
         if need then
             pts[#pts + 1] = {
                 x = wx, y = wy, kind = "ring", iconSpec = SPEC.ring, size = size + RING_EXTRA,
@@ -415,6 +504,11 @@ local function collect(engine)
     -- Quest givers and turn-ins inside.
     questSpots(pts, fdjName, floor, place)
 
+    -- 2026-11-19: rooms a quest's objective is found in, shaded.
+    if engine.GetQuestRoomPins then
+        for _, p in ipairs(engine:GetQuestRoomPins(level, place, zw)) do pts[#pts + 1] = p end
+    end
+
     -- You and your group, by the room the game names (DungeonRooms.lua).
     if engine.GetRoomPins then
         local you
@@ -425,8 +519,8 @@ local function collect(engine)
         -- Center on: bring a newly entered room into the middle.
         local room = you and you.title
         if room and room ~= engine.RoomCentered and engine:IsViewingPlayerFloor() then
-            local win = AlchemyGPS.Modules.Map.MinimapWindow
-            local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+            local win = AzerothAtlas.Modules.Map.MinimapWindow
+            local ZoomController = AzerothAtlas.Modules.Map.ZoomController
             if ZoomController and not (win and win:DB().profile.AutoFollow == false) then
                 ZoomController:Move(you.x, you.y, nil, 10)
             end
@@ -535,7 +629,7 @@ function setPinArt(frm, pt, now)   -- the local declared above collect
             local key = "d" .. pt.displayID
             if frm.portraitFor ~= key then
                 if frm.portraitFor then releasePortrait(frm) end
-                frm.texture.agpsAtlas, frm.texture.agpsTC = nil, nil
+                frm.texture.azaAtlas, frm.texture.azaTC = nil, nil
                 frm.texture:SetTexCoord(0, 1, 0, 1)
                 local ok = pcall(SetPortraitTextureFromCreatureDisplayID, frm.texture, pt.displayID)
                 frm.portraitFor, frm.portraitShown, frm.portraitSrc, frm.pinSpec = key, ok, "display", nil
@@ -548,7 +642,7 @@ function setPinArt(frm, pt, now)   -- the local declared above collect
                 local key = pt.fdjName .. "\0" .. tostring(pt.title)
                 if frm.portraitFor ~= key or (not frm.portraitShown and now >= (frm.portraitRetry or 0)) then
                     if frm.portraitFor and frm.portraitFor ~= key then releasePortrait(frm) end
-                    frm.texture.agpsAtlas, frm.texture.agpsTC = nil, nil
+                    frm.texture.azaAtlas, frm.texture.azaTC = nil, nil
                     -- FDJ's journal record carries the NPC id the portrait needs.
                     local rec = journalBoss(pt.fdjName, pt.names) or pt.boss
                     local ok, shown = pcall(t.SetBossPortrait, frm.texture, pt.fdjName, rec)
@@ -565,7 +659,7 @@ function setPinArt(frm, pt, now)   -- the local declared above collect
     end
     local spec = specFor(pt)
     if frm.pinSpec ~= spec then
-        AlchemyGPS.UI.StyleOptions:ApplyIconSpec(frm.texture, spec)
+        AzerothAtlas.UI.StyleOptions:ApplyIconSpec(frm.texture, spec)
         frm.pinSpec = spec
     end
     return false
@@ -594,7 +688,7 @@ function MinimapEngine:UpdateDungeonPins()
             self.DungeonPinPts = {}
             if self.DungeonPinError ~= res then
                 self.DungeonPinError = res
-                print("|cffff6060Alchemy GPS|r dungeon map pins: " .. tostring(res))
+                print("|cffff6060Azeroth Atlas|r dungeon map pins: " .. tostring(res))
             end
         end
     end
@@ -618,17 +712,26 @@ function MinimapEngine:UpdateDungeonPins()
         if not okArt then
             if self.DungeonPinError ~= portrait then
                 self.DungeonPinError = portrait
-                print("|cffff6060Alchemy GPS|r dungeon pin art: " .. tostring(portrait))
+                print("|cffff6060Azeroth Atlas|r dungeon pin art: " .. tostring(portrait))
             end
             portrait = false
         end
         frm.pin = pt
         local size = pt.size
         if pt.worldSize then size = math.max(pt.minSize or 16, pt.worldSize * (self.ScaleDraw or 1)) end
-        if self:ClipFrameW(frm, pt.x, pt.y, size, size, pt.rot) then
+        -- 2026-11-19: a pin of its own shape (the boss dragons), placed
+        -- off its point by ox / oy screen pixels.
+        local w, h = pt.w or size, pt.h or size
+        local px, py = pt.x, pt.y
+        if pt.ox then
+            local sc = self.ScaleDraw or 1
+            px, py = px + pt.ox / sc, py + pt.oy / sc
+        end
+        if self:ClipFrameW(frm, px, py, w, h, pt.rot) then
             -- The room glow sits under the pins and lets clicks through
             -- (it can cover much of the map); people sit over them.
-            local up = (pt.under and -1) or ((pt.kind == "you" or pt.kind == "member" or pt.kind == "ring") and 2)
+            local up = pt.levelUp or (pt.under and -1)
+                or ((pt.kind == "you" or pt.kind == "member" or pt.kind == "ring") and 2)
                 or (pt.quest and 1) or 0
             frm:SetFrameLevel(level + up)
             frm:EnableMouse(not (pt.under or pt.nomouse))

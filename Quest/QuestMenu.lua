@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Quest/QuestMenu.lua
+-- Azeroth Atlas | Quest/QuestMenu.lua
 --
 -- 2026-11-16 (user request: "need to be able to share and abandon quest
 -- in our menus both the list and the tracker"; "see the quest text of
@@ -14,8 +14,8 @@
 -- Same look as the map's right-click menu (Map/MapContextMenu.lua).
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local Q = AzerothAtlas.Modules.Quest
 
 local Menu = {}
 Q.Menu = Menu
@@ -28,7 +28,7 @@ local function close()
 end
 Menu.Close = close
 
-StaticPopupDialogs["ALCHEMYGPS_ABANDON_QUEST"] = {
+StaticPopupDialogs["AZEROTHATLAS_ABANDON_QUEST"] = {
     text = "Abandon \"%s\"?",
     button1 = YES or "Yes",
     button2 = NO or "No",
@@ -65,7 +65,7 @@ end
 
 local function create()
     if menu then return menu end
-    menu = CreateFrame("Frame", "AlchemyGPSQuestMenu", UIParent, "BackdropTemplate")
+    menu = CreateFrame("Frame", "AzerothAtlasQuestMenu", UIParent, "BackdropTemplate")
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -93,7 +93,7 @@ local function create()
             if self.away > 1.5 then close() end
         end
     end)
-    tinsert(UISpecialFrames, "AlchemyGPSQuestMenu")
+    tinsert(UISpecialFrames, "AzerothAtlasQuestMenu")
     menu:Hide()
     return menu
 end
@@ -182,7 +182,7 @@ function Links:InsertInChat(questID)
     end
 end
 
-StaticPopupDialogs["ALCHEMYGPS_COPY_URL"] = {
+StaticPopupDialogs["AZEROTHATLAS_COPY_URL"] = {
     text = "%s\n\nPress Ctrl+C to copy.",
     button1 = CLOSE or "Close",
     hasEditBox = true,
@@ -204,7 +204,7 @@ StaticPopupDialogs["ALCHEMYGPS_COPY_URL"] = {
 
 function Links:CopyWowhead(questID)
     local q = Q.State:GetQuest(questID)
-    StaticPopup_Show("ALCHEMYGPS_COPY_URL", (q and q.title) or ("Quest " .. questID), nil,
+    StaticPopup_Show("AZEROTHATLAS_COPY_URL", (q and q.title) or ("Quest " .. questID), nil,
         WOWHEAD:format(questID))
 end
 
@@ -244,7 +244,7 @@ function Menu:Open(questID, opts)
     items[#items + 1] = { IsInGroup() and "Share with group" or "Share with group (not in a group)",
         function() Api:Share(questID) end, not canShare }
     items[#items + 1] = { "|cffff6060Abandon quest...|r", function()
-        local dialog = StaticPopup_Show("ALCHEMYGPS_ABANDON_QUEST", q.title)
+        local dialog = StaticPopup_Show("AZEROTHATLAS_ABANDON_QUEST", q.title)
         if dialog then dialog.data = questID end
     end }
     show(q.title, items)

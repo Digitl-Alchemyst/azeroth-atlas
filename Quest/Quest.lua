@@ -1,9 +1,9 @@
--- Alchemy GPS | Quest / Quest
+-- Azeroth Atlas | Quest / Quest
 -- The questing companion's module shell: saved settings, the start-up
 -- sequence that brings the other Quest/*.lua pieces online, and the
--- `/gps quest` slash command.
+-- `/aatlas quest` slash command.
 --
--- Pieces (each in its own file, each on AlchemyGPS.Modules.Quest):
+-- Pieces (each in its own file, each on AzerothAtlas.Modules.Quest):
 --   Api          version-tolerant quest-log access        QuestApi.lua
 --   Catalog      the bundled quest database               QuestCatalog.lua
 --   State        live quest log cache                     QuestState.lua
@@ -18,8 +18,8 @@
 --   List         the full quest list window               QuestList.lua
 --   HUD          the routing arrow                        HUDArrow.lua
 --
--- Settings live in AlchemyGPS.db.profile.Quest (per profile) and
--- AlchemyGPS.db.char.Quest (per character: which quests are untracked
+-- Settings live in AzerothAtlas.db.profile.Quest (per profile) and
+-- AzerothAtlas.db.char.Quest (per character: which quests are untracked
 -- or collapsed). Read them through Core:Opt / Core:Char, never
 -- directly: Core/SavedVariables.lua only seeds a module's defaults
 -- when its whole table is missing, so an option added in a later
@@ -27,12 +27,12 @@
 -- DEFAULTS in that case - the same "missing key means default"
 -- convention the map filters use.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Module = AlchemyGPS.Core.Module
-local EventBus = AlchemyGPS.Core.EventBus
+local AzerothAtlas = _G.AzerothAtlas
+local Module = AzerothAtlas.Core.Module
+local EventBus = AzerothAtlas.Core.EventBus
 
-AlchemyGPS.Modules.Quest = AlchemyGPS.Modules.Quest or {}
-local Q = AlchemyGPS.Modules.Quest
+AzerothAtlas.Modules.Quest = AzerothAtlas.Modules.Quest or {}
+local Q = AzerothAtlas.Modules.Quest
 
 local DEFAULTS = {
     HideBlizzTracker = true,    -- replace Blizzard's tracker with ours
@@ -188,7 +188,7 @@ function Core:After(delay, fn)
     if _G.C_Timer and _G.C_Timer.After then
         _G.C_Timer.After(delay, fn)
     else
-        AlchemyGPS:ScheduleTimer(fn, delay)
+        AzerothAtlas:ScheduleTimer(fn, delay)
     end
 end
 
@@ -226,27 +226,27 @@ function Core:OnEnable()
     -- and self:DB() hands back a defaults-only stand-in until then.
     -- Starting from that would apply defaults over the user's choices.
     local function startOnceReady()
-        if not AlchemyGPS.Core.SavedVariables:GetModuleDB(self:GetName()) then
-            AlchemyGPS:ScheduleTimer(startOnceReady, 0.1)
+        if not AzerothAtlas.Core.SavedVariables:GetModuleDB(self:GetName()) then
+            AzerothAtlas:ScheduleTimer(startOnceReady, 0.1)
             return
         end
         self:Start()
     end
     startOnceReady()
 
-    AlchemyGPS.Core.SlashCommands:Register("quest", function(rest)
+    AzerothAtlas.Core.SlashCommands:Register("quest", function(rest)
         self:Slash(rest)
-    end, "quest tracker / arrow / pins (try /gps quest help)")
+    end, "quest tracker / arrow / pins (try /aatlas quest help)")
 end
 
 ---------------------------------------------------------------------------------------
--- /gps quest
+-- /aatlas quest
 ---------------------------------------------------------------------------------------
 
 local function say(fmt, ...)
     local ok, msg = pcall(string.format, fmt, ...)
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffc0c0ff[AlchemyGPS]|r " .. (ok and msg or tostring(fmt)))
+        DEFAULT_CHAT_FRAME:AddMessage("|cffc0c0ff[AzerothAtlas]|r " .. (ok and msg or tostring(fmt)))
     end
 end
 Core.Say = say
@@ -285,7 +285,7 @@ end
 
 function Core:DumpQuest(questID)
     local Catalog, State, Api, Routing = Q.Catalog, Q.State, Q.Api, Q.Routing
-    local Map = AlchemyGPS.Map
+    local Map = AzerothAtlas.Map
     local row = Catalog and Catalog.Quests[questID]
     if not row then
         say("quest %d: not in the bundled database", questID)
@@ -393,7 +393,7 @@ function Core:Slash(rest)
             end
             table.sort(list)
             say("hidden quests: %s", #list > 0 and table.concat(list, ", ") or "none")
-            say("/gps quest hide <questID> | unhide <questID> | unhide all")
+            say("/aatlas quest hide <questID> | unhide <questID> | unhide all")
         end
     elseif cmd == "trackall" then
         if Q.State then Q.State:WatchAll() end
@@ -415,17 +415,17 @@ function Core:Slash(rest)
         if id then
             self:DumpQuest(id)
         else
-            say("usage: /gps quest dump <questID>")
+            say("usage: /aatlas quest dump <questID>")
         end
     else
-        say("/gps quest - status")
-        say("/gps quest tracker | arrow | auto | blizz - toggle that piece")
-        say("/gps quest list - the full quest list window")
-        say("/gps quest key <KEY> - bind \"use the nearest quest item\" (no key: show it)")
-        say("/gps quest areas | patrols - toggle shaded quest areas / patrol paths")
-        say("/gps quest hide <questID> | unhide <questID|all> - quests kept off the map")
-        say("/gps quest trackall - put every quest back on the tracker")
-        say("/gps quest route <questID> - route to a quest (no id: clear)")
-        say("/gps quest dump <questID> - database vs. live data for one quest")
+        say("/aatlas quest - status")
+        say("/aatlas quest tracker | arrow | auto | blizz - toggle that piece")
+        say("/aatlas quest list - the full quest list window")
+        say("/aatlas quest key <KEY> - bind \"use the nearest quest item\" (no key: show it)")
+        say("/aatlas quest areas | patrols - toggle shaded quest areas / patrol paths")
+        say("/aatlas quest hide <questID> | unhide <questID|all> - quests kept off the map")
+        say("/aatlas quest trackall - put every quest back on the tracker")
+        say("/aatlas quest route <questID> - route to a quest (no id: clear)")
+        say("/aatlas quest dump <questID> - database vs. live data for one quest")
     end
 end

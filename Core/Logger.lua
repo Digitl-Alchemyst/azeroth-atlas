@@ -1,14 +1,14 @@
--- Alchemy GPS | Core / Logger
+-- Azeroth Atlas | Core / Logger
 -- Level-based logger that writes to DEFAULT_CHAT_FRAME with a
--- consistent `|cff... [AlchemyGPS] ...|r` prefix. Modules acquire a
+-- consistent `|cff... [AzerothAtlas] ...|r` prefix. Modules acquire a
 -- per-module logger via Logger:Get("Map") instead of a naked print().
 --
 -- Adapted from AlchemyNavigation/Core/Logger.lua (rename only).
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 
 local Logger = {}
-AlchemyGPS.Core.Logger = Logger
+AzerothAtlas.Core.Logger = Logger
 
 local LEVEL = {
     DEBUG = 1,
@@ -20,7 +20,7 @@ local LEVEL = {
 Logger.LEVEL = LEVEL
 
 -- Global cap: anything below this level is dropped before formatting.
--- Defaults to INFO; toggled to DEBUG with `/gps debug` or the
+-- Defaults to INFO; toggled to DEBUG with `/aatlas debug` or the
 -- Settings window's Debug mode checkbox (Phase 3+).
 Logger.minLevel = LEVEL.INFO
 
@@ -31,7 +31,7 @@ local LEVEL_PREFIX = {
     [LEVEL.ERROR] = "|cffff4040[E]|r ",
 }
 
-local ADDON_PREFIX = "|cffc0c0ff[AlchemyGPS]|r "
+local ADDON_PREFIX = "|cffc0c0ff[AzerothAtlas]|r "
 
 local function emit(level, tag, fmt, ...)
     if level < Logger.minLevel then return end

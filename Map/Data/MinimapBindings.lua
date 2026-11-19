@@ -4,7 +4,7 @@
 -- Distributed under the GNU General Public License, version 3 or later.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 8b, 2026-11-10): copied
+-- Azeroth Atlas port note (build-order step 8b, 2026-11-10): copied
 -- verbatim, including its MapWorldInfo[13]/[14] anchor indices - left
 -- unchanged even though [13]/[14] don't match this same file's own
 -- Kalimdor/Eastern-Kingdoms *root* entries at a glance (our/real
@@ -20,8 +20,8 @@
 -- was written against. Not "corrected" blindly: verify live whether
 -- Kalimdor/EK detail tiles land in the right real-world position
 -- before trusting or further debugging this formula.
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 Map.MiniMapBlks = {
     [1] = {

@@ -1,9 +1,169 @@
 # Changelog
 
-All notable changes to Alchemy GPS are logged here. Format is loose
+All notable changes to Azeroth Atlas are logged here. Format is loose
 (this is a solo/small-team addon project, not a public release train)
 but entries are dated and grouped by area so the history stays
 readable.
+
+- **2026-11-19: renamed to Azeroth Atlas.** The release name. Formerly
+  "Alchemy GPS"; every name in the addon moved with it:
+  - Folder and `.toc`: `AzerothAtlas`. Global addon table, frame names,
+    `Interface\AddOns\...` texture paths: `AzerothAtlas`.
+  - Saved settings: `AzerothAtlasDB` (old `AlchemyGPSDB` file copied
+    over by hand once, so nothing is lost).
+  - Slash command: `/aatlas` (was `/gps`). Not `/atlas`, which the Atlas
+    addon already owns.
+  - Key binding header and names: `AZEROTHATLAS_*`.
+  - Addon-message prefix: `AzerothAtlas1` (was `AlchemyGPS1`), so
+    party quest sharing, dungeon rooms and player dots only talk to
+    other copies of this version.
+  - Earlier entries below were updated to the new names too. The GitHub
+    repo was renamed `alchemy-gps` -> `azeroth-atlas` (old links
+    redirect); issue links updated.
+
+- **2026-11-19: dragons round boss pins; Drowned City rares.** User:
+  gold dragon round bosses, silver round rares, and flag the Drowned
+  City's three rares (Umbra, Gill, "Pyromancer" Braxton).
+  - `DungeonPins.lua`: every boss pin gets the classic target frame's
+    dragon (gold `UI-TargetingFrame-Elite`, silver `-Rare`), cut to the
+    part round the portrait hole (centred at 182, 44 per DarkMode's own
+    overlay placement) and drawn over the portrait, mouse passing
+    through. Pins can now have their own width / height and a pixel
+    offset (`w`, `h`, `ox`, `oy`, `levelUp`).
+  - `DUNGEON_RARES`: rares by FDJ dungeon name; Gill added (FDJ's map
+    lacks him) at an approximate spot by the user's description, with a
+    tooltip saying so. Rares show "Rare" in the tooltip.
+  - First try cut the dragon out of the classic frame art (x 150-256),
+    which lost its head on the left (user screenshot). Now the modern
+    dragon-only atlases (`UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold` /
+    `-Rare-Silver`), placed as the target frame places them (atlas top
+    right 50 right / 47 up of the portrait's centre, drawn as if the pin
+    were 53 of its 58 units - tuned from two screenshots, after a
+    screenshot showed the frame's own 63 / 41 off-centre), sized from
+    `C_Texture.GetAtlasInfo`; no dragon if the client lacks the atlas.
+  - The level picker sits at the end of the big map's button row
+    (`MinimapWindow:UpdateLevelBar`); centred at the top otherwise.
+
+- **2026-11-19: Drowned City level switches by room.** User: the map
+  should switch to Atal'Byzal (Primeval Elemental's level) on entering it
+  and back on leaving. `ResolveDungeonMap` already picked the level from
+  the room the game names, but only when the game reported no map at
+  all; a Forever dungeon drawn from FDJ's pictures can get a game map
+  that matches none of its levels, which left the room check off and the
+  map on level 1. New `MapFloorKnown`: the room decides whenever the
+  game's map didn't match a level.
+  - Leaving Atal'Byzal into the city's unnamed passages also switches
+    back: `DungeonRooms.lua` `UNNAMED_LEVEL[2970] = 1` - no room name
+    (empty, or just the dungeon's name) means level 1 there, since the
+    lower level's only room is Atal'Byzal. A room name we don't know
+    still leaves the level alone.
+
+- **2026-11-19: Shady Saltseers (95789) on the Drowned City map.** User:
+  the Voodoo-Infused Artifacts drop from the Saltseers in Captain
+  Dreadrise's room, the Altar of the Serpent (north side); nothing showed.
+  First tied to Captain Dreadrise's pin; then (user: the quest is
+  separate from the boss, show the area like outside) moved to a new
+  `QuestDBManual.lua` `DungeonObjectiveRooms` table: the room is shaded
+  in the quest's colour while the objective is unfinished, with a ring
+  at its centre for the tooltip (`DungeonRooms.lua`
+  `GetQuestRoomPins`, drawn by `DungeonPins.lua`). Outside, routing
+  already sent the quest to the dungeon's entrance (`QuestDungeons`).
+
+- **2026-11-19: Smuggler's Paradise (95288) needs its lead-in.** User:
+  the map offered it at Friz Frazzlespark but the game wouldn't. It
+  follows The Goblin Trader (93976, Horde; after Borrowed Blades 93788,
+  Kreza Darkthorn, Rog'mar) or A Few Furs for Friz (94928, Alliance) -
+  both name it as their next quest, but QuestieDB gives it no
+  prerequisite. New `QuestDBManual.lua` `ManualRules`, merged over the
+  generated rules in `QuestRules.lua`. Only 12 quests have this shape
+  (3 from Forever); the rest weren't changed without evidence.
+
+- **2026-11-19: Not My Circus (95982, Riverglades) shown to Horde.**
+  User (Horde, 41): Jasper Geartoggle offers it but the map had no pin.
+  Carbonite's row marks it Alliance (side 1); QuestieDB has no race limit
+  and the goblin giver is friendly to both. New `QuestDBManual.lua`
+  `ManualSide` (applied in `Catalog:ApplyManual`) sets it to both.
+  Checked the rest: 71 faction-locked rows that QuestieDB lists as open to
+  both, but 70 are elsewhere - 54 on Zephras Isle, whose Valanaar chain
+  QuestieDB itself marks Alliance - so no blanket rule; only this one.
+
+- **2026-11-18: player-provided quest items (Magram / Gelkis, Desolace).**
+  User: Gizmo for Warug, I Need a Tailor and others need items from the
+  AH or a profession; with the rep objective already done, routing sent
+  them straight back to the quest giver.
+  - New generated block `QuestData.ProvidedItems` (`gen_quest_rules.py`
+    `provided_items`): items a quest asks for that nothing drops, holds
+    or rewards in QuestieDB (not quest items, not class 15, not level-1
+    "other" consumables like Pamela's Doll or Craftsman's Writs). 419
+    quests. Hand additions in `QuestDBManual.lua` `ManualProvidedItems`
+    (I Need a Tailor: White Bandit Mask - QuestieDB has no objectives).
+  - The clans' Forever profession quests have no objectives in QuestieDB;
+    items from Wowhead Forever added to `ManualProvidedItems`: A New
+    Need for Shadow Protection (92754, 3 Greater Shadow Protection
+    Potions), Mysterious Mysticism (92755, 3 Greater Mystic Essences),
+    Leather Technique (92817, Barbaric Harness), Big, No, MASSIVE Iron
+    Axes (92818, 2 Massive Iron Axes). 92754 had no row at all (QuestieDB
+    has no turn-in, so the import skipped it): new `ManualRows` table,
+    added by `Catalog:ApplyManual` when a quest has no row.
+  - `QuestDBManual.lua` `ObjectiveNotes`: A Conqueror's Crown (92743) -
+    the Conqueror's Helm is looted from an object of the same name
+    (580100) in a crypt in the Badlands. Wowhead Forever and QuestieDB
+    have no position for it.
+  - `Catalog:ObjectiveNote` / `ObjectiveTag`: tracker, list and quest
+    text show "(craft or AH)", "(vendor)" or the note on the unfinished
+    objective; the tooltips say more.
+  - `QuestRouting.lua` `ResolveQuest`: an unfinished objective with
+    `hold` gives the quest no destination instead of the giver.
+  - Regenerating also refreshed `QuestDBExtras.lua` from the 11-16
+    Carbonite.Quests update: +509 names, +172 class quests (sampled:
+    all real class quests), nothing removed.
+- **2026-11-18: quest list layout.** The +/- now sits right of the
+  quest's tick box (as on zone rows); every row is inset 4px so the zone
+  tick boxes clear the window border.
+
+- **2026-11-18: quest list clicks, objective +/-, quest text panel.**
+  - List clicks (`QuestList.lua` `List:QuestClick`): click opens the
+    quest text, Shift-click routes, Ctrl-click tracks / untracks.
+    Right-click menu and Shift-right-click link unchanged.
+  - A +/- left of the tick box on quests with objectives folds them
+    open (same state as the menu's "Show objectives"). Quest rows moved
+    4px right to make room.
+  - Rewards in the text panel weren't showing: this client's reward
+    calls need the quest id and the quest's data loaded. `Api:GetRewards`
+    now passes the id to every call, pcalls each one separately, and
+    asks for the data (`C_QuestLog.RequestLoadQuestByID`, as
+    ForeverDungeonJournal does); the panel redraws on
+    `QUEST_DATA_LOAD_RESULT` / `GET_ITEM_INFO_RECEIVED`.
+  - Dark mode for the text panel, on by default (`DetailsDark`): the
+    parchment desaturated and tinted 0.36, the DarkMode addon's default
+    "Dark" mode; white text. Settings > Quests checkbox to turn it off.
+  - Button bar on the panel: Track, Route, Share, Abandon, Wowhead.
+
+- **2026-11-18: Riverglades quest routing pass.** User: Riverglades
+  quests picked up from NPCs around the world routed back to the giver
+  instead of to the turn-in in the Riverglades.
+  - **Root cause: stale deploy.** The live client's `Quest/Data/*.lua`
+    predated the 2026-11-16 22:47 regeneration; in that older data the
+    breadcrumbs (The Riverglades Report 95315, Report to Rog'mar 95141,
+    Finding Tan'jani 95143, Overseas Delivery 95144, Twice Misplaced
+    Trust 97332, the Lost Shipping Crates, ...) had a Start but no End,
+    so routing fell to Blizzard's marker, which on this server sits on
+    the giver. Current data has every one of the 24 breadcrumbs' turn-ins
+    (audited against QuestieDB: 193 quests touch map 2548, none with a
+    turn-in outside the zone that our rows disagree with). Redeployed.
+  - **Guard** (`QuestRouting.lua` `PointsBackAtGiver`): Blizzard's live
+    point is now skipped when it is within 30 yards of a pickup point
+    and the database has a turn-in somewhere else - the turn-in wins.
+  - **Krol'dok Stronghold** (instance 3039): its seven quests added to
+    `QuestDBManual.lua`'s `QuestDungeons` (route to the entrance at
+    37.5, 37.4), and Overlord Mugg / Nar'gurk to `DungeonQuestBosses`.
+    List from ForeverDungeonJournal.
+  - **Not fixable from data on hand:** about 15 gather objectives
+    (Sweetberry, Riverweed, Feed Satchels, Saw Blades, Holy Candles,
+    Wildflowers, Marsh Gas Vials, Eastsea Powder Kegs, Robbie's Hat, ...)
+    have no position in QuestieDB, Carbonite or any installed addon, and
+    Wowhead Forever's pages list the items with no sources or map data.
+    These still fall back to Blizzard's marker, then the turn-in.
 
 - **Build-order step 9e, 2026-11-10: gathering-node field (herb/mining/
   fish/treasure).** User's request: see gathering nodes on the tiled
@@ -25,7 +185,7 @@ readable.
     `MiningData.lua`, `FishData.lua`, `TreasureData.lua`) verbatim into
     this addon's own `Map/Data/` (`GatherHerb.lua`, `GatherMining.lua`,
     `GatherFish.lua`, `GatherTreasure.lua`), renaming their global
-    table names (`AlchemyGPS*` instead of `GatherMateData2*`) so they
+    table names (`AzerothAtlas*` instead of `GatherMateData2*`) so they
     can't collide with GatherMate2/Carbonite's own identically-shaped
     globals if those addons are also loaded. Coordinate decode is a
     direct port of GatherMate2's own `Collector.lua` `DecodeLoc` (a
@@ -178,7 +338,7 @@ readable.
   to populate. Still untested in-game as of this writing.
 - **Fix, same day: the taint-deferral fix above STILL tripped the same
   "GatherMate2 has been blocked" popup.** User confirmed via a clean
-  isolating test - AlchemyGPS disabled entirely, GatherMate2 left
+  isolating test - AzerothAtlas disabled entirely, GatherMate2 left
   enabled on its own: no error at all - that this addon's own code is
   the trigger, not a pre-existing GatherMate2-vs-server incompatibility.
   The only non-passive thing this addon did to GatherMate2 was the
@@ -201,7 +361,7 @@ readable.
   Carbonite suite is disabled - meaning `Carbonite.Gathermate2_Data`
   (which hard-requires `## Dependencies: Carbonite` in its own `.toc`)
   could never load for this setup regardless of any fix. More
-  importantly, the user clarified the actual direction: **AlchemyGPS
+  importantly, the user clarified the actual direction: **AzerothAtlas
   exists to phase Carbonite out** - depending on a Carbonite-only data
   bridge was backwards on principle, not just broken for this user.
   - Root cause of the taint, now actually understood instead of routed
@@ -294,7 +454,7 @@ readable.
     while the window was open and restored `PrevNativeHidden` after —
     this was the actual cause of the "checkbox resets on reload"
     complaint, since it overrode the saved preference independently of
-    the checkbox. Also removed the `/gps mapdebug` slash command (built
+    the checkbox. Also removed the `/aatlas mapdebug` slash command (built
     entirely around the now-deleted `MMFrm`/`MMOwn` fields).
   - **Removed** (`ZoomController.lua`): the `MMFrm:SetZoom()` nudge in
     `ScrollSteps` that kept the real widget's zoom level in sync with
@@ -302,7 +462,7 @@ readable.
     never blended in.
   - **"Hide Blizzard minimap" now actually remembers its state**: with
     `Open()`/`Close()` no longer touching `NativeMinimapHidden`, the
-    only writers left are the Settings checkbox and `/gps minimap
+    only writers left are the Settings checkbox and `/aatlas minimap
     hide|show`, both of which set the saved value directly — and the
     pre-existing login-time `applyNativeHiddenOnceReady` poll applies
     whatever was last saved, with nothing to override it anymore.
@@ -330,7 +490,7 @@ readable.
     this client exposes, so no further diagnosis was possible that way.
   - User's own clean A/B test turned up a genuinely strange data point:
     enabling the (otherwise-unused) Carbonite suite alongside
-    AlchemyGPS **suppressed** the popup, while AlchemyGPS alone (no
+    AzerothAtlas **suppressed** the popup, while AzerothAtlas alone (no
     Carbonite) still triggered it. More addons running reducing an
     error, rather than adding more addons increasing risk of one, broke
     every reparenting/taint theory tried so far.
@@ -353,7 +513,7 @@ readable.
     that touches the real minimap, the gathering-node feature, and the
     live-widget-reparenting mechanism (removed earlier this same day)
     had now each been individually ruled out, while disabling
-    AlchemyGPS entirely still reliably fixed it - a real paradox that
+    AzerothAtlas entirely still reliably fixed it - a real paradox that
     pointed at something structural (load order, addon count/timing)
     rather than any one line of this addon's own runtime code.
   - **User's call, given the above**: stop chasing an unreproducible-
@@ -369,7 +529,7 @@ readable.
     standalone, non-Carbonite data addon already on this server,
     tailored specifically to this one server build) for herb/mining/
     treasure into `Map/Data/Gather{Herb,Mining,Treasure}.lua`, with the
-    global table renamed (`AlchemyGPS*` instead of `GatherMateData2*`)
+    global table renamed (`AzerothAtlas*` instead of `GatherMateData2*`)
     so it can never collide with GatherMate2's own identically-shaped
     globals if that addon happens to be loaded anyway. The Forever
     pack's own `FishData.lua` is empty, so `Map/Data/GatherFish.lua`
@@ -395,8 +555,8 @@ readable.
   - **Open question, explicitly not resolved**: the actual root cause
     of the taint popup was never conclusively identified - every
     specific mechanism tested was ruled out, yet the popup was 100%
-    reproducible whenever AlchemyGPS was enabled (with GatherMate2
-    enabled) and 100% absent whenever AlchemyGPS was disabled. If this
+    reproducible whenever AzerothAtlas was enabled (with GatherMate2
+    enabled) and 100% absent whenever AzerothAtlas was disabled. If this
     addon ever adds another GatherMate2 integration in the future,
     don't assume the cause is understood just because this round's
     specific theories were disproven - re-derive from scratch or re-
@@ -405,11 +565,11 @@ readable.
     disabled (per the user's own plan) and the gathering-node field
     fully reverted to static data with zero runtime calls into
     GatherMate2 at all, the SAME "has been blocked from an action only
-    available to the Blizzard UI" popup now names **AlchemyGPS itself**
+    available to the Blizzard UI" popup now names **AzerothAtlas itself**
     instead of GatherMate2 - still fires, gathering nodes still render
     correctly despite it. This is a meaningful new data point for any
     future investigation: the popup was never really "about"
-    GatherMate2 specifically - something in AlchemyGPS's own login-time
+    GatherMate2 specifically - something in AzerothAtlas's own login-time
     code trips a Blizzard protected-action check regardless of which
     other addon happens to be next in the blamed chain when one is
     present. User's call was to accept this as a known cosmetic issue
@@ -479,7 +639,7 @@ readable.
   - `MapContextMenu.lua`: added a second label+slider row ("Gathering
     Icon Opacity"), same `OptionsSliderTemplate`/0-100%/persisted
     pattern as row 1's brightness slider - persists to
-    `AlchemyGPS.db.profile.GatherIconOpacity`, applied live to
+    `AzerothAtlas.db.profile.GatherIconOpacity`, applied live to
     `MinimapEngine.GatherOpacity`. Menu frame resized taller (70px ->
     136px) to fit both rows.
   - `MinimapEngine.lua`: `TakeOwnership` seeds `self.GatherOpacity`
@@ -507,7 +667,7 @@ readable.
   - Bumped the base icon size 10 -> 12 (`GATHER_ICON_SIZE`,
     `MinimapEngine.lua`).
   - **New size slider** (row 3 in `MapContextMenu.lua`): 50%-300% of
-    that base size, persisted as `AlchemyGPS.db.profile.
+    that base size, persisted as `AzerothAtlas.db.profile.
     GatherIconScale`, applied live to `MinimapEngine.GatherIconScale`
     and multiplied into the size passed to `ClipFrameW` in
     `UpdateGatherIcons`. Menu resized 136px -> 198px for the third row.
@@ -540,7 +700,7 @@ readable.
     frame itself) kept behind it purely via frame level
     (`level - 1`, set every update pass).
   - **New backdrop-opacity slider** (row 4, `MapContextMenu.lua`): 0-
-    100%, persisted as `AlchemyGPS.db.profile.GatherBackdropOpacity`,
+    100%, persisted as `AzerothAtlas.db.profile.GatherBackdropOpacity`,
     applied live to `MinimapEngine.GatherBackdropOpacity` - replaces
     the old fixed `GATHER_BACKDROP_ALPHA_MULT` (0.7) constant, which is
     now just that slider's default so today's look doesn't change
@@ -557,7 +717,7 @@ readable.
   asked for the backdrop's corner rounding to match the map module's
   own window corners specifically, rather than the ad-hoc small
   `edgeSize` picked in step 9i. `frm.backdrop`'s `SetBackdrop` call now
-  reads `AlchemyGPS.Skin:GetBackdrop()` directly (the exact same table
+  reads `AzerothAtlas.Skin:GetBackdrop()` directly (the exact same table
   `UI/Window.lua`'s `CreateBorders` applies to the real window frame,
   defined in `UI/Skin.lua`) instead of a separate hardcoded recipe -
   same asset, same `edgeSize`/`tileSize`/`insets`, so it keeps matching
@@ -595,7 +755,7 @@ readable.
     zoom buttons - flat dark background + text label, no icon texture
     to risk guessing wrong) instead of at the cursor, since this is a
     toolbar dropdown, not a right-click menu.
-  - Persisted as `AlchemyGPS.db.profile.MapFilters[key]` - missing key
+  - Persisted as `AzerothAtlas.db.profile.MapFilters[key]` - missing key
     means "on," same convention `AutoFollow` already uses, so adding a
     new filter later never needs a migration to default existing
     profiles to visible.
@@ -616,7 +776,7 @@ readable.
     9's later live re-test disproved it (see that section's own entry
     above). Corrected to describe what was actually confirmed (fixed
     checkbox persistence) versus what never panned out (the taint
-    popup itself, still unresolved, now blaming AlchemyGPS directly
+    popup itself, still unresolved, now blaming AzerothAtlas directly
     with GatherMate2 disabled).
   - Deployed and verified byte-identical. Not yet live-tested.
 
@@ -710,7 +870,7 @@ readable.
 
 - **Build-order step 9m, 2026-11-10: debug overlay cleanup.** User
   reported the on-map debug overlay (`MinimapEngine.lua`'s
-  `UpdateDebugOverlay`, shown via `/gps debug` or the Settings
+  `UpdateDebugOverlay`, shown via `/aatlas debug` or the Settings
   checkbox) was "jumbled" and asked for it to show everything the four
   `Docs/Testing/Phase5-8*.md` checklists (just rewritten the same
   session - see that work above) actually watch for. Every field those
@@ -1187,7 +1347,7 @@ readable.
     the exact same inversion `MouseWheel`'s zoom-at-cursor code already
     proven working, rather than deriving a new one.
   - Goto storage is a single in-memory point (`GotoWX/GotoWY/GotoCont`)
-    — not saved to `AlchemyGPS.db`, matching real Carbonite's own
+    — not saved to `AzerothAtlas.db`, matching real Carbonite's own
     `Nx.Map.Targets` (a plain runtime table, confirmed never written to
     its SavedVariables either). Cleared on arrival (within 7 yards —
     real Carbonite's own default `Target.Radius`) with a
@@ -1592,7 +1752,7 @@ later."
   for its own defaults. Class Color/Faction keep their real
   `BdColResolve` live-state override (reads `UnitClass`/
   `UnitFactionGroup` at apply time) over the saved border color.
-  `Skin:Set(name)` persists the choice (`AlchemyGPS.db.profile.Skin.
+  `Skin:Set(name)` persists the choice (`AzerothAtlas.db.profile.Skin.
   Name`/`WinBdColor`/`WinSizedBgColor`), recomputes
   `BdCol`/`BgCol`/`FixedBgCol`, then calls the new `Skin:ResetWindows()`
   - a trimmed version of Carbonite's real `ResetBackdrops` sweep (this
@@ -1613,7 +1773,7 @@ later."
 - **Three more swappable single-texture categories - new
   `UI/StyleOptions.lua` registry** (`Categories` table +
   `GetTex`/`GetChoice`/`SetChoice`), persisted at
-  `AlchemyGPS.db.profile.Style`, defaults matching the exact prior
+  `AzerothAtlas.db.profile.Style`, defaults matching the exact prior
   look so nothing changes for existing users until the tab is opened:
   - *Trail Arrow* (the Goto/Corpse ant-trail arrow): Carbonite
     Gradient (prior default) plus Carbonite's unused `HUDArrow`/
@@ -1725,23 +1885,23 @@ should; it only covered one. Deployed and verified byte-identical -
 turned out NOT to be the actual cause of the reported bug (see
 immediately below) but is a real fix in its own right, left in place.
 
-### Build-order step 13, second same-day fix, 2026-11-11: the ACTUAL cause of the stuck white box - `AlchemyGPS.db` didn't exist yet when `Skin:Init()` ran.
+### Build-order step 13, second same-day fix, 2026-11-11: the ACTUAL cause of the stuck white box - `AzerothAtlas.db` didn't exist yet when `Skin:Init()` ran.
 
 The first fix above didn't resolve it - user reported the white box
 still appeared after a plain `/reload`, never having touched the Style
 tab at all, which is the real tell: `Skin:ResetWindows()` (what the
 first fix touched) only ever runs from an explicit Style-tab pick, not
 on login. Re-diagnosed with a live `/run` check
-(`AlchemyGPS.Modules.Map.MinimapWindow.Win`) rather than guessing a
+(`AzerothAtlas.Modules.Map.MinimapWindow.Win`) rather than guessing a
 third theory - it printed "no window," meaning the minimap window
 object itself was never successfully created that session at all.
 
 Root cause: `Skin:Init()` (runs unconditionally at this file's own
 load time, well before `PLAYER_LOGIN`) called `Skin:Set(..., true)`,
 and `Set()` unconditionally wrote
-`AlchemyGPS.db.profile.Skin.Name = ...` - but `AlchemyGPS.db` is not
+`AzerothAtlas.db.profile.Skin.Name = ...` - but `AzerothAtlas.db` is not
 created at file-load time at all; `Core/SavedVariables.lua`'s own
-`ensureDB()`/`bind()` only run later, on the `ALCHEMYGPS_INITIALIZE`
+`ensureDB()`/`bind()` only run later, on the `AZEROTHATLAS_INITIALIZE`
 event (`PLAYER_LOGIN`) - the exact same timing gap
 `MinimapWindow.lua`'s own `OnEnable` comment already documents and
 works around, for the exact same reason, one file over. This threw
@@ -1764,22 +1924,22 @@ constructing or updating it, while the module's own `.Win` reference
 needed to even find/reposition it stayed nil.
 
 Fixed in `UI/Skin.lua`: `Init()` now always sets the hardcoded
-"Modern Dark" default directly (no `AlchemyGPS.db` read attempt at
-all), and separately subscribes to `ALCHEMYGPS_INITIALIZE`
-(`AlchemyGPS.Core.EventBus`, the same event/mechanism
+"Modern Dark" default directly (no `AzerothAtlas.db` read attempt at
+all), and separately subscribes to `AZEROTHATLAS_INITIALIZE`
+(`AzerothAtlas.Core.EventBus`, the same event/mechanism
 `SavedVariables.lua` itself uses for this exact timing problem) to
-re-apply the user's real saved skin choice once `AlchemyGPS.db`
+re-apply the user's real saved skin choice once `AzerothAtlas.db`
 actually exists. `Set()`/`Update()` also made defensive against
-`AlchemyGPS.db` being nil generally, as a second line of defense.
+`AzerothAtlas.db` being nil generally, as a second line of defense.
 
-**How to apply**: [[project_alchemy_gps]] - `AlchemyGPS.db` is NOT
+**How to apply**: [[project_alchemy_gps]] - `AzerothAtlas.db` is NOT
 available at plain file-load time anywhere in this addon - it's only
-safe to read/write starting from the `ALCHEMYGPS_INITIALIZE` event
+safe to read/write starting from the `AZEROTHATLAS_INITIALIZE` event
 (fired at `PLAYER_LOGIN`, well after every `.xml`'s `<Script>` tags
 have already executed) or later. Any future top-level file-load-time
 code (an `:Init()` called unconditionally at the bottom of a file, the
 same pattern `UI/Skin.lua` already used before this bug) that touches
-`AlchemyGPS.db` needs the same guard-or-defer treatment
+`AzerothAtlas.db` needs the same guard-or-defer treatment
 `MinimapWindow.lua`'s own `OnEnable` and now `UI/Skin.lua` both use -
 this is now the SECOND time this exact timing gap has bitten a feature
 in this addon (first documented in `MinimapWindow.lua`'s own header
@@ -1948,8 +2108,8 @@ Guide data files; `SERVICE_ICON_TEX`/`SERVICE_ICON_LABEL` gained an
 `Auctioneer` entry using the same `Interface\Minimap\TRACKING\
 Auctioneer` family; `Map/FilterMenu.lua`'s `FILTERS` list gained an
 "Auctioneers" row. No new code needed in `RefreshServiceIcons`/
-`UpdateServiceIcons`/`SetFilterOn` - `MinimapEngine` and `AlchemyGPS.
-Map` are literally the same table (`local MinimapEngine = AlchemyGPS.
+`UpdateServiceIcons`/`SetFilterOn` - `MinimapEngine` and `AzerothAtlas.
+Map` are literally the same table (`local MinimapEngine = AzerothAtlas.
 Map or {}`), so a new `Map.GuideData["Auctioneer"]` key is immediately
 visible as `self.GuideData["Auctioneer"]` with zero extra wiring, and
 every other involved function is already fully generic over whatever
@@ -2031,7 +2191,7 @@ node is actually present and in range - FarmHud isn't adding any
 detection logic on top of that, it's just making the native blips
 bigger and easier to see.
 
-This doesn't transfer directly - AlchemyGPS draws its own separate
+This doesn't transfer directly - AzerothAtlas draws its own separate
 custom map window from a static database, it isn't the native Minimap.
 But this *is* useful: it confirms the only real ground-truth "is a node
 here right now" signal available is the native Minimap's own blip
@@ -2044,8 +2204,8 @@ isolate" - but that dump was never actually filtered or grouped by
 anything, just eyeballed and abandoned.
 
 Added one read-only diagnostic, not the feature itself:
-`/gps scanblips` (new slash command, registered from
-`MinimapEngine.lua` via `Core/SlashCommands.lua`'s existing `/gps`
+`/aatlas scanblips` (new slash command, registered from
+`MinimapEngine.lua` via `Core/SlashCommands.lua`'s existing `/aatlas`
 registry) dumps every distinct texture/atlas path currently present on
 the real `Minimap`, grouped with a count, loudest first - a genuinely
 different look than the old one-by-one dump. Classic/Wrath-era clients
@@ -2074,7 +2234,7 @@ code, not another blind guess.
 
 ### Step 16 follow-up, same day: `scanblips` result explained, pivoted to a diff-based child-frame scan
 
-First live run of `/gps scanblips` came back `regions=0, children=493`
+First live run of `/aatlas scanblips` came back `regions=0, children=493`
 (then `499` moments later), `Minimap:IsShown()=true IsVisible()=false`,
 identical both standing on a node and away from one. Rather than
 chasing the `IsVisible()=false` angle (this addon's "Hide Blizzard
@@ -2092,10 +2252,10 @@ just abandoned one step too early, before trying to filter or diff it.
 A flat dump of ~500 children would still mostly be noise (quest POIs,
 group member dots, any other installed addon's own minimap
 decoration) that doesn't change based on where the player is standing.
-Added `/gps diffblips` instead: `/gps diffblips start` (run once, away
+Added `/aatlas diffblips` instead: `/aatlas diffblips start` (run once, away
 from any node) snapshots the current child-frame set by object
 identity (the frame itself as a table key, since most of these are
-anonymous pooled frames with no `GetName()`); `/gps diffblips` (no
+anonymous pooled frames with no `GetName()`); `/aatlas diffblips` (no
 argument) compares the live set against that snapshot and reports
 exactly which frames were added/removed, each described by name (if
 any) plus any texture/atlas found one level inside it (a blip frame's
@@ -2123,7 +2283,7 @@ whole time.
 Two more live rounds, each ruling out a specific confound before
 reaching a real conclusion:
 
-**Round 1 (everything enabled)**: `/gps diffblips` came back 19 added
+**Round 1 (everything enabled)**: `/aatlas diffblips` came back 19 added
 (all later 16, re-tested), 2 removed. The 2 removed were plainly the
 Minimap's own zoom in/out buttons churning (named by their own atlas
 strings - unrelated noise). The 16-19 added all shared the exact same
@@ -2138,14 +2298,14 @@ exactly this kind of route trail on the minimap; the player was
 actively moving ("running to node") during capture, so this was almost
 certainly that, not a node signal.
 
-**Round 2 (controlled test - every addon disabled except AlchemyGPS
-itself, confirmed via screenshot)**: `/gps diffblips start` taken
+**Round 2 (controlled test - every addon disabled except AzerothAtlas
+itself, confirmed via screenshot)**: `/aatlas diffblips start` taken
 standing still reported only **4 total Minimap children** (down from
 ~500 with everything enabled - confirming the ~500 figure really was
 nearly all OTHER addons' own reparented buttons/decoration, not
 anything native). Walking to and standing directly on top of a
 visibly-present node (confirmed in the same screenshot, player
-standing on a visible flowering plant) and running `/gps diffblips`
+standing on a visible flowering plant) and running `/aatlas diffblips`
 again: **0 added, 0 removed**, even right on top of it.
 
 **Conclusion: this is a confirmed dead end, not an inconclusive
@@ -2218,7 +2378,7 @@ blended into the custom map window - then removed it entirely on
 suspicion it caused a recurring "blocked from an action only available
 to the Blizzard UI" taint popup. The removal commit says plainly that
 removing it was live-tested and did **not** fix the popup (which
-persisted even with GatherMate2 fully disabled, now blaming AlchemyGPS
+persisted even with GatherMate2 fully disabled, now blaming AzerothAtlas
 itself) - so Mode:Live was specifically tested and isn't confirmed to
 be the cause, just a prior suspect. The archived code (`git show
 4076ed8^:Map/MinimapEngine.lua`) already guarded every `Minimap`-
@@ -2457,7 +2617,7 @@ own frame.
 Confirmed live again - the dark square is STILL there after the
 regions fix, faint. Two blind guesses in a row (frames, then regions)
 both reduced but didn't fully solve it, and each cycle costs a live-
-test round-trip. Rather than guess a third time, added `/gps
+test round-trip. Rather than guess a third time, added `/aatlas
 mmpassengers` - dumps every frame AND region under the live Minimap
 patch right now, each one's own description (name/size/offset/nested
 texture, reusing the existing `DescribeMinimapChild` from the step-16
@@ -2533,7 +2693,7 @@ this particular API on this client. Left `MMClipSupported` as a flag
 rather than ripping the branching back out.
 
 **User also clarified, re: the separate faint-texture issue (still
-open, `/gps mmpassengers` output still pending)**: confirmed it IS an
+open, `/aatlas mmpassengers` output still pending)**: confirmed it IS an
 actual texture with visible detail, not a flat alpha-dimmed color box
 - rules out a plain single-color backdrop panel as the culprit,
 consistent with it being either real (dimmed) Minimap terrain peeking
@@ -2547,7 +2707,7 @@ this server's client build may predate or diverge from the behavior
 assumed. A capability probe needs a real behavioral check (or a live
 test) when the API is this consequential, not just an existence check.
 
-## Build-order step 17, `/gps mmpassengers` follow-up, same day: filtered to shown-only
+## Build-order step 17, `/aatlas mmpassengers` follow-up, same day: filtered to shown-only
 
 First run came back with **2045 total descendants** (mostly Questie's
 own per-quest pin frames, parented directly onto `Minimap` - a real,
@@ -2567,7 +2727,7 @@ it, not just before/after the fact.
 
 ## Build-order step 17, sixth follow-up, same day: the square wasn't a hide failure, it was a hide-then-re-show race
 
-`/gps mmpassengers` (filtered) found the real culprit: a 177x177
+`/aatlas mmpassengers` (filtered) found the real culprit: a 177x177
 anonymous frame at offset 0,0 (roughly the size of the whole patch,
 plus two small 17px regions near a corner) - all three already
 tracked as `hidden-by-us:true` (we HAD called `:Hide()` on them) but
@@ -2607,7 +2767,7 @@ poll or hiding via a scriptable ancestor.
 
 ## Build-order step 17, seventh follow-up, same day: the faint square wasn't a passenger at all
 
-User re-ran `/gps mmpassengers` right after the OnShow-hook fix and a
+User re-ran `/aatlas mmpassengers` right after the OnShow-hook fix and a
 fresh `/reload`, with the square confirmed still visible and tied to
 tracking being on (ruled out via a direct test: not present with
 tracking off) - result: **0 shown out of 1971 descendants.** Every
@@ -2992,7 +3152,7 @@ stale "Art drawn on top of it" claims in both the `UpdateMiniFrames`
 header comment and `Update()`'s own zoom-gate comment to state the
 real, now-implemented order.
 
-**Also added**: `/gps hideart`/`/gps hideterrain` diagnostic slash
+**Also added**: `/aatlas hideart`/`/aatlas hideterrain` diagnostic slash
 commands (same family as `scanblips`/`diffblips`/`mmpassengers`),
 toggling `self.DebugHideArt`/`self.DebugHideTerrain`, read in
 `Update()`'s zoom-gate block to force-isolate either layer for live
@@ -3029,7 +3189,7 @@ implements.
 
 **Same-day follow-up: title-bar checkbox buttons for the two debug
 toggles, direct user request** ("give me buttons in the mini map to
-turn each layer on and off" - after being told about the `/gps
+turn each layer on and off" - after being told about the `/aatlas
 hideart`/`hideterrain` slash commands). Added two bare checkboxes to
 `MinimapWindow.lua`'s title bar, left of the existing Filter button -
 same stock-texture-plus-tooltip style as the Auto-follow checkbox, no
@@ -3040,7 +3200,7 @@ testing toggles from the layering fix above, not a new persisted user
 preference, so they intentionally reset to both-on at next login,
 matching the slash commands' own existing behavior. The slash commands
 now also sync the checkbox's checked-state if the window/checkbox
-exist (`syncLayerCheckbox`, nil-guarded the same way `/gps minimap
+exist (`syncLayerCheckbox`, nil-guarded the same way `/aatlas minimap
 hide|show` already guards its own Settings-window refresh), so toggling
 either control keeps the other in sync.
 
@@ -3149,7 +3309,7 @@ from each tick's own `need`, confirmed correct for a shrinking `blks`
 tick-to-tick, not just a growing one. `HideMiniFrames`/`ClipFrameTL`
 unchanged.
 
-**Confirmed unchanged, by design**: `/gps hideart`/`hideterrain` and
+**Confirmed unchanged, by design**: `/aatlas hideart`/`hideterrain` and
 the title-bar checkboxes (Phase 11) still short-circuit from the
 outside exactly as before; icon layer and gathering-radar strata
 mechanism untouched; the Art Map layer's own tiling untouched (a
@@ -3515,7 +3675,7 @@ any bright "revealed" detail on top - reads as "unexplored" to someone
 not thinking in addon-internals terms.
 
 Rather than guess a third time, added temporary diagnostic logging
-(`/gps dbgoverlay` toggle, throttled to one line per ~3s per mapId)
+(`/aatlas dbgoverlay` toggle, throttled to one line per ~3s per mapId)
 at every early-return point in `UpdateOverlay` plus a per-call summary
 (regions drawn/clipped/dimmed/bright) - meant to be removed once the
 real cause is confirmed and fixed, not a permanent feature like
@@ -3525,7 +3685,7 @@ live-test's chat log output before making another code change.
 
 ### Same-day third follow-up: real root cause found - wrong data file ported entirely
 
-User reloaded with `/gps dbgoverlay` on, zoomed to mid-range on
+User reloaded with `/aatlas dbgoverlay` on, zoomed to mid-range on
 Hillsbrad Foothills, and shared the chat log:
 
 ```
@@ -3600,12 +3760,12 @@ and already structurally sound; it was simply never being reached
 because the data it was looking up didn't exist under the right keys.
 
 Deployed to the live mirror, verified byte-identical; paren/brace-
-balance checked. Left `/gps dbgoverlay` in place for one more
+balance checked. Left `/aatlas dbgoverlay` in place for one more
 live-test pass (expect "OK txFolder=... regions=N ..." instead of "no
 overlays" in the log) before removing it as planned.
 
 **Live-tested, confirmed working** (2026-11-11, same day): user
-reloaded with `/gps dbgoverlay` on, zoomed to mid-range on Hillsbrad
+reloaded with `/aatlas dbgoverlay` on, zoomed to mid-range on Hillsbrad
 Foothills, log showed
 `OK txFolder="hillsbrad_c60" regions=12 tileW=256 tileH=256
 layerW=1002 layerH=668` on every tick - the lookup that was failing
@@ -3689,7 +3849,7 @@ Implementation:
   since the overlay (zones' own "revealed" sub-region art) stays
   conceptually part of Art Map, not Base - the user asked to split out
   "the continent" (the backdrop texture), not the overlay stitching.
-- New slash command `/gps hidebase`, same pattern as `hideart`/
+- New slash command `/aatlas hidebase`, same pattern as `hideart`/
   `hideterrain` (toggles `MinimapEngine.DebugHideBase`, logged, kept in
   sync with its checkbox).
 - New title-bar checkbox `BaseCB` (`MinimapWindow.lua`), continuing the
@@ -3762,7 +3922,7 @@ Implementation:
   fully unclaimed - folding Overlay back into +1 doesn't free anything
   those offsets need, and renumbering every one of them for no
   functional gain isn't worth the risk of a transcription slip.
-- Title-bar `ArtMapCB` tooltip and the `/gps hideart` description
+- Title-bar `ArtMapCB` tooltip and the `/aatlas hideart` description
   string updated to describe Overlay ("each zone's own revealed
   overlay art, stitched across the continent") instead of the removed
   flat backdrop. DebugHideArt/ArtMapCB already gated Overlay

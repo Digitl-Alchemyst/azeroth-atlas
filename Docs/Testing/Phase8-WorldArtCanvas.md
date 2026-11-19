@@ -31,7 +31,7 @@ None of the above has a recorded pass since this doc was written.
 
 1. **Full client restart** (not just `/reload`) if this hasn't been
    tested since `Map\Data\NxMapData.lua` was added to the `.toc`.
-2. Log in standing in a normal outdoor zone. `/gps showmap`, debug overlay
+2. Log in standing in a normal outdoor zone. `/aatlas showmap`, debug overlay
    on (`MapId`/`Cont`/`Zone`/`CurWorldUpdateMapId`/`tiles`, `PlyrX`/`PlyrY`/
    `PlyrDir`).
 3. Check chat for a red Lua error naming `NxMapData.lua` or

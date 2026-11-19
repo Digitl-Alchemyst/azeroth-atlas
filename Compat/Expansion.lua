@@ -1,15 +1,15 @@
--- Alchemy GPS | Compat / Expansion
--- Alchemy GPS targets WoW Forever only, so this is a deliberately
+-- Azeroth Atlas | Compat / Expansion
+-- Azeroth Atlas targets WoW Forever only, so this is a deliberately
 -- small version of the multi-flavor detection pattern Carbonite uses
 -- (see Carbonite/Compat/Expansion.lua for the original, which also
 -- handles Classic Era/TBC/Wrath/Cata/MoP/Retail).
 --
---   if AlchemyGPS.Compat.Expansion:HasFeature("MAP_C_MAP_API") then ... end
+--   if AzerothAtlas.Compat.Expansion:HasFeature("MAP_C_MAP_API") then ... end
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 
 local Expansion = {}
-AlchemyGPS.Compat.Expansion = Expansion
+AzerothAtlas.Compat.Expansion = Expansion
 
 -- WoW Forever identifies itself by TOC version, not WOW_PROJECT_ID
 -- (Carbonite's code calls this flavor "Camelot" internally).
@@ -37,4 +37,4 @@ function Expansion:HasFeature(name)
     return F[name] == true
 end
 
-AlchemyGPS.isForever = Expansion.isForever
+AzerothAtlas.isForever = Expansion.isForever

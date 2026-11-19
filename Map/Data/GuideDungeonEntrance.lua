@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/Data/GuideDungeonEntrance.lua
+-- Azeroth Atlas | Map/Data/GuideDungeonEntrance.lua
 --
 -- Build-order step 9l (2026-11-10): dungeon/raid entrance icons,
 -- explicit user request. Carbonite's Guides/ folder has no dedicated
@@ -34,8 +34,8 @@
 -- two - both share this same single "DungeonEntrance" filter/icon key.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 -- { instanceName, ownerMapId, ex, ey } - instanceName now also feeds
 -- the hover-tooltip label (build-order step 12), not just readability.

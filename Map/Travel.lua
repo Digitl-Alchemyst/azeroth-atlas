@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/Travel.lua
+-- Azeroth Atlas | Map/Travel.lua
 ---------------------------------------------------------------------------------------
 -- Travel routing (2026-11-18, user request, from Carbonite: "Travel
 -- routing with flight paths"). When the quickest way to where the arrow
@@ -36,12 +36,12 @@
 -- On / off: Settings > Map, Navigation, "Travel routes" (profile.TravelRoute).
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 local Travel = {}
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.Travel = Travel
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.Travel = Travel
 
 local YARDS_PER_WORLDUNIT = 4.575
 local WALK_YPS, MOUNT_FACTOR, WALK_DETOUR = 7, 1.6, 1.15
@@ -56,12 +56,12 @@ local huge, sqrt = math.huge, math.sqrt
 local taxiByCont = {}     -- continent -> flight masters (taxiNodes below)
 
 local function charDB()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     return db and db.char
 end
 
 local function routeOn()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     return db and db.profile.TravelRoute ~= false
 end
 
@@ -300,7 +300,7 @@ function Travel:NextLeg(dest)
     if not dest or not dest.x or not dest.cont or dest.kind == "corpse" or not routeOn() then return nil end
     -- On a flight: where it lands (Travel:FlightTarget), if known.
     if UnitOnTaxi and UnitOnTaxi("player") then return self:FlightTarget() end
-    local Q = AlchemyGPS.Modules.Quest
+    local Q = AzerothAtlas.Modules.Quest
     local Routing = Q and Q.Routing
     if not Routing then return nil end
     local px, py, pcont = Routing:GetPlayerPos()
@@ -379,14 +379,14 @@ end
 local FLIGHT_START_GRACE = 10   -- seconds for the flight to begin after you pick it
 
 local function flightTimes()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if not db then return nil end
     db.global.FlightTimes = db.global.FlightTimes or {}
     return db.global.FlightTimes
 end
 
 function Travel:OnTakeTaxi(slotIndex)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if db and db.profile.TrackFlight == false then return end
     local slots = self.TaxiSlots or {}
     local slot = slots[slotIndex]
@@ -398,7 +398,7 @@ function Travel:OnTakeTaxi(slotIndex)
     end
 
     -- Where it lands: the player's continent first, then the rest.
-    local Q = AlchemyGPS.Modules.Quest
+    local Q = AzerothAtlas.Modules.Quest
     local _, _, pcont = Q and Q.Routing and Q.Routing:GetPlayerPos()
     local found
     local function look(cont)

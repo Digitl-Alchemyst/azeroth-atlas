@@ -4,14 +4,14 @@
 -- Distributed under the GNU General Public License, version 3 or later.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 9l, 2026-11-10): copied
+-- Azeroth Atlas port note (build-order step 9l, 2026-11-10): copied
 -- verbatim from Carbonite/Data/camelot/Guides/Banker.lua - same exact
 -- format/port convention as GuideMailbox.lua/GuideInnkeeper.lua (see
 -- that file's own header comment for the full field-format writeup).
 -- Keyed by the plain string "Banker", the same key RefreshServiceIcons
 -- reads via SERVICE_ICON_TEX's own keys.
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 Map.GuideData = Map.GuideData or {}
 Map.GuideData["Banker"] = {

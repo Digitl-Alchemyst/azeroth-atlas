@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/BigMap.lua
+-- Azeroth Atlas | Map/BigMap.lua
 --
 -- 2026-11-17 (user request, "Feature from Leatrix"): what the map window
 -- gets when it's big (M maximises it, or it's dragged wide):
@@ -22,19 +22,19 @@
 -- StopBrowse / ShowPlayer.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 local BigMap = {}
-AlchemyGPS.Modules.Map.BigMap = BigMap
+AzerothAtlas.Modules.Map.BigMap = BigMap
 
 local MIN_BIG_WIDTH = 480     -- a window at least this wide counts as big
 local BAR_H = 20
 local MENU_ROWS = 22           -- rows per column before a menu wraps
 
-local function engine() return AlchemyGPS.Modules.Map.MinimapEngine end
-local function themes() return AlchemyGPS.Modules.Map.BigMapThemes end
-local function opts() return AlchemyGPS.Modules.Map.MinimapWindow:DB().profile end
+local function engine() return AzerothAtlas.Modules.Map.MinimapEngine end
+local function themes() return AzerothAtlas.Modules.Map.BigMapThemes end
+local function opts() return AzerothAtlas.Modules.Map.MinimapWindow:DB().profile end
 
 ---------------------------------------------------------------------------------------
 -- Popup menu (one at a time, same look as the map's right-click menu)
@@ -49,7 +49,7 @@ BigMap.CloseMenu = closeMenu
 
 local function createMenu()
     if menu then return menu end
-    menu = CreateFrame("Frame", "AlchemyGPSBigMapMenu", UIParent, "BackdropTemplate")
+    menu = CreateFrame("Frame", "AzerothAtlasBigMapMenu", UIParent, "BackdropTemplate")
     menu:SetFrameStrata("TOOLTIP")
     menu:SetBackdrop({
         bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -66,7 +66,7 @@ local function createMenu()
             closeMenu()
         end
     end)
-    tinsert(UISpecialFrames, "AlchemyGPSBigMapMenu")
+    tinsert(UISpecialFrames, "AzerothAtlasBigMapMenu")
     menu:Hide()
     return menu
 end
@@ -194,7 +194,7 @@ local function zoneMenu(owner)
     local items = { { E.MapInfo[cont] and E.MapInfo[cont].Name or "Zones", nil, nil, true } }
     for _, z in ipairs(E:GetContinentZones(cont)) do
         local label = z.city and (z.name .. " |cffa0a0a0(city)|r") or z.name
-        local lv = AlchemyGPS.Map.ZoneLevelText and AlchemyGPS.Map.ZoneLevelText(z.id)
+        local lv = AzerothAtlas.Map.ZoneLevelText and AzerothAtlas.Map.ZoneLevelText(z.id)
         if lv then label = label .. " " .. lv end
         items[#items + 1] = { label, function() E:BrowseTo("map", z.id, z.name) end, E.MapId == z.id }
     end
@@ -219,18 +219,18 @@ end
 -- request: "we want both to close together"). Shrinking the map back to
 -- small (M again) counts as closing the big map, not only hiding it.
 function BigMap:CloseDockedList()
-    local List = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.List
+    local List = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.List
     if List and List.IsDocked and List:IsDocked() then
         List:Dock(nil)
         if List.Win then List.Win:Hide() end
     end
     -- A quest lit up from the list goes back to normal with it.
-    local Pins = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.Pins
+    local Pins = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.Pins
     if Pins and Pins.SetFocus then Pins:SetFocus(nil) end
 end
 
 function BigMap:ToggleQuests()
-    local List = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.List
+    local List = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.List
     if not List or not List.Dock then return end
     if List:IsDocked() and List.Win and List.Win:IsShown() then
         List:Dock(nil)
@@ -302,7 +302,7 @@ function BigMap:Attach(window, win, content)
     add("Zones v", "Look at a zone or city on the continent on show.", function(b) zoneMenu(b) end)
     add("Dungeons v", "Look at a dungeon or raid map from outside.", function(b) dungeonMenu(b) end)
     add("Filters", "Choose which icons the map shows.", function(b)
-        local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+        local FilterMenu = AzerothAtlas.Modules.Map.FilterMenu
         if FilterMenu then FilterMenu:Toggle(b, true) end
     end)
     self.QuestBut = add("Quests", "Pop the quest list out beside the map. Click again to put it away.",
@@ -379,7 +379,7 @@ end
 function BigMap:MiniThemeChoice()
     local id = self:MiniThemeId()
     if id ~= 0 then return id end
-    local sv = AlchemyGPS.db and AlchemyGPS.db.profile.Skin
+    local sv = AzerothAtlas.db and AzerothAtlas.db.profile.Skin
     return (sv and sv.Name) or "Modern Dark"
 end
 
@@ -418,13 +418,13 @@ function BigMap:Update()
     local T = themes()
     if T then
         local id = self:CurrentThemeId(big)
-        local Skin = AlchemyGPS.Skin
+        local Skin = AzerothAtlas.Skin
         local sig = tostring(id) .. "|" .. tostring(Skin and Skin.Data)
         if sig ~= self.AppliedTheme then
             self.AppliedTheme = sig
             closeMenu()
             local ok, err = pcall(T.Apply, T, self, id)
-            if not ok then print("|cffff6060Alchemy GPS|r map theme: " .. tostring(err)) end
+            if not ok then print("|cffff6060Azeroth Atlas|r map theme: " .. tostring(err)) end
         end
         if id ~= 0 then T:Tick(self) end
     end
@@ -489,8 +489,8 @@ function BigMap:Update()
     local showHover = big and o.BigMapZoneLevels ~= false and czone and E.Cont ~= E.DUNGEON_CONT
     if showHover then
         local name = E:MapName(czone)
-        local lv = AlchemyGPS.Map.ZoneLevelText and AlchemyGPS.Map.ZoneLevelText(czone)
-        local fish = AlchemyGPS.Map.ZoneFishing and AlchemyGPS.Map.ZoneFishing(czone)
+        local lv = AzerothAtlas.Map.ZoneLevelText and AzerothAtlas.Map.ZoneLevelText(czone)
+        local fish = AzerothAtlas.Map.ZoneFishing and AzerothAtlas.Map.ZoneFishing(czone)
         local key = czone .. (lv or "")
         if key ~= self._hoverKey then
             self._hoverKey = key

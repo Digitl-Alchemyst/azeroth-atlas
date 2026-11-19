@@ -15,8 +15,8 @@
 --   rooms on them carry the level's id.
 -- FDRKeys[key] = instanceID: Forever Dungeon Routes' dungeon keys,
 --   for its party room messages.
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.DungeonRoomData = {
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.DungeonRoomData = {
     Rooms = {
         [36] = {
             { "Goblin Foundry", { 291, 0.6114, 0.6446, 134.9, 137.5 }, { 292, 0.1240, 0.8122, 151.1, 154.0 } },

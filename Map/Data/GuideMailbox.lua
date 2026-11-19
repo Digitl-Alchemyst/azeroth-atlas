@@ -4,7 +4,7 @@
 -- Distributed under the GNU General Public License, version 3 or later.
 ---------------------------------------------------------------------------------------
 
--- Alchemy GPS port note (build-order step 9b, 2026-11-10): copied
+-- Azeroth Atlas port note (build-order step 9b, 2026-11-10): copied
 -- verbatim from Carbonite/Data/camelot/Guides/Mailbox.lua - only the
 -- header changed (real source keys this via an AceLocale lookup,
 -- Nx.GuideData[L["Mailbox"]]; this addon has no locale layer for guide
@@ -16,8 +16,8 @@
 -- self:GetWorldPos already takes) - faction is 0 (both factions),
 -- 1 (Horde only) or 2 (Alliance only), same convention
 -- GuideLocations.lua's real hideFaction() uses.
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 Map.GuideData = Map.GuideData or {}
 Map.GuideData["Mailbox"] = {

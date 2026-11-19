@@ -10,6 +10,8 @@ from QuestieDB (see questie_db.py) and is keyed by the same quest and NPC ids.
                 and where those are found.
     Patrols     the path a quest giver or turn-in NPC walks.
     QuestItems  items a quest hands you to use.
+    ProvidedItems  items a quest asks for that no creature or object
+                drops: crafted, bought, or brought.
 
 QuestieDB is GPL-3.0, as is the Carbonite data this sits beside.
 """
@@ -226,10 +228,49 @@ def quest_items(questie, qid):
     return found
 
 
+ITEM_ITEM_DROPS, ITEM_QUEST_REWARDS, ITEM_LEVEL = 4, 6, 9
+ITEM_CLASS, ITEM_SUBCLASS, ITEM_VENDORS = 12, 13, 14
+CLASS_QUEST, CLASS_MISC = 12, 15
+
+
+def provided_items(questie, qid):
+    """2026-11-18 (user: Gizmo for Warug's Advanced Target Dummy, I Need a
+    Tailor's White Bandit Mask - "highlight those items as player provided
+    not a drop", and don't send me back to the giver without them).
+
+    The items a quest asks for that aren't found in the world: not quest
+    items, nothing drops or holds them, no quest rewards them - so they are
+    crafted, bought or brought. Class 15 (tokens, mounts) is left out: those
+    come from somewhere QuestieDB doesn't record, not from a profession.
+    -> ["itemId:v:name" (v = 1 when a vendor sells it, else 0), ...]"""
+    out = []
+    for entry in _array(_array(questie.value("Quest", qid, Q_OBJECTIVES)).get(3)).values():
+        item = _array(entry).get(1)
+        if not isinstance(item, int) or item <= 0:
+            continue
+        sc = questie.scalars("Item", item)
+        cls = sc.get(ITEM_CLASS)
+        if cls in (CLASS_QUEST, CLASS_MISC):
+            continue
+        # Item level 1 "other" consumables are quest things put together
+        # or handed out (Pamela's Doll, Craftsman's Writs), not crafts.
+        if cls in (None, 0) and sc.get(ITEM_SUBCLASS) == 8 and (sc.get(ITEM_LEVEL) or 0) <= 1:
+            continue
+        if (ids(questie.value("Item", item, ITEM_NPC_DROPS)) or ids(questie.value("Item", item, ITEM_OBJECT_DROPS))
+                or ids(questie.value("Item", item, ITEM_ITEM_DROPS))
+                or ids(questie.value("Item", item, ITEM_QUEST_REWARDS))):
+            continue
+        name = questie.name("Item", item).replace(":", "").replace(",", "")
+        if name:
+            vendor = 1 if ids(questie.value("Item", item, ITEM_VENDORS)) else 0
+            out.append("%d:%d:%s" % (item, vendor, name))
+    return out
+
+
 def write_rules(questie, path, header, quests, giver_names):
     """quests: {quest id: (side, min level)}; giver_names: {giver id: name}."""
     quest_ids = set(quests)
-    rules, start_items, items = [], [], []
+    rules, start_items, items, provided = [], [], [], []
     for qid in sorted(quests):
         side, min_level = quests[qid]
         rule = quest_rule(questie, qid, side, min_level, quest_ids)
@@ -243,6 +284,9 @@ def write_rules(questie, path, header, quests, giver_names):
         found = quest_items(questie, qid)
         if found:
             items.append((qid, lua_str(",".join(map(str, found)))))
+        mine = provided_items(questie, qid)
+        if mine:
+            provided.append((qid, lua_str(",".join(mine))))
 
     patrols = []
     for npc in sorted(giver_names):
@@ -262,9 +306,9 @@ def write_rules(questie, path, header, quests, giver_names):
         return out
 
     lines = [header,
-             "local AlchemyGPS = _G.AlchemyGPS",
-             "AlchemyGPS.QuestData = AlchemyGPS.QuestData or {}",
-             "local QuestData = AlchemyGPS.QuestData"]
+             "local AzerothAtlas = _G.AzerothAtlas",
+             "AzerothAtlas.QuestData = AzerothAtlas.QuestData or {}",
+             "local QuestData = AzerothAtlas.QuestData"]
     lines += block("Rules", [
         "Quest id -> \"key=value;...\": what has to be true before the quest is",
         "offered. Quest lists are comma-separated ids.",
@@ -293,5 +337,11 @@ def write_rules(questie, path, header, quests, giver_names):
         "Quest id -> item ids the quest gives or asks you to carry. The tracker",
         "offers a button for the ones that can be used.",
     ], items, 6)
+    lines += block("ProvidedItems", [
+        "Quest id -> \"itemId:vendor:name,...\": items the quest asks for that",
+        "nothing in the world drops or holds - crafted, bought or brought by the",
+        "player (vendor 1: a vendor sells it). Shown as such on the tracker and",
+        "list, and routing doesn't send you to the turn-in until you have them.",
+    ], provided)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return len(rules), len(start_items), len(patrols), len(items)

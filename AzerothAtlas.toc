@@ -1,9 +1,9 @@
 ## Interface: 16001
-## Title: Alchemy GPS
+## Title: Azeroth Atlas
 ## Notes: Map window and questing companion (tracker, quest pins, routing arrow), built by porting Carbonite's real code.
 ## Author: Digital Alchemyst
 ## Version: 0.1.0-dev
-## SavedVariables: AlchemyGPSDB
+## SavedVariables: AzerothAtlasDB
 ## DefaultState: Enabled
 # Gathering-node field (step 9e, MinimapEngine.lua). Static Wowhead
 # data (Map/Data/Gather{Herb,Mining,Fish,Treasure}.lua), no runtime
@@ -21,7 +21,7 @@
 # Phase 3: window chrome. Locales/Util must load before UI (Window.lua
 # reads locale strings and Util helpers at file scope); UI before Map/
 # Settings so MinimapWindow:Open() and the Settings window have the
-# ported Nx.Window / AlchemyGPS.UI.Window chrome to build on.
+# ported Nx.Window / AzerothAtlas.UI.Window chrome to build on.
 
 Libs\libs.xml
 

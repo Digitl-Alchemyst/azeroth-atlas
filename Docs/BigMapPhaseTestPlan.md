@@ -1,4 +1,4 @@
-# Alchemy GPS — Big Map Phase Test Plan
+# Azeroth Atlas — Big Map Phase Test Plan
 
 Nov 17, 2026 · @Digital Alchemyst
 
@@ -10,7 +10,7 @@ This plan covers everything built since the last test plan: the Leatrix-style bi
 - **Show Lua errors**: type `/console scriptErrors 1`, or use BugSack if you have it. Any red error box counts as a fail for the step you were on.
 - **You'll need**: a character who can reach Booty Bay and the Riverglades, a quest log with several quests (at least one untracked), and flight masters of your own faction and a neutral one nearby.
 - **Recording results**: set each step's Result to Pass, Fail or Not tested. For a fail, add a comment saying what you saw, with a screenshot if you can.
-- **Quest problems**: type `/gps quest dump <questID>` and paste the lines into your comment.
+- **Quest problems**: type `/aatlas quest dump <questID>` and paste the lines into your comment.
 
 ## 1. Big map basics
 
@@ -86,7 +86,7 @@ Quests pops the quest list out beside the big map. The docked list now closes wh
 
 ## 6. Big map themes
 
-Settings > Style > Big Map Theme offers 16 choices: Leatrix's 15 map themes plus the plain Alchemy GPS window skin. A theme only shows while the map is big.
+Settings > Style > Big Map Theme offers 16 choices: Leatrix's 15 map themes plus the plain Azeroth Atlas window skin. A theme only shows while the map is big.
 
 ### General
 
@@ -96,16 +96,16 @@ Settings > Style > Big Map Theme offers 16 choices: Leatrix's 15 map themes plus
 | 6.2 | With the big map open, click a different swatch | The map changes straight away, with no reload. |  |
 | 6.3 | Press M to shrink the map, then again to grow it | The small map has your normal window skin; the theme comes back when big. |  |
 | 6.4 | Pick a theme and `/reload` | The same theme is still chosen and shown. |  |
-| 6.5 | Open Continents, Zones and Dungeons under a few themes | The menus take the theme's colours. Under Alchemy GPS they look like a normal tooltip. |  |
+| 6.5 | Open Continents, Zones and Dungeons under a few themes | The menus take the theme's colours. Under Azeroth Atlas they look like a normal tooltip. |  |
 | 6.6 | Browse to another zone under a few themes | My Map's bronze tint is visible over every theme. |  |
 | 6.7 | Open Settings > Map | The old "Blizzard-style frame" checkbox is gone; the coordinates and zone label options remain. |  |
-| 6.8 | With a theme on, change Window Skin, then pick the Alchemy GPS theme | The big map shows the new window skin, not the old one. |  |
+| 6.8 | With a theme on, change Window Skin, then pick the Azeroth Atlas theme | The big map shows the new window skin, not the old one. |  |
 
 ### Each theme
 
 | Theme | What to look for | Result |
 | --- | --- | --- |
-| Alchemy GPS (window skin) | No theming: your window skin's frame, dark toolbar buttons with gold text. |  |
+| Azeroth Atlas (window skin) | No theming: your window skin's frame, dark toolbar buttons with gold text. |  |
 | Classic | Near-black title bar and footer, muted gold button edges, black frame edge. |  |
 | Warm | Dark brown bars, bronze edges. |  |
 | Charcoal | Cool slate-grey bars, blue-grey edges. |  |
@@ -119,7 +119,7 @@ Settings > Style > Big Map Theme offers 16 choices: Leatrix's 15 map themes plus
 | Rainbow | A dark rainbow across the title bar and the coordinates bar. It still spans the full width after resizing the window. |  |
 | Blizzard | The game's gold frame border, sitting on the window's edges; rock texture in the title bar and footer. |  |
 | Glass | See-through frame background, a thin bright rim, a faint sheen across the top. |  |
-| Handheld | A charcoal games console round the map: D-pad on the left, A and B on the right, red power light, speaker holes, "ALCHEMY GPS · POCKET MAP" under the screen. Its buttons are only drawn. |  |
+| Handheld | A charcoal games console round the map: D-pad on the left, A and B on the right, red power light, speaker holes, "AZEROTH ATLAS · POCKET MAP" under the screen. Its buttons are only drawn. |  |
 | Retro TV | Wood casing with a dark bezel; side panel on the right with two knobs, a grille and a power light; scanlines, darkened edges and glare over the map. Pins under the screen effects can still be hovered and clicked. |  |
 
 ## 7. Quest hover highlight
@@ -151,7 +151,7 @@ The quest is picked up from Wharfmaster Lozgil in Booty Bay (26.4, 73.6) and han
 | 8.2 | Look at the map in Booty Bay | No turn-in pin for this quest at Lozgil. |  |
 | 8.3 | Route to the quest (click it in the list or tracker) | The caption reads "Turn in: Wharfmaster Whizzbuzz" and the arrow points towards the Riverglades. |  |
 | 8.4 | View the Riverglades with the Zones menu | A turn-in pin sits at 79.4, 52.7. Hovering it shows "Turn in: Wharfmaster Whizzbuzz". |  |
-| 8.5 | Type `/gps quest dump 97332` | The End line shows map 2548 at 79.45, 52.71. "resolved" names Wharfmaster Whizzbuzz via db-se. |  |
+| 8.5 | Type `/aatlas quest dump 97332` | The End line shows map 2548 at 79.45, 52.71. "resolved" names Wharfmaster Whizzbuzz via db-se. |  |
 | 8.6 | Hand the quest in to Whizzbuzz | It leaves the log and its pins go. His own quests (Saltwater Savages and others) show his name, not "?". |  |
 | 8.7 | Check a different quest that's ready to turn in | It still shows a turn-in pin. A quest our database has no turn-in for still uses the game's own marker. |  |
 
@@ -174,9 +174,9 @@ The theme assets gathered for the final theming stage are data and image files o
 
 | # | Do this | Expect | Result |
 | --- | --- | --- | --- |
-| 10.1 | Open `Interface\AddOns\AlchemyGPS\Gfx\Themes\Leatrix\` | 12 images: ButtonBar, ButtonBarGlow, Close, Maximize, Minimize, TravelAlliance, TravelHorde, TravelNeutral, DungeonRaid, DragonGold, DragonSilver, DragonGrey. |  |
+| 10.1 | Open `Interface\AddOns\AzerothAtlas\Gfx\Themes\Leatrix\` | 12 images: ButtonBar, ButtonBarGlow, Close, Maximize, Minimize, TravelAlliance, TravelHorde, TravelNeutral, DungeonRaid, DragonGold, DragonSilver, DragonGrey. |  |
 | 10.2 | Log in after a full restart | No Lua error mentions ThemeLibrary.lua. |  |
-| 10.3 | Read `R:\addons\AlchemyGPS\Docs\Themes.md` (project folder only, not copied to the game) | It lists the 15 themes and the sliced icons. |  |
+| 10.3 | Read `R:\addons\AzerothAtlas\Docs\Themes.md` (project folder only, not copied to the game) | It lists the 15 themes and the sliced icons. |  |
 
 ## 11. Risks and regression checks
 

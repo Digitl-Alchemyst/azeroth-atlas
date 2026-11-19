@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Quest/QuestTooltips.lua
+-- Azeroth Atlas | Quest/QuestTooltips.lua
 --
 -- 2026-11-18 (user request, from Carbonite: "Quest info on mob and item
 -- tooltips - Hovering a mob or item shows which quest needs it and your
@@ -18,9 +18,9 @@
 -- matched (Carbonite can't either). Settings > Quests: QuestTooltips.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local Tips = {}
 Q.Tooltips = Tips
@@ -96,7 +96,7 @@ end
 
 local function addLines(tip, name, npcId)
     if Q.Core:Opt("QuestTooltips") == false or not Q.State or not Q.State.Scanned then return end
-    if tip.alchemyQuestTip == name then return end     -- already added to this showing
+    if tip.azerothAtlasQuestTip == name then return end     -- already added to this showing
     local added = false
     -- Very short names ("Rat") would match inside other words ("Pirate").
     local lines = readable(name) and name and #name >= 4 and linesFor(name)
@@ -124,7 +124,7 @@ local function addLines(tip, name, npcId)
             end
         end
     end
-    tip.alchemyQuestTip = name
+    tip.azerothAtlasQuestTip = name
     if added then tip:Show() end
 end
 
@@ -166,8 +166,8 @@ function Tips:Start()
         if ItemRefTooltip then ItemRefTooltip:HookScript("OnTooltipSetItem", onItem) end
     end
     -- A new showing may be for the same name again.
-    GameTooltip:HookScript("OnTooltipCleared", function(tip) tip.alchemyQuestTip = nil end)
+    GameTooltip:HookScript("OnTooltipCleared", function(tip) tip.azerothAtlasQuestTip = nil end)
     if ItemRefTooltip then
-        ItemRefTooltip:HookScript("OnTooltipCleared", function(tip) tip.alchemyQuestTip = nil end)
+        ItemRefTooltip:HookScript("OnTooltipCleared", function(tip) tip.azerothAtlasQuestTip = nil end)
     end
 end

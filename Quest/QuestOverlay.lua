@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestOverlay
+-- Azeroth Atlas | Quest / QuestOverlay
 -- What the map shows under the quest pins:
 --
 --   areas    where a tracked quest's unfinished objectives are found,
@@ -31,9 +31,9 @@
 -- state, the zone shown or an option changes, and re-placed only when
 -- the map has actually panned or zoomed.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 local Catalog = Q.Catalog
 
 local Overlay = {}
@@ -64,7 +64,7 @@ local floor, min, max, sqrt = math.floor, math.min, math.max, math.sqrt
 local GEO_STRIDE = 6        -- QuestCatalog.lua's geo layout: zone, isPoint, x1, y1, x2, y2
 
 local function isFilterOn(key)
-    local filters = AlchemyGPS.db and AlchemyGPS.db.profile and AlchemyGPS.db.profile.MapFilters
+    local filters = AzerothAtlas.db and AzerothAtlas.db.profile and AzerothAtlas.db.profile.MapFilters
     return not filters or filters[key] ~= false
 end
 
@@ -81,7 +81,7 @@ local unitCache = {}
 local function zoneUnit(zone)
     local u = unitCache[zone]
     if u == nil then
-        local Map = AlchemyGPS.Map
+        local Map = AzerothAtlas.Map
         local x1 = Map:GetWorldPos(zone, 0, 0)
         local x2 = Map:GetWorldPos(zone, 100, 0)
         u = (x1 and x2 and x2 > x1) and (x2 - x1) / 100 or false
@@ -219,7 +219,7 @@ end
 -- The areas an item drops in (zone-percent positions), cached on the list.
 local function dropShapes(area)
     if area.shapes then return area.shapes end
-    local Map = AlchemyGPS.Map
+    local Map = AzerothAtlas.Map
     local unit = zoneUnit(area.mapId)
     local flat = {}
     if unit then
@@ -235,7 +235,7 @@ end
 -- A patrol path as world coordinates { wx, wy, wx, wy, ... }, cached.
 local function pathWorld(path)
     if path.world then return path.world end
-    local Map = AlchemyGPS.Map
+    local Map = AzerothAtlas.Map
     local world = {}
     for i = 0, path.n - 1 do
         local wx, wy = Map:GetWorldPos(path.mapId, path[i * 2 + 1], path[i * 2 + 2])

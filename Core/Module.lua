@@ -1,9 +1,9 @@
--- Alchemy GPS | Core / Module
--- Base class for every Alchemy GPS module. Wraps AceAddon-3.0's
+-- Azeroth Atlas | Core / Module
+-- Base class for every Azeroth Atlas module. Wraps AceAddon-3.0's
 -- NewModule with a consistent lifecycle, and per-module logger.
 --
 -- Usage:
---   local MapModule = AlchemyGPS.Core.Module:New("Map", {
+--   local MapModule = AzerothAtlas.Core.Module:New("Map", {
 --     defaults = { ... AceDB defaults ... },
 --   })
 --   function MapModule:OnEnable() ... end
@@ -13,11 +13,11 @@
 --
 -- Adapted from AlchemyNavigation/Core/Module.lua (rename only).
 
-local AlchemyGPS = _G.AlchemyGPS
-local Logger = AlchemyGPS.Core.Logger
+local AzerothAtlas = _G.AzerothAtlas
+local Logger = AzerothAtlas.Core.Logger
 
 local Module = {}
-AlchemyGPS.Core.Module = Module
+AzerothAtlas.Core.Module = Module
 
 -- Registry of every module created via `Module:New`, in declaration
 -- order. Other Core files (SavedVariables) read this list.
@@ -29,7 +29,7 @@ local DEFAULT_MIXINS = {
     "AceHook-3.0",
 }
 
--- Creates and returns a new AceAddon module with extra Alchemy GPS
+-- Creates and returns a new AceAddon module with extra Azeroth Atlas
 -- behavior attached. `spec` is a plain table of options:
 --   defaults  table  AceDB defaults forwarded by the SavedVariables module.
 --   mixins    table  Extra Ace mixin library names appended to DEFAULT_MIXINS.
@@ -41,7 +41,7 @@ function Module:New(name, spec)
         for _, m in ipairs(spec.mixins) do mixins[#mixins + 1] = m end
     end
 
-    local mod = AlchemyGPS:NewModule(name, unpack(mixins))
+    local mod = AzerothAtlas:NewModule(name, unpack(mixins))
     mod.spec = spec
     mod.log = Logger:Get(name)
 
@@ -57,11 +57,11 @@ function Module:New(name, spec)
     local origDisable = mod.OnDisable
     function mod:OnEnable()
         if origEnable then origEnable(self) end
-        AlchemyGPS.Core.EventBus:Fire("MODULE_ENABLED", self:GetName())
+        AzerothAtlas.Core.EventBus:Fire("MODULE_ENABLED", self:GetName())
     end
     function mod:OnDisable()
         if origDisable then origDisable(self) end
-        AlchemyGPS.Core.EventBus:Fire("MODULE_DISABLED", self:GetName())
+        AzerothAtlas.Core.EventBus:Fire("MODULE_DISABLED", self:GetName())
     end
 
     -- Pull a saved-variable subtable scoped to this module so each
@@ -70,7 +70,7 @@ function Module:New(name, spec)
     -- early OnEnable), fall back to a transient empty table backed by
     -- the dbDefaults so callers do not have to nil-check.
     function mod:DB()
-        local sv = AlchemyGPS.Core.SavedVariables
+        local sv = AzerothAtlas.Core.SavedVariables
         local view = sv and sv:GetModuleDB(self:GetName())
         if view then return view end
 
@@ -99,5 +99,5 @@ end
 -- Convenience accessor used by code that doesn't want to import the
 -- AceAddon API directly.
 function Module:Get(name)
-    return AlchemyGPS:GetModule(name, true)
+    return AzerothAtlas:GetModule(name, true)
 end

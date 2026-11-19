@@ -68,10 +68,10 @@ mirror and paren/brace-balance checked, but never opened in-game yet.
       anything about Terrain looks different.
 
 ### Phase 8 — Regression: existing toggles unchanged
-- [ ] `/gps hideart` cleanly hides BOTH zone-level and continent-level
+- [ ] `/aatlas hideart` cleanly hides BOTH zone-level and continent-level
       Art Map tiles, whichever is currently active, and restores
       correctly on toggle-back.
-- [ ] `/gps hideterrain` and both title-bar checkboxes still behave as
+- [ ] `/aatlas hideterrain` and both title-bar checkboxes still behave as
       before.
 
 ## What to report back

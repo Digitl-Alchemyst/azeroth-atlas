@@ -1,4 +1,4 @@
-"""Regenerates AlchemyGPS/Quest/Data/*.lua from Carbonite's quest data.
+"""Regenerates AzerothAtlas/Quest/Data/*.lua from Carbonite's quest data.
 
 Source (GPL-3.0, read-only):
     Carbonite.Quests/Data/camelot/Quests<range>.lua   quest rows
@@ -16,7 +16,7 @@ Every packed string ("npc|map|32|x|y", "name|map|35|x|y|w|h", the quest
 header) is copied as its original source text, never re-typed or re-escaped,
 so the ported parser in Quest/QuestCatalog.lua reads exactly what Carbonite's
 own does. Only the wrapper around the rows changes: nothing is written to a
-global, everything hangs off AlchemyGPS.QuestData.
+global, everything hangs off AzerothAtlas.QuestData.
 
 Usage (from anywhere):
     python Tools/gen_quest_data.py [--addons R:\\addons]
@@ -150,9 +150,9 @@ def emit_quest_file(out, source_name, rows):
     lines = [HEADER.format(
         source="Carbonite.Quests/Data/camelot/" + source_name,
         note="Quest rows: header, Start/End giver strings, objective location lists."),
-        "local AlchemyGPS = _G.AlchemyGPS",
-        "AlchemyGPS.QuestData = AlchemyGPS.QuestData or {}",
-        "local QuestData = AlchemyGPS.QuestData",
+        "local AzerothAtlas = _G.AzerothAtlas",
+        "AzerothAtlas.QuestData = AzerothAtlas.QuestData or {}",
+        "local QuestData = AzerothAtlas.QuestData",
         "QuestData.Chunks = QuestData.Chunks or {}",
         "QuestData.Chunks[#QuestData.Chunks + 1] = function()",
         "return {",
@@ -278,7 +278,7 @@ def resolve_endpoint_dungeons(questie, rows, instances):
 
 def check_map_flags(addons, instances):
     """The map's entrance flags must be the instances quests are routed to."""
-    path = addons / "AlchemyGPS" / "Map" / "Data" / "GuideDungeonEntrance.lua"
+    path = addons / "AzerothAtlas" / "Map" / "Data" / "GuideDungeonEntrance.lua"
     flags = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         m = MAP_FLAG_RE.match(line)
@@ -304,7 +304,7 @@ def main():
     addons = Path(args.addons)
     cam = addons / "Carbonite.Quests" / "Data" / "camelot"
     shared = addons / "Carbonite.Quests" / "Data" / "Shared"
-    out_dir = addons / "AlchemyGPS" / "Quest" / "Data"
+    out_dir = addons / "AzerothAtlas" / "Quest" / "Data"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     quest_ids = set()
@@ -419,9 +419,9 @@ def main():
     lines = [HEADER.format(
         source="Carbonite.Quests/Data/{camelot,Shared}/* and Carbonite/Data/camelot/Zones.lua",
         note="Lookup tables that sit beside the quest rows (see each block below)."),
-        "local AlchemyGPS = _G.AlchemyGPS",
-        "AlchemyGPS.QuestData = AlchemyGPS.QuestData or {}",
-        "local QuestData = AlchemyGPS.QuestData",
+        "local AzerothAtlas = _G.AzerothAtlas",
+        "AzerothAtlas.QuestData = AzerothAtlas.QuestData or {}",
+        "local QuestData = AzerothAtlas.QuestData",
         "",
         "-- Giver/ender id -> display name. One table, already resolved in",
         "-- Carbonite's own lookup order (NPC, object, item, legacy), limited to",

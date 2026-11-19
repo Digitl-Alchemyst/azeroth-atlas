@@ -1,4 +1,4 @@
-AlchemyGPSMineDB = {
+AzerothAtlasMineDB = {
 	[1411] = {
 		[3560354000] = 201,
 		[3560355000] = 201,

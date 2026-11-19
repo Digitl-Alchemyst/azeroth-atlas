@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestCatalog
+-- Azeroth Atlas | Quest / QuestCatalog
 -- Accessors over the bundled quest database (Quest/Data/*.lua - a
 -- generated port of Carbonite.Quests' own Questie-merged "camelot"
 -- data, see Tools/gen_quest_data.py). This is static knowledge: where
@@ -50,15 +50,15 @@
 --     no at-a-distance giver pins and draws objective areas a
 --     different way.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
+local Map = AzerothAtlas.Map
 
 local Catalog = {}
 Q.Catalog = Catalog
 
-local QuestData = AlchemyGPS.QuestData or {}
+local QuestData = AzerothAtlas.QuestData or {}
 local Names = QuestData.Names or {}
 local Prev = QuestData.Prev or {}
 local RequiredClasses = QuestData.RequiredClasses or {}
@@ -73,6 +73,18 @@ local EndpointDungeons = QuestData.EndpointDungeons or {}
 local QuestDungeons = QuestData.QuestDungeons or {}
 local ManualStart = QuestData.ManualStart or {}
 local ManualEnd = QuestData.ManualEnd or {}
+local ManualObjectives = QuestData.ManualObjectives or {}
+-- 2026-11-18: class quests no source marks (Ground to Keep, rogue).
+for questID, mask in pairs(QuestData.ManualRequiredClasses or {}) do
+    RequiredClasses[questID] = mask
+end
+-- 2026-11-18: items the player brings (QuestDBRules' ProvidedItems, plus
+-- QuestDBManual's ManualProvidedItems) and hand-written objective notes.
+local ProvidedItems = QuestData.ProvidedItems or {}
+for questID, packed in pairs(QuestData.ManualProvidedItems or {}) do
+    ProvidedItems[questID] = packed
+end
+local ManualObjectiveNotes = QuestData.ObjectiveNotes or {}
 local EMPTY = {}
 
 Catalog.Quests = {}
@@ -197,6 +209,21 @@ end
 -- Fills the rows' missing Start / End from Quest/Data/QuestDBManual.lua.
 -- Runs before ApplyLearned, which only fills what is still missing.
 function Catalog:ApplyManual()
+    -- 2026-11-18: whole rows no source has (A New Need for Shadow Protection).
+    for questID, row in pairs(QuestData.ManualRows or EMPTY) do
+        if not self.Quests[questID] then
+            self.Quests[questID] = row
+            self.Count = self.Count + 1
+        end
+    end
+    -- 2026-11-19: a row's faction, when its source has it wrong (Not My
+    -- Circus). The side is the header's second field.
+    for questID, side in pairs(QuestData.ManualSide or EMPTY) do
+        local row = self.Quests[questID]
+        if row and type(row.Quest) == "string" then
+            row.Quest = row.Quest:gsub("^([^|]*)|[^|]*", "%1|" .. side, 1)
+        end
+    end
     for questID, se in pairs(ManualStart) do
         local row = self.Quests[questID]
         if row and not hasPosition(row.Start) then row.Start = se end
@@ -204,6 +231,15 @@ function Catalog:ApplyManual()
     for questID, se in pairs(ManualEnd) do
         local row = self.Quests[questID]
         if row and not hasPosition(row.End) then row.End = se end
+    end
+    -- 2026-11-18: unlike Start / End, these replace what the row has.
+    for questID, objs in pairs(ManualObjectives) do
+        local row = self.Quests[questID]
+        if row then
+            row.Objectives = row.Objectives or {}
+            for index, list in pairs(objs) do row.Objectives[index] = list end
+            row._geo = nil
+        end
     end
 end
 
@@ -323,7 +359,7 @@ end
 function Catalog:InstanceKey(id)
     if not id then return nil end
     if Instances[id] then return id end
-    local data = AlchemyGPS.DungeonRoomData
+    local data = AzerothAtlas.DungeonRoomData
     local maps = data and data.ClientFloors and data.ClientFloors[id]
     for _, mapId in ipairs(maps or {}) do
         if Instances[mapId] then return mapId end
@@ -359,7 +395,7 @@ function Catalog:GetHeader(questID)
     if not row then return nil end
     local h = row._h
     if not h then
-        local name, side, level, minLevel, nextId, category = strsplit("|", row.Quest or "")
+        local name, side, level, minLevel, nextId, category, xp = strsplit("|", row.Quest or "")
         h = {
             name = name or "?",
             side = tonumber(side) or 0,
@@ -367,6 +403,7 @@ function Catalog:GetHeader(questID)
             minLevel = tonumber(minLevel) or 0,
             nextId = tonumber(nextId) or 0,
             category = tonumber(category) or 0,
+            xp = tonumber(xp) or 0,     -- 2026-11-18: QuestieDB's XP, the details panel's fallback
         }
         row._h = h
     end
@@ -809,6 +846,81 @@ function Catalog:IsEligible(questID, opts)
     local _, _, _, trivial = Q.Core:Difficulty(h.level, questID)
     if trivial and not opts.showLowLevel then return false, true end
     return true, trivial
+end
+
+-- 2026-11-18 (user: the Magram / Gelkis quests - "highlight those items
+-- as player provided not a drop" and "not route back to the quest giver
+-- until we have them"). What to say about one of a quest's objectives,
+-- matched by name in the objective's text ("Advanced Target Dummy: 0/1"):
+--   note     short text for the tracker / list ("craft or AH", "vendor",
+--            or a hand-written hint from QuestDBManual's ObjectiveNotes)
+--   hold     true: while it's unfinished, routing doesn't fall back to
+--            the quest giver - there's nothing there to go back for
+-- nil when nothing is known about it.
+local notesCache = {}
+local function objectiveNotes(questID)
+    local list = notesCache[questID]
+    if list then return list end
+    list = {}
+    local packed = ProvidedItems[questID]
+    if packed then
+        for entry in packed:gmatch("[^,]+") do
+            local id, vendor, name = entry:match("^(%d+):(%d):(.+)$")
+            if name then
+                list[#list + 1] = {
+                    match = name:lower(), itemID = tonumber(id), hold = true,
+                    note = vendor == "1" and "vendor" or "craft or AH",
+                    tip = vendor == "1" and "Bought from a vendor - not a drop"
+                        or "Player provided - crafted or bought (Auction House), not a drop",
+                }
+            end
+        end
+    end
+    for _, n in ipairs(ManualObjectiveNotes[questID] or EMPTY) do list[#list + 1] = n end
+    notesCache[questID] = list
+    return list
+end
+
+-- The objective's text has to START with the name (after any "0/1 "
+-- count, which newer clients put first): "Craftsman's Writ: Azure Silk
+-- Hood" is not the Azure Silk Hood.
+function Catalog:ObjectiveNote(questID, text)
+    if not questID or type(text) ~= "string" or text == "" then return nil end
+    local lower = text:lower():gsub("^%d+%s*/%s*%d+%s+", "")
+    for _, n in ipairs(objectiveNotes(questID)) do
+        if lower:sub(1, #n.match) == n.match then return n end
+    end
+    return nil
+end
+
+-- " (craft or AH)" for an objective line, or "".
+function Catalog:ObjectiveTag(questID, text)
+    local n = self:ObjectiveNote(questID, text)
+    return n and (" |cff66ccff(%s)|r"):format(n.note) or ""
+end
+
+-- 2026-11-18: the class a quest is meant for, when that isn't the
+-- player's - a class quest someone shared with you (Ground to Keep, a
+-- rogue quest). "Rogue", "Warrior or Paladin", ...; nil when the quest
+-- is for every class or includes yours.
+local CLASS_LABEL = {
+    WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER = "Hunter", ROGUE = "Rogue",
+    PRIEST = "Priest", DEATHKNIGHT = "Death Knight", SHAMAN = "Shaman", MAGE = "Mage",
+    WARLOCK = "Warlock", MONK = "Monk", DRUID = "Druid",
+}
+function Catalog:OtherClassQuest(questID)
+    local mask = RequiredClasses[questID]
+    if not mask then return nil end
+    local _, class = UnitClass("player")
+    local mine = CLASS_BIT[class or ""]
+    if mine and floor(mask / mine) % 2 == 1 then return nil end
+    local names = {}
+    for token, bit in pairs(CLASS_BIT) do
+        if floor(mask / bit) % 2 == 1 then names[#names + 1] = CLASS_LABEL[token] or token end
+    end
+    if #names == 0 then return nil end
+    table.sort(names)
+    return table.concat(names, " or ")
 end
 
 -- The quest that must be turned in before this one is offered, if any,

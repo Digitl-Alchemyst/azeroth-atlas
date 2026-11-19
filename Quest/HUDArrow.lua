@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / HUDArrow
+-- Azeroth Atlas | Quest / HUDArrow
 -- The floating arrow that points at where you're going, with what it is,
 -- how far, and roughly how long. 2026-11-17 (user request): it follows,
 -- first to last, your corpse (or the dungeon entrance to run back to),
@@ -24,9 +24,9 @@
 -- The bearing formula is the one DrawAntTrail already uses for the map's
 -- goto trail, confirmed pointing the right way in live play.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local HUD = {}
 Q.HUD = HUD
@@ -39,7 +39,7 @@ local ON_COURSE_DEGREES = 5
 
 local atan2, deg, floor = math.atan2, math.deg, math.floor
 
-local function engine() return AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.MinimapEngine end
+local function engine() return AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.MinimapEngine end
 local function f_shown(f) return f ~= nil and f:IsShown() end
 
 -- The corpse, else the goto marker, as a destination shaped like
@@ -58,7 +58,7 @@ local function overrideTarget()
     end
     -- 2026-11-18 (user request, from Carbonite): on a flight, where it
     -- lands (Map/Travel.lua).
-    local Travel = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.Travel
+    local Travel = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.Travel
     local flight = Travel and UnitOnTaxi("player") and Travel:FlightTarget()
     if flight then return flight end
     -- 2026-11-18 (user request, from Carbonite): a player you're
@@ -68,7 +68,7 @@ local function overrideTarget()
     if E.GotoWX then
         alt.kind, alt.x, alt.y, alt.cont = "goto", E.GotoWX, E.GotoWY, E.GotoCont
         -- 2026-11-18: a waypoint's own name (/way, TomTom - Map/Waypoints.lua).
-        local Waypoints = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.Waypoints
+        local Waypoints = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.Waypoints
         local more = Waypoints and #Waypoints.List - (E.GotoUid and 1 or 0) or 0
         alt.name = E.GotoName or "Goto marker"
         alt.detail = more > 0 and ("Right-click the arrow to clear - %d more waypoint%s"):format(more, more == 1 and "" or "s")
@@ -86,7 +86,7 @@ function HUD:Create()
     -- Only the arrow itself is the frame (and so the only part that can
     -- take the mouse); the captions hang below it without making a
     -- large click-blocking box in the middle of the screen.
-    local f = CreateFrame("Frame", "AlchemyGPSQuestArrow", UIParent)
+    local f = CreateFrame("Frame", "AzerothAtlasQuestArrow", UIParent)
     f:SetSize(ARROW_SIZE, ARROW_SIZE)
     f:SetFrameStrata("LOW")
     f:SetClampedToScreen(true)
@@ -115,8 +115,8 @@ function HUD:Create()
     if not anchor.point then
         anchor.point, anchor.relPoint, anchor.x, anchor.y = "TOP", "TOP", 0, -170
     end
-    AlchemyGPS.UI.Mixins.Draggable.EnableDragging(f, anchor)
-    AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(f, UIParent)
+    AzerothAtlas.UI.Mixins.Draggable.EnableDragging(f, anchor)
+    AzerothAtlas.UI.Mixins.Draggable.RestoreAnchor(f, UIParent)
 
     f:SetScript("OnMouseUp", function(_, button)
         if button ~= "RightButton" then return end
@@ -152,7 +152,7 @@ function HUD:ShowTooltip(frm)
     if self.TargetWho then
         GameTooltip:AddLine("Click: target " .. self.TargetWho, 0.4, 0.8, 1, true)
     end
-    GameTooltip:AddLine("Lock it in place from /gps settings, Quests tab.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Lock it in place from /aatlas settings, Quests tab.", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
@@ -171,7 +171,7 @@ end
 function HUD:CreateTargetButton()
     if self.TargetBtn then return self.TargetBtn end
     local f = self.Frm
-    local b = CreateFrame("Button", "AlchemyGPSQuestArrowTarget", UIParent, "SecureActionButtonTemplate")
+    local b = CreateFrame("Button", "AzerothAtlasQuestArrowTarget", UIParent, "SecureActionButtonTemplate")
     b:SetFrameStrata("LOW")
     b:SetFrameLevel(f:GetFrameLevel() + 5)
     b:RegisterForClicks("AnyUp", "AnyDown")
@@ -235,7 +235,7 @@ end
 
 function HUD:ApplyStyle()
     if self.Tex then
-        AlchemyGPS.UI.StyleOptions:ApplyIcon(self.Tex, "HUDArrow")
+        AzerothAtlas.UI.StyleOptions:ApplyIcon(self.Tex, "HUDArrow")
     end
 end
 
@@ -247,7 +247,7 @@ function HUD:ApplyOptions()
     -- Locked means click-through as well as immovable.
     f:EnableMouse(not Core:Opt("ArrowLocked"))
     -- 2026-11-18: the X / Y offset sliders write the saved anchor.
-    AlchemyGPS.UI.Mixins.Draggable.RestoreAnchor(f, UIParent)
+    AzerothAtlas.UI.Mixins.Draggable.RestoreAnchor(f, UIParent)
     self:PlaceTargetButton()
 end
 
@@ -303,7 +303,7 @@ function HUD:Update(elapsed)
     -- flight or a boat is the quicker way, point at where it starts
     -- (Map/Travel.lua). Following stays the real destination, so
     -- right-click still clears it.
-    local Travel = AlchemyGPS.Modules.Map and AlchemyGPS.Modules.Map.Travel
+    local Travel = AzerothAtlas.Modules.Map and AzerothAtlas.Modules.Map.Travel
     local leg = Travel and Travel:NextLeg(t)
     if leg then t = leg end
 

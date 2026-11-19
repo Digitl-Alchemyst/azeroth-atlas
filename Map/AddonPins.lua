@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/AddonPins.lua
+-- Azeroth Atlas | Map/AddonPins.lua
 ---------------------------------------------------------------------------------------
 -- Other addons' world map pins on the big map (2026-11-18, user
 -- request, from Carbonite: "Bring Blizzard's map pins in - moves
@@ -25,8 +25,8 @@
 -- pins (big map)".
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local MinimapEngine = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local MinimapEngine = AzerothAtlas.Map
 
 local REFRESH = 0.25     -- seconds between full passes while the view is still
 local held = {}          -- [icon] = true while it's on our map
@@ -42,12 +42,12 @@ local function libs()
 end
 
 local function filterOn()
-    local FilterMenu = AlchemyGPS.Modules.Map.FilterMenu
+    local FilterMenu = AzerothAtlas.Modules.Map.FilterMenu
     return not FilterMenu or FilterMenu.IsFilterOn("AddonPins")
 end
 
 local function bigShown()
-    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    local BigMap = AzerothAtlas.Modules.Map.BigMap
     return BigMap and BigMap.IsBig and BigMap:IsBig() or false
 end
 

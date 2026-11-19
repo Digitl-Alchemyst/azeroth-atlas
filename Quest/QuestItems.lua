@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / QuestItems
+-- Azeroth Atlas | Quest / QuestItems
 -- Quest items you have to use (a totem to plant, a horn to blow):
 --
 --   * a button for each, beside its quest on the tracker, and
@@ -25,9 +25,9 @@
 --     and applied when combat ends; until then the buttons stay as they
 --     were, which is still the right item nearly always.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local Items = {}
 Q.Items = Items
@@ -36,11 +36,11 @@ Items.Buttons = {}
 Items.Serial = 0            -- bumps when the bags change
 
 local SIZE = 18
-local NEAREST_NAME = "AlchemyGPSQuestItemNearest"
+local NEAREST_NAME = "AzerothAtlasQuestItemNearest"
 local BINDING = "CLICK " .. NEAREST_NAME .. ":LeftButton"
 
 -- Key Bindings menu text (Bindings.xml names the binding itself).
-_G.BINDING_HEADER_ALCHEMYGPS = "Alchemy GPS"
+_G.BINDING_HEADER_AZEROTHATLAS = "Azeroth Atlas"
 _G["BINDING_NAME_" .. BINDING] = "Use the nearest quest's item"
 
 local function locked()
@@ -152,7 +152,7 @@ local function buttonOnEnter(btn)
     if q then GameTooltip:AddLine(q.title, 1, 0.82, 0.2) end
     local key = _G.GetBindingKey and _G.GetBindingKey(BINDING)
     GameTooltip:AddLine(key and ("Nearest quest's item: " .. key)
-        or "Bind a key for the nearest quest's item in Key Bindings > Alchemy GPS", 0.6, 0.6, 0.6, true)
+        or "Bind a key for the nearest quest's item in Key Bindings > Azeroth Atlas", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
@@ -249,7 +249,7 @@ function Items:Layout(win, rows)
                 used = used + 1
                 local btn = self.Buttons[used]
                 if not btn then
-                    btn = createButton("AlchemyGPSQuestItem" .. used)
+                    btn = createButton("AzerothAtlasQuestItem" .. used)
                     self.Buttons[used] = btn
                 end
                 aim(btn, itemId, entry.questID)
@@ -308,14 +308,14 @@ end
 -- The key
 ---------------------------------------------------------------------------------------
 
--- /gps quest key [KEY | none]
+-- /aatlas quest key [KEY | none]
 function Items:SlashKey(arg)
     local say = function(text) Q.Core.Say("%s", text) end
     arg = (arg or ""):upper():gsub("%s+", "")
     if arg == "" then
         local key = _G.GetBindingKey and _G.GetBindingKey(BINDING)
         say(key and ("Nearest quest item is on " .. key .. ".")
-            or "No key set. Use /gps quest key <KEY> (for example F or SHIFT-F), or Key Bindings > Alchemy GPS.")
+            or "No key set. Use /aatlas quest key <KEY> (for example F or SHIFT-F), or Key Bindings > Azeroth Atlas.")
         return
     end
     if locked() then

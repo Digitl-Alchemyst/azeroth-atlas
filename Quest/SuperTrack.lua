@@ -1,4 +1,4 @@
--- Alchemy GPS | Quest / SuperTrack
+-- Azeroth Atlas | Quest / SuperTrack
 -- Mirrors the routed quest into Blizzard's own "super-tracked quest"
 -- (C_SuperTrack), so the native pieces that follow that value - the
 -- world map's highlighted quest POI, the minimap's quest area - point
@@ -26,9 +26,9 @@
 -- existence-checked: this client may not have the namespace at all, in
 -- which case this whole file quietly does nothing.
 
-local AlchemyGPS = _G.AlchemyGPS
-local EventBus = AlchemyGPS.Core.EventBus
-local Q = AlchemyGPS.Modules.Quest
+local AzerothAtlas = _G.AzerothAtlas
+local EventBus = AzerothAtlas.Core.EventBus
+local Q = AzerothAtlas.Modules.Quest
 
 local SuperTrack = {}
 Q.SuperTrack = SuperTrack

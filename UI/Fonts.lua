@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Fonts
+-- Azeroth Atlas | UI / Fonts
 -- Minimal port of Carbonite's Nx.Font:Init (Modules/UI/UIEngine.lua:
 -- 1055). The real version is a live-customizable font picker across
 -- 5 named slots, backed by SavedVariables and LibSharedMedia

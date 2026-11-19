@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/BigMapThemes.lua
+-- Azeroth Atlas | Map/BigMapThemes.lua
 --
 -- 2026-11-17 (user request: "give the big map themes I can choose from in
 -- the settings"). Leatrix Maps' 15 map themes (UI/ThemeLibrary.lua),
@@ -34,11 +34,11 @@
 -- power-switch animations and the handheld's gem game.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
 
 local Themes = {}
-AlchemyGPS.Modules.Map.BigMapThemes = Themes
+AzerothAtlas.Modules.Map.BigMapThemes = Themes
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
@@ -52,7 +52,7 @@ Themes.DEFAULT = 12     -- Blizzard (what the big map used before themes)
 ---------------------------------------------------------------------------------------
 
 local function palettes()
-    local lib = AlchemyGPS.UI.ThemeLibrary
+    local lib = AzerothAtlas.UI.ThemeLibrary
     return lib and lib.Palettes or {}
 end
 
@@ -69,7 +69,7 @@ end
 function Themes:GetList(forBig)
     local list = {}
     if forBig then list[1] = { id = 0, name = "Same as the minimap" } end
-    local Skin = AlchemyGPS.Skin
+    local Skin = AzerothAtlas.Skin
     for _, name in ipairs(Skin and Skin.Names or {}) do
         list[#list + 1] = { id = name, name = name, skin = true }
     end
@@ -78,14 +78,14 @@ function Themes:GetList(forBig)
 end
 
 local function str2rgba(s)
-    local Util = AlchemyGPS.Util_str2rgba
+    local Util = AzerothAtlas.Util_str2rgba
     if Util and s then return { Util(s) } end
     return { 0, 0, 0, 1 }
 end
 
 -- A window skin's own colours (not the saved tweaks of the one in use).
 local function skinColours(name)
-    local Skin = AlchemyGPS.Skin
+    local Skin = AzerothAtlas.Skin
     local data = Skin and Skin.Skins and Skin.Skins[name]
     if not data then return nil end
     local bd = data.BdCol
@@ -336,7 +336,7 @@ local function buildHandheld(bm)
     shine:SetHeight(2)
     -- Screen surround and the name under it.
     roundRect(f, parts, "BACKGROUND", -5, 0.05, 0.05, 0.06, 12, 12, 10, 22, 8)
-    label(f, parts, "ALCHEMY GPS  \194\183  POCKET MAP", 0.42, 0.42, 0.47, "BOTTOM", 0, -12)
+    label(f, parts, "AZEROTH ATLAS  \194\183  POCKET MAP", 0.42, 0.42, 0.47, "BOTTOM", 0, -12)
     -- Red power light.
     disc(f, parts, "ARTWORK", 0, 14, 1, 0.20, 0.20, 0.35, "LEFT", -6, 0)
     disc(f, parts, "ARTWORK", 1, 7, 1, 0.25, 0.25, 1, "LEFT", -6, 0)
@@ -599,7 +599,7 @@ function Themes:Apply(bm, id)
     --   a map theme      the window skin's border and background (Frosted
     --                    Glass: see-through), black edge (art themes: none)
     --   0 / nil          the window skin, nothing of its own
-    local Skin = AlchemyGPS.Skin
+    local Skin = AzerothAtlas.Skin
     local ov
     if type(id) == "string" then
         local data, bd, bg = skinColours(id)

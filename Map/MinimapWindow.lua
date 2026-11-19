@@ -1,4 +1,4 @@
--- Alchemy GPS | Map / MinimapWindow
+-- Azeroth Atlas | Map / MinimapWindow
 -- Orchestration for the minimap module: owns the module's saved
 -- settings, applies them on login, and exposes them via slash
 -- commands. Open() (the real ported undocked map window) and the
@@ -12,8 +12,8 @@
 -- defaults and the regions/scan debug subcommands aren't ported -
 -- out of scope for this addon).
 
-local AlchemyGPS = _G.AlchemyGPS
-local Module = AlchemyGPS.Core.Module
+local AzerothAtlas = _G.AzerothAtlas
+local Module = AzerothAtlas.Core.Module
 
 -- NOTE: Core/SavedVariables.lua's bind() pokes dbDefaults.profile's
 -- own keys directly onto the ROOT db.profile table (keyed by
@@ -55,8 +55,8 @@ local MinimapWindow = Module:New("MinimapWindow", {
 
 -- Self-register alongside the rest of the Map module family (same
 -- pattern as ZoomController.lua/NativeMinimapHide.lua/etc.).
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.MinimapWindow = MinimapWindow
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.MinimapWindow = MinimapWindow
 
 -- 2026-11-16: the map renders above other addons' frames (see Open()'s
 -- strata comment). DIALOG beats the MEDIUM/HIGH strata action bars,
@@ -72,7 +72,7 @@ MinimapWindow.OVERLAY_STRATA = OVERLAY_STRATA
 function MinimapWindow:OnEnable()
     -- AceAddon's automatic module-enable fires on ADDON_LOADED, but
     -- Core/SavedVariables.lua's bind() only runs on the later
-    -- PLAYER_LOGIN (ALCHEMYGPS_INITIALIZE). Calling self:DB() before
+    -- PLAYER_LOGIN (AZEROTHATLAS_INITIALIZE). Calling self:DB() before
     -- bind() has run returns Module.lua's transient defaults-only
     -- fallback table, not the real saved value - applying native-hide
     -- from that silently diverges from whatever's actually on disk
@@ -83,11 +83,11 @@ function MinimapWindow:OnEnable()
     -- per-module view exists before applying, instead of trusting
     -- whatever self:DB() happens to return on the first call.
     local function applyNativeHiddenOnceReady()
-        if not AlchemyGPS.Core.SavedVariables:GetModuleDB(self:GetName()) then
-            AlchemyGPS:ScheduleTimer(applyNativeHiddenOnceReady, 0.1)
+        if not AzerothAtlas.Core.SavedVariables:GetModuleDB(self:GetName()) then
+            AzerothAtlas:ScheduleTimer(applyNativeHiddenOnceReady, 0.1)
             return
         end
-        local NativeMinimapHide = AlchemyGPS.Modules.Map.NativeMinimapHide
+        local NativeMinimapHide = AzerothAtlas.Modules.Map.NativeMinimapHide
         if NativeMinimapHide then
             NativeMinimapHide:SetNativeHidden(self:DB().profile.NativeMinimapHidden == true)
         end
@@ -96,24 +96,24 @@ function MinimapWindow:OnEnable()
 
         -- Remember whether the map window itself was open or closed,
         -- same way UI/Window.lua's Window:Show already persists it
-        -- (SaveData["Hide"], now backed by AlchemyGPS.db.profile.
+        -- (SaveData["Hide"], now backed by AzerothAtlas.db.profile.
         -- WindowLayouts - see that file's Create()). That table only
         -- exists once the window has actually been created/opened at
         -- least once this addon's lifetime - a truly first-ever login
         -- (nothing saved yet) must NOT auto-open a window the player
         -- has never asked to see.
-        local layouts = AlchemyGPS.db and AlchemyGPS.db.profile
-            and AlchemyGPS.db.profile.WindowLayouts
-        local saved = layouts and layouts["AlchemyGPSMinimapWindow"]
+        local layouts = AzerothAtlas.db and AzerothAtlas.db.profile
+            and AzerothAtlas.db.profile.WindowLayouts
+        local saved = layouts and layouts["AzerothAtlasMinimapWindow"]
         if saved and not saved["Hide"] then
             self:Open()
         end
     end
     applyNativeHiddenOnceReady()
 
-    AlchemyGPS.Core.SlashCommands:Register("minimap", function(rest)
+    AzerothAtlas.Core.SlashCommands:Register("minimap", function(rest)
         rest = (rest or ""):lower()
-        local NativeMinimapHide_ = AlchemyGPS.Modules.Map.NativeMinimapHide
+        local NativeMinimapHide_ = AzerothAtlas.Modules.Map.NativeMinimapHide
         if not NativeMinimapHide_ then return end
         -- Persists the choice, not just applying it live, so it
         -- survives to the next login and agrees with the Settings
@@ -125,17 +125,17 @@ function MinimapWindow:OnEnable()
             self:DB().profile.NativeMinimapHidden = false
             NativeMinimapHide_:SetNativeHidden(false)
         else
-            self.log:info("usage: /gps minimap hide|show")
+            self.log:info("usage: /aatlas minimap hide|show")
             return
         end
         -- Keep the Settings window's checkbox in sync if it's open -
         -- it only reads get() once, at creation, otherwise (see that
         -- file's own `checkboxes` comment).
-        local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+        local SettingsWindow = AzerothAtlas.Modules.Settings and AzerothAtlas.Modules.Settings.SettingsWindow
         if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
     end, "hide|show the native Blizzard minimap")
 
-    AlchemyGPS.Core.SlashCommands:Register("showmap", function()
+    AzerothAtlas.Core.SlashCommands:Register("showmap", function()
         self:Open()
     end, "open the (placeholder) minimap window")
 end
@@ -163,21 +163,21 @@ end
 
 function MinimapWindow:Open()
 
-    local MinimapEngine = AlchemyGPS.Modules.Map.MinimapEngine
+    local MinimapEngine = AzerothAtlas.Modules.Map.MinimapEngine
 
     if self.Win then
         self.Win:Show(true)
         return
     end
 
-    local Nx = AlchemyGPS
+    local Nx = AzerothAtlas
 
     -- (name, minResizeW, minResizeH, secure, titleLines, borderType, hide, noButs)
     -- secure=false: no protected children, so the combat-lockdown
     -- mouse-down guard in UI/Window.lua's OnMouseDown never applies
     -- here. borderType/hide/noButs left nil: sizeable + bordered +
     -- shown + with buttons (Create's own defaults).
-    local win = Nx.Window:Create("AlchemyGPSMinimapWindow", 120, 120, false, 1)
+    local win = Nx.Window:Create("AzerothAtlasMinimapWindow", 120, 120, false, 1)
     self.Win = win
     -- Pinned above other addons (see MAP_STRATA) - set before the first
     -- SetLayoutMode below so the saved layout's own layer never applies.
@@ -204,7 +204,7 @@ function MinimapWindow:Open()
     win:SetLayoutMode(1)
 
     win:CreateButtons(true, true, false)    -- closer + maxer, no miner
-    win:SetTitle("Alchemy GPS")
+    win:SetTitle("Azeroth Atlas")
 
     -- Settings-gear button, title-bar row next to Close/Max. No real
     -- Carbonite analog (Nx.Button's TypeData - UI/Button.lua - only
@@ -223,7 +223,7 @@ function MinimapWindow:Open()
     settingsBut:SetHighlightTexture("Interface\\Buttons\\UI-OptionsButton")
     settingsBut:GetHighlightTexture():SetBlendMode("ADD")
     settingsBut:SetScript("OnClick", function()
-        local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+        local SettingsWindow = AzerothAtlas.Modules.Settings and AzerothAtlas.Modules.Settings.SettingsWindow
         if SettingsWindow then SettingsWindow:Open() end
     end)
     self.SettingsBut = settingsBut
@@ -251,7 +251,7 @@ function MinimapWindow:Open()
         cb:SetChecked(self:DB().profile[field] ~= false)
         cb:SetScript("OnClick", function(b)
             self:DB().profile[field] = b:GetChecked() and true or false
-            local SettingsWindow = AlchemyGPS.Modules.Settings and AlchemyGPS.Modules.Settings.SettingsWindow
+            local SettingsWindow = AzerothAtlas.Modules.Settings and AzerothAtlas.Modules.Settings.SettingsWindow
             if SettingsWindow and SettingsWindow.Refresh then SettingsWindow:Refresh() end
         end)
         cb:SetScript("OnEnter", function(b)
@@ -309,7 +309,7 @@ function MinimapWindow:Open()
     -- at this window's own bottom-right anchor rather than
     -- AlchemyNavigation's bottom-left, since "style" was the ask, not
     -- layout.
-    local ZoomController = AlchemyGPS.Modules.Map.ZoomController
+    local ZoomController = AzerothAtlas.Modules.Map.ZoomController
 
     local function makeZoomButton(label)
         local b = CreateFrame("Button", nil, win.Frm)
@@ -460,7 +460,7 @@ function MinimapWindow:Open()
     -- Real source creates its button dock right alongside the map
     -- window itself, same first-open-only lifecycle (MapEngine.lua
     -- :456-457, `self.Maps[1] = self:Create(1); self.Dock:Create()`).
-    local MinimapDock = AlchemyGPS.Modules.Map.MinimapDock
+    local MinimapDock = AzerothAtlas.Modules.Map.MinimapDock
     if MinimapDock then MinimapDock:Create() end
 
     -- Build-order step 6/7 smoothness fix: drive Update() from a real
@@ -482,7 +482,7 @@ function MinimapWindow:Open()
 
     -- 2026-11-17: the big map's toolbar, coordinates, zone levels and
     -- Blizzard-style frame (Map/BigMap.lua).
-    local BigMap = AlchemyGPS.Modules.Map.BigMap
+    local BigMap = AzerothAtlas.Modules.Map.BigMap
     if BigMap then
         BigMap:Attach(self, win, content)
         win.Frm:HookScript("OnHide", function() BigMap:OnMapHidden() end)
@@ -505,7 +505,7 @@ end
 function MinimapWindow:UpdateLevelBar()
     local bar = self.LevelBar
     if not bar then return end
-    local E = AlchemyGPS.Modules.Map.MinimapEngine
+    local E = AzerothAtlas.Modules.Map.MinimapEngine
     if not E or not E.GetViewFloorIndex then return end
     local i = E:GetViewFloorIndex()
     local floors = E.DungeonFloors
@@ -513,11 +513,26 @@ function MinimapWindow:UpdateLevelBar()
         if bar:IsShown() then bar:Hide() end
         return
     end
+    -- 2026-11-19 (user: "have the map level picker sit in line with the
+    -- other buttons, it looks weird hanging alone"): on the big map, at
+    -- the end of its button row; otherwise centred at the top.
+    local BigMap = AzerothAtlas.Modules.Map.BigMap
+    local row = BigMap and BigMap.Bar
+    local inRow = row and row:IsShown() and row:GetWidth() > 0 or false
+    if inRow ~= self._LevelInRow then
+        self._LevelInRow = inRow
+        bar:ClearAllPoints()
+        if inRow then
+            bar:SetPoint("LEFT", row, "RIGHT", 6, 0)
+        else
+            bar:SetPoint("TOP", self.Win.Frm, "TOP", 0, -((self.Win.TopH or 20) + 4))
+        end
+    end
     local f = floors[i]
     local winfo = E.MapWorldInfo and E.MapWorldInfo[f.mapId]
     local name = (winfo and winfo.Name) or f.name or ("Level " .. i)
-    local here = E.PlayerFloor == i and (not E.PlyrPosUnknown or E.RoomFloorKnown)
-    local text = ("%s%s  |cffa0a0a0%d/%d|r"):format(here and "|cff40ff40>|r " or "", name, i, #floors)
+    -- 2026-11-19: no green ">" marking the player's level any more (user).
+    local text = ("%s  |cffa0a0a0%d/%d|r"):format(name, i, #floors)
     if text ~= self._LevelText then
         self._LevelText = text
         self.LevelText:SetText(text)
@@ -572,18 +587,18 @@ function MinimapWindow:ToggleMapSize()
 end
 
 function MinimapWindow:ToggleQuestList()
-    local List = AlchemyGPS.Modules.Quest and AlchemyGPS.Modules.Quest.List
+    local List = AzerothAtlas.Modules.Quest and AzerothAtlas.Modules.Quest.List
     if List then List:Toggle() end
 end
 
 -- Global entry points for Bindings.xml.
-_G.AlchemyGPS_ToggleMapSize = function() MinimapWindow:ToggleMapSize() end
-_G.AlchemyGPS_ToggleQuestList = function() MinimapWindow:ToggleQuestList() end
-_G.BINDING_HEADER_ALCHEMYGPS = _G.BINDING_HEADER_ALCHEMYGPS or "Alchemy GPS"
-_G.BINDING_NAME_ALCHEMYGPS_TOGGLEMAP = "Toggle map size (small / big)"
-_G.BINDING_NAME_ALCHEMYGPS_QUESTLIST = "Toggle quest list"
+_G.AzerothAtlas_ToggleMapSize = function() MinimapWindow:ToggleMapSize() end
+_G.AzerothAtlas_ToggleQuestList = function() MinimapWindow:ToggleQuestList() end
+_G.BINDING_HEADER_AZEROTHATLAS = _G.BINDING_HEADER_AZEROTHATLAS or "Azeroth Atlas"
+_G.BINDING_NAME_AZEROTHATLAS_TOGGLEMAP = "Toggle map size (small / big)"
+_G.BINDING_NAME_AZEROTHATLAS_QUESTLIST = "Toggle quest list"
 
-local keyOwner = CreateFrame("Frame", "AlchemyGPSKeyOwner", UIParent)
+local keyOwner = CreateFrame("Frame", "AzerothAtlasKeyOwner", UIParent)
 keyOwner:RegisterEvent("PLAYER_REGEN_ENABLED")
 keyOwner:SetScript("OnEvent", function()
     if keyOwner.pending then MinimapWindow:ApplyKeys() end
@@ -597,10 +612,10 @@ function MinimapWindow:ApplyKeys()
     keyOwner.pending = nil
     ClearOverrideBindings(keyOwner)
     if self:DB().profile.OverrideMLKeys ~= false then
-        SetOverrideBinding(keyOwner, false, "M", "ALCHEMYGPS_TOGGLEMAP")
-        SetOverrideBinding(keyOwner, false, "L", "ALCHEMYGPS_QUESTLIST")
+        SetOverrideBinding(keyOwner, false, "M", "AZEROTHATLAS_TOGGLEMAP")
+        SetOverrideBinding(keyOwner, false, "L", "AZEROTHATLAS_QUESTLIST")
         -- Alt+M / Alt+L keep the game's own world map and quest log
-        -- reachable while M and L belong to Alchemy GPS.
+        -- reachable while M and L belong to Azeroth Atlas.
         SetOverrideBinding(keyOwner, false, "ALT-M", "TOGGLEWORLDMAP")
         SetOverrideBinding(keyOwner, false, "ALT-L", "TOGGLEQUESTLOG")
     end

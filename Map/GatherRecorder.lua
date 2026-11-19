@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/GatherRecorder.lua
+-- Azeroth Atlas | Map/GatherRecorder.lua
 ---------------------------------------------------------------------------------------
 -- Recording the nodes you gather (2026-11-18, user request, from
 -- Carbonite: "Saves every herb, ore or other node you pick, building
@@ -38,10 +38,10 @@
 -- to the shipped data.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
+local AzerothAtlas = _G.AzerothAtlas
 local Recorder = {}
-AlchemyGPS.Modules.Map = AlchemyGPS.Modules.Map or {}
-AlchemyGPS.Modules.Map.GatherRecorder = Recorder
+AzerothAtlas.Modules.Map = AzerothAtlas.Modules.Map or {}
+AzerothAtlas.Modules.Map.GatherRecorder = Recorder
 
 local SAME_NODE_YARDS = 10
 -- The gathering spells' base IDs; their names (any rank) are compared.
@@ -69,7 +69,7 @@ local function kindFor(spellID)
 end
 
 function Recorder:Store()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if not db then return nil end
     db.global.GatheredNodes = db.global.GatheredNodes or {}
     return db.global.GatheredNodes
@@ -77,13 +77,13 @@ end
 
 -- The recorded nodes of one kind on one map (nil when none).
 function Recorder:Nodes(kind, mapId)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     local all = db and db.global.GatheredNodes
     return all and all[kind] and all[kind][mapId]
 end
 
 function Recorder:Count(kind)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     local t = db and db.global.GatheredNodes and db.global.GatheredNodes[kind]
     local n = 0
     for _, nodes in pairs(t or {}) do
@@ -99,7 +99,7 @@ function Recorder:Clear(kind)
 end
 
 function Recorder:Changed()
-    local E = AlchemyGPS.Modules.Map.MinimapEngine
+    local E = AzerothAtlas.Modules.Map.MinimapEngine
     if E and E.RefreshGatherIcons then E:RefreshGatherIcons() end
 end
 
@@ -116,7 +116,7 @@ local nameToID
 local function nodeIDFor(kind, name)
     if not nameToID then
         nameToID = {}
-        for k, list in pairs(_G.AlchemyGPSGatherNodeInfo or {}) do
+        for k, list in pairs(_G.AzerothAtlasGatherNodeInfo or {}) do
             nameToID[k] = {}
             for id, info in pairs(list) do
                 if info.name then nameToID[k][info.name:lower()] = id end
@@ -127,9 +127,9 @@ local function nodeIDFor(kind, name)
 end
 
 function Recorder:Record(kind, name)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if not db or db.profile.RecordGathering == false then return end
-    local E = AlchemyGPS.Modules.Map.MinimapEngine
+    local E = AzerothAtlas.Modules.Map.MinimapEngine
     local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     if not map or not E then return end
     local ok, pos = pcall(C_Map.GetPlayerMapPosition, map, "player")
@@ -177,13 +177,13 @@ local IMPORT_TABLES = {
 
 -- The imported table for one kind (nil = use the shipped data).
 function Recorder:Imported(kind)
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     local imp = db and db.global.GatherImport
     return imp and imp.nodes and imp.nodes[kind]
 end
 
 function Recorder:ImportInfo()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     return db and db.global.GatherImport
 end
 
@@ -240,7 +240,7 @@ function Recorder:Import()
     local AceAddon = LibStub and LibStub("AceAddon-3.0", true)
     local data = AceAddon and AceAddon:GetAddon("GatherMate2_Data", true)
     version = data and data.generatedVersion
-    AlchemyGPS.db.global.GatherImport = {
+    AzerothAtlas.db.global.GatherImport = {
         nodes = nodes, counts = counts, version = version, when = time(),
     }
     self:Changed()
@@ -249,7 +249,7 @@ function Recorder:Import()
 end
 
 function Recorder:RemoveImport()
-    local db = AlchemyGPS.db
+    local db = AzerothAtlas.db
     if db then db.global.GatherImport = nil end
     self:Changed()
 end
@@ -279,7 +279,7 @@ events:SetScript("OnEvent", function(_, event, unit, a2, a3, a4)
         if p then
             pending[a2] = nil
             local ok, err = pcall(Recorder.Record, Recorder, p.kind, p.name)
-            if not ok then AlchemyGPS.Core.Logger:Get("Map"):error("recording a node failed: %s", tostring(err)) end
+            if not ok then AzerothAtlas.Core.Logger:Get("Map"):error("recording a node failed: %s", tostring(err)) end
         end
     elseif a2 then
         pending[a2] = nil

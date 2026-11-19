@@ -1,4 +1,4 @@
--- Alchemy GPS | Map/Data/AreaLabels.lua
+-- Azeroth Atlas | Map/Data/AreaLabels.lua
 -- 2026-11-18 (user request, from Carbonite): subzone name labels for the
 -- map. Copied from Carbonite/Data/camelot/MapData/AreaLabels.lua (the
 -- WoW Forever flavor); only the table it is stored in changed. Drawn by
@@ -7,8 +7,8 @@
 -- {areaID, x%, y%, w%, h%} per uiMapID; names come from C_Map.GetAreaInfo at
 -- runtime so they follow the client locale.
 
-local AlchemyGPS = _G.AlchemyGPS
-AlchemyGPS.Map.AreaLabels = {
+local AzerothAtlas = _G.AzerothAtlas
+AzerothAtlas.Map.AreaLabels = {
     [1411] = { -- Durotar
         { 370, 52.4, 24.7, 10.0, 13.5 }, -- Drygulch Ravine
         { 368, 65.4, 84.6, 11.0, 28.4 }, -- Echo Isles

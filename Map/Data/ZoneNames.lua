@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------------
--- Alchemy GPS | Map/Data/ZoneNames.lua
+-- Azeroth Atlas | Map/Data/ZoneNames.lua
 --
 -- Build-order step 12, follow-up (2026-11-11): a small mapID->zone
 -- name lookup, explicit user request - zone-transition icons should
@@ -30,8 +30,8 @@
 -- localization installed to diverge from anyway.
 ---------------------------------------------------------------------------------------
 
-local AlchemyGPS = _G.AlchemyGPS
-local Map = AlchemyGPS.Map
+local AzerothAtlas = _G.AzerothAtlas
+local Map = AzerothAtlas.Map
 
 Map.ZoneNames = {
     [1411] = "Durotar",

@@ -1,4 +1,4 @@
--- Alchemy GPS | UI / Button
+-- Azeroth Atlas | UI / Button
 -- Ported from Carbonite/Modules/UI/UIEngine.lua's Nx.Button class
 -- (lines 4352-5057). This is the real button widget the ported
 -- Nx.Window chrome (UI/Window.lua) uses for its Close/Max controls -
@@ -20,9 +20,9 @@
 --     start of the Menu system) aren't ported - this addon's window
 --     has no search box or scrollbar.
 
-local AlchemyGPS = _G.AlchemyGPS
-local Nx = AlchemyGPS
-local L = AlchemyGPS:L()
+local AzerothAtlas = _G.AzerothAtlas
+local Nx = AzerothAtlas
+local L = AzerothAtlas:L()
 
 Nx.Button = Nx.Button or {}
 local Button = Nx.Button
